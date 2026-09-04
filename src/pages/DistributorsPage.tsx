@@ -35,6 +35,8 @@ export type DistributorRow = {
   paymentTermsDays: number
   creditLimit: number
   notes: string | null
+  distributorKind?: 'INTERNAL' | 'EXTERNAL' | string | null
+  minOrderQty?: number | null
   isActive: boolean
   credit: DistributorCredit
 }
@@ -45,6 +47,8 @@ type FormState = {
   phone: string
   region: string
   address: string
+  distributorKind: 'INTERNAL' | 'EXTERNAL'
+  minOrderQty: string
   creditLimit: string
   paymentTermsDays: string
   notes: string
@@ -56,9 +60,15 @@ const emptyForm: FormState = {
   phone: '',
   region: '',
   address: '',
+  distributorKind: 'EXTERNAL',
+  minOrderQty: '',
   creditLimit: '',
   paymentTermsDays: '14',
   notes: '',
+}
+
+export function kindLabel(kind?: string | null) {
+  return String(kind || 'EXTERNAL').toUpperCase() === 'INTERNAL' ? 'Internal' : 'External'
 }
 
 export function money(n: number) {
@@ -121,7 +131,7 @@ export function DistributorsPage() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [showInactive, setShowInactive] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'owing' | 'limit'>('all')
+  const [filter, setFilter] = useState<'all' | 'internal' | 'external' | 'owing' | 'limit'>('all')
   const [addOpen, setAddOpen] = useState(false)
 
   const distributors = useQuery({
@@ -137,6 +147,12 @@ export function DistributorsPage() {
     const q = query.trim().toLowerCase()
     return rows.filter((row) => {
       if (!showInactive && row.isActive === false) return false
+      if (filter === 'internal' && String(row.distributorKind || '').toUpperCase() !== 'INTERNAL') {
+        return false
+      }
+      if (filter === 'external' && String(row.distributorKind || '').toUpperCase() === 'INTERNAL') {
+        return false
+      }
       if (filter === 'owing' && !(row.credit.outstanding > 0.001)) return false
       if (filter === 'limit' && !row.credit.atLimit) return false
       if (!q) return true
@@ -171,11 +187,16 @@ export function DistributorsPage() {
         phone: form.phone.trim() || null,
         region: form.region.trim() || null,
         address: form.address.trim() || null,
+        distributorKind: form.distributorKind,
+        minOrderQty: Number(form.minOrderQty),
         creditLimit: Number(form.creditLimit),
         paymentTermsDays: Number(form.paymentTermsDays || 14),
         notes: form.notes.trim() || null,
       }
       if (!payload.name) throw new Error('Name is required')
+      if (!(payload.minOrderQty >= 0) || form.minOrderQty.trim() === '') {
+        throw new Error('Set the minimum quantity they can take on a sale.')
+      }
       if (!(payload.creditLimit >= 0) || form.creditLimit.trim() === '') {
         throw new Error('Set a credit limit. Use 0 if they must always pay in full.')
       }
@@ -288,6 +309,8 @@ export function DistributorsPage() {
             {(
               [
                 ['all', 'All'],
+                ['internal', 'Internal'],
+                ['external', 'External'],
                 ['owing', 'Owing'],
                 ['limit', 'At limit'],
               ] as const
@@ -305,77 +328,93 @@ export function DistributorsPage() {
             ))}
         </div>
 
-        <div className="mt-4 grid gap-3">
-          {filtered.map((row) => {
-            const c = row.credit
-            return (
-              <div key={row.id} className="rounded-2xl border border-[var(--line)] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <Link to={`/distributors/${row.code}`} className="min-w-0 hover:underline">
-                    <p className="font-semibold tracking-tight">{row.name}</p>
-                    <p className="mt-0.5 font-mono text-xs text-zinc-500">{row.code}</p>
-                  </Link>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {row.isActive === false && (
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700">
-                        Inactive
-                      </span>
-                    )}
-                    {c.creditLimit <= 0 && row.isActive !== false && (
-                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-800">
-                        Cash only
-                      </span>
-                    )}
-                    {c.atLimit && c.creditLimit > 0 && row.isActive !== false && (
-                      <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
-                        Credit closed
-                      </span>
-                    )}
-                    {(c.overdueCount || 0) > 0 && (
-                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                        {c.overdueCount} overdue
-                      </span>
-                    )}
-                    {canSell && row.isActive !== false && (
-                      <Link
-                        to={`/sales?distributor=${encodeURIComponent(row.code)}`}
-                        className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
+        {distributors.isLoading && (
+          <p className="mt-4 py-6 text-center text-sm text-zinc-700">Loading distributors…</p>
+        )}
+        {!distributors.isLoading && filtered.length === 0 && (
+          <p className="mt-4 py-6 text-center text-sm text-zinc-700">
+            {distributors.data?.length
+              ? 'No distributors match this filter.'
+              : 'No distributors yet. Add one to start the book.'}
+          </p>
+        )}
+        {!distributors.isLoading && filtered.length > 0 && (
+          <div className="mt-4 -mx-4 overflow-x-auto px-4">
+            <table className="w-full min-w-[880px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="py-2 pr-4">Distributor</th>
+                  <th className="py-2 pr-4">Type</th>
+                  <th className="py-2 pr-4 text-right">Min qty</th>
+                  <th className="py-2 pr-4 text-right">Owes</th>
+                  <th className="py-2 pr-4 text-right">Limit</th>
+                  <th className="py-2 pr-4 text-right">Left</th>
+                  <th className="py-2 pr-4">Payment</th>
+                  <th className="py-2 text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((row) => {
+                  const c = row.credit
+                  return (
+                    <tr key={row.id} className="border-b border-[var(--line)] last:border-0">
+                      <td className="py-3 pr-4">
+                        <Link to={`/distributors/${row.code}`} className="hover:underline">
+                          <p className="font-semibold tracking-tight">{row.name}</p>
+                          <p className="mt-0.5 font-mono text-xs text-zinc-500">{row.code}</p>
+                        </Link>
+                        {row.isActive === false && (
+                          <p className="mt-1 text-xs font-semibold text-zinc-600">Inactive</p>
+                        )}
+                      </td>
+                      <td className="py-3 pr-4">{kindLabel(row.distributorKind)}</td>
+                      <td className="py-3 pr-4 text-right">
+                        {Number(row.minOrderQty || 0) > 0 ? Number(row.minOrderQty).toLocaleString() : '—'}
+                      </td>
+                      <td className="py-3 pr-4 text-right">{money(c.outstanding)}</td>
+                      <td className="py-3 pr-4 text-right">{money(c.creditLimit)}</td>
+                      <td
+                        className={
+                          'py-3 pr-4 text-right font-semibold ' +
+                          (c.atLimit ? 'text-red-700' : 'text-teal-800')
+                        }
                       >
-                        Sell
-                      </Link>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="mb-1 flex items-baseline justify-between gap-3 text-xs">
-                    <span className="text-zinc-700">
-                      Owes {money(c.outstanding)} of {money(c.creditLimit)} limit
-                    </span>
-                    <span className={c.atLimit ? 'font-semibold text-red-700' : 'font-semibold text-teal-800'}>
-                      {money(c.available)} left
-                    </span>
-                  </div>
-                  <CreditBar percent={c.utilizationPercent} atLimit={c.atLimit} />
-                </div>
-                <div className="mt-3 grid gap-2 text-xs text-zinc-700 sm:grid-cols-3">
-                  <span>{c.saleCount || 0} sales</span>
-                  <span>Bought {money(c.revenue || 0)}</span>
-                  <span>{unpaidSummary(c)}</span>
-                </div>
-              </div>
-            )
-          })}
-          {distributors.isLoading && (
-            <p className="py-6 text-center text-sm text-zinc-700">Loading distributors…</p>
-          )}
-          {!distributors.isLoading && filtered.length === 0 && (
-            <p className="py-6 text-center text-sm text-zinc-700">
-              {distributors.data?.length
-                ? 'No distributors match this filter.'
-                : 'No distributors yet. Add one to start the book.'}
-            </p>
-          )}
-        </div>
+                        {money(c.available)}
+                      </td>
+                      <td className="py-3 pr-4">
+                        {c.creditLimit <= 0 && row.isActive !== false ? (
+                          <span className="rounded-lg bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
+                            Cash only
+                          </span>
+                        ) : c.atLimit && c.creditLimit > 0 ? (
+                          <span className="rounded-lg bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">
+                            Credit closed
+                          </span>
+                        ) : (c.overdueCount || 0) > 0 ? (
+                          <span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+                            {c.overdueCount} overdue
+                          </span>
+                        ) : (
+                          <span className="text-xs text-zinc-700">{unpaidSummary(c)}</span>
+                        )}
+                      </td>
+                      <td className="py-3 text-right">
+                        {canSell && row.isActive !== false && (
+                          <Link
+                            to={`/sales?distributor=${encodeURIComponent(row.code)}`}
+                            className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
+                          >
+                            Sell
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
       {addOpen && (
@@ -428,6 +467,36 @@ export function DistributorsPage() {
                 placeholder="Kano, Kaduna…"
               />
             </Field>
+            <Field label="Type">
+              <select
+                className="dgn-input"
+                value={form.distributorKind}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    distributorKind: e.target.value === 'INTERNAL' ? 'INTERNAL' : 'EXTERNAL',
+                  }))
+                }
+              >
+                <option value="EXTERNAL">External</option>
+                <option value="INTERNAL">Internal</option>
+              </select>
+            </Field>
+            <Field
+              label="Minimum quantity"
+              hint="They cannot take fewer than this many units on a sale"
+            >
+              <input
+                className="dgn-input"
+                type="number"
+                min={0}
+                inputMode="decimal"
+                value={form.minOrderQty}
+                onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
+                required
+                placeholder="50"
+              />
+            </Field>
             <div className="sm:col-span-2">
               <Field label="Address">
                 <input
@@ -437,7 +506,7 @@ export function DistributorsPage() {
                 />
               </Field>
             </div>
-            <Field label="Credit limit" hint="0 means they must pay in full on every dispatch">
+            <Field label="Credit limit" hint="0 means they must pay in full on every sale">
               <NairaAmountInput
                 value={form.creditLimit}
                 onChange={(value) => setForm((f) => ({ ...f, creditLimit: value }))}
