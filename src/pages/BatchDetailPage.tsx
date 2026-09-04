@@ -7,7 +7,10 @@ import { formatBusinessDate, formatDateTime } from '@/lib/dates'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
-  return `₦${Number(n).toLocaleString()}`
+  return `₦${Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 function kg(n: number | null | undefined) {

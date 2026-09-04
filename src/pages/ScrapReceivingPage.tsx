@@ -7,6 +7,7 @@ import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { SORT_COLORS } from '@/lib/sortColors'
+import { MATERIAL_BUY_TYPES } from '@/lib/materials'
 
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
@@ -77,6 +78,29 @@ export function ScrapReceivingPage() {
       notes: '',
     },
   })
+
+  const buyMaterials = useMemo(() => {
+    const codes = new Set(MATERIAL_BUY_TYPES.map((m) => m.code))
+    const fromApi = (materials.data || []).filter((m) => m.code && codes.has(m.code))
+    return MATERIAL_BUY_TYPES.map((wanted) => {
+      const hit =
+        fromApi.find((m) => m.code === wanted.code) ||
+        (materials.data || []).find(
+          (m) => m.name.toLowerCase() === wanted.name.toLowerCase(),
+        )
+      return hit
+        ? { id: hit.id, name: wanted.name, code: wanted.code }
+        : { id: 0, name: wanted.name, code: wanted.code }
+    }).filter((m) => m.id > 0)
+  }, [materials.data])
+
+  useEffect(() => {
+    if (!buyMaterials.length) return
+    const current = watch('materialId')
+    if (!current || !buyMaterials.some((m) => String(m.id) === String(current))) {
+      setValue('materialId', String(buyMaterials[0].id))
+    }
+  }, [buyMaterials, setValue, watch])
 
   useEffect(() => {
     if (locations.data?.length && !watch('locationId')) {
@@ -343,10 +367,10 @@ export function ScrapReceivingPage() {
                 ))}
               </select>
             </Field>
-            <Field label="Material">
+            <Field label="Material type">
               <select className="dgn-input" {...register('materialId', { required: true })}>
-                <option value="">Select material</option>
-                {materials.data?.map((m) => (
+                <option value="">Select material type</option>
+                {buyMaterials.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>

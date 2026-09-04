@@ -21,7 +21,7 @@ export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Money & people', key: 'expenses', label: 'Expenses' },
   { group: 'Money & people', key: 'staff', label: 'Staff' },
   { group: 'Money & people', key: 'payroll', label: 'Payroll' },
-  { group: 'Intelligence', key: 'machines', label: 'Machines & OEE' },
+  { group: 'Intelligence', key: 'machines', label: 'Machines & insights' },
   { group: 'Intelligence', key: 'sales_margins', label: 'Sales margin' },
   { group: 'Intelligence', key: 'costs', label: 'Cost intelligence' },
   { group: 'Intelligence', key: 'overhead', label: 'Factory overhead' },

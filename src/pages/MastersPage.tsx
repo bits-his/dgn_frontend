@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader } from '@/components/ui'
 import { formatDateTime } from '@/lib/dates'
+import { MATERIAL_CATEGORIES } from '@/lib/materials'
 
 type MasterItem = {
   id: number
@@ -143,6 +144,14 @@ export function MastersPage() {
                 <option value="WHOLESALE">Wholesale</option>
                 <option value="RETAIL">Retail</option>
                 <option value="DISTRIBUTOR">Distributor</option>
+              </select>
+            ) : tab === 'materials' ? (
+              <select className="dgn-input" value={extra} onChange={(e) => setExtra(e.target.value)}>
+                {MATERIAL_CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>
+                    {cat.label}
+                  </option>
+                ))}
               </select>
             ) : (
               <input

@@ -20,26 +20,38 @@ const STAGE_META: Record<
     showDryFields?: boolean
     showMachine?: boolean
     showTeam?: boolean
+    showOperator?: boolean
+    showDowntime?: boolean
+    showLabourCost?: boolean
+    showEnergyCost?: boolean
   }
 > = {
   sorting: {
     title: 'Sorting',
     eyebrow: 'Recycling stage',
     description:
-      'Choose a scrap ticket from the queue, then split it by colour into BAT- lots.',
+      'Choose a scrap ticket from the queue, then split it by colour into BAT- lots. Sorting is done by teams.',
     queueTitle: 'Scrap tickets waiting to sort',
     emptyHint: 'No scrap tickets waiting. Buy raw scrap first.',
     showTeam: true,
+    showOperator: false,
+    showDowntime: false,
+    showLabourCost: true,
+    showEnergyCost: true,
   },
   crushing: {
     title: 'Crushing',
     eyebrow: 'Recycling stage',
     description:
-      'Choose a sorted colour lot from the queue. The same BAT- number continues after crushing.',
+      'Choose a sorted colour lot, crush it, then weigh and record the measured kg after crushing.',
     queueTitle: 'Sorted lots waiting to crush',
     emptyHint: 'No sorted lots waiting. Finish sorting first.',
     showMachine: true,
-    showTeam: true,
+    showTeam: false,
+    showOperator: true,
+    showDowntime: true,
+    showLabourCost: true,
+    showEnergyCost: true,
   },
   washing: {
     title: 'Washing',
@@ -51,16 +63,25 @@ const STAGE_META: Record<
     showWashFields: true,
     showMachine: true,
     showTeam: false,
+    showOperator: true,
+    showDowntime: true,
+    showLabourCost: true,
+    showEnergyCost: true,
   },
   drying: {
     title: 'Drying',
     eyebrow: 'Recycling stage',
-    description: 'Choose a washed lot from the queue. Dry it ready for production.',
+    description:
+      'Choose a washed lot, sun-dry it, then weigh and record the measured kg. Ready for production.',
     queueTitle: 'Washed lots waiting to dry',
     emptyHint: 'No washed lots waiting. Finish washing first.',
     showDryFields: true,
-    showMachine: true,
-    showTeam: true,
+    showMachine: false,
+    showTeam: false,
+    showOperator: true,
+    showDowntime: false,
+    showLabourCost: false,
+    showEnergyCost: false,
   },
 }
 
@@ -167,7 +188,10 @@ export function ProcessStageForm({
 }) {
   const isSorting = stage === 'sorting'
   const isWashing = stage === 'washing'
-  const isCrushOrDry = stage === 'crushing' || stage === 'drying'
+  const isCrushing = stage === 'crushing'
+  const isDrying = stage === 'drying'
+  /** Crushing / drying: weigh after the stage; washing/sorting use waste where applicable. */
+  const showsMeasuredOut = isCrushing || isDrying
   const showsWaste = isSorting || isWashing
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
@@ -198,6 +222,7 @@ export function ProcessStageForm({
         employeeCode?: string
       }>
     },
+    enabled: STAGE_META[stage]?.showOperator !== false,
   })
 
   const machines = useQuery({
@@ -268,11 +293,11 @@ export function ProcessStageForm({
     if (selected && activeBatch) {
       setValue('inputBatchNumber', selected.batchNumber)
       setValue('qtyInput', String(selected.qtyRemaining))
-      if (isCrushOrDry) {
+      if (showsMeasuredOut) {
         setValue('qtyUsable', String(selected.qtyRemaining))
       }
     }
-  }, [selected, activeBatch, setValue, isCrushOrDry])
+  }, [selected, activeBatch, setValue, showsMeasuredOut])
 
   const qtyInput = Number(watch('qtyInput') || 0)
   const qtyWaste = Number(watch('qtyWaste') || 0)
@@ -280,23 +305,17 @@ export function ProcessStageForm({
     () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
     [colorLines],
   )
-  const qtyUsable = isSorting
-    ? colorUsable
-    : isCrushOrDry
-      ? qtyInput
-      : Number(watch('qtyUsable') || 0)
-
-  useEffect(() => {
-    if (isCrushOrDry) {
-      setValue('qtyUsable', String(qtyInput || 0))
-    }
-  }, [isCrushOrDry, qtyInput, setValue])
+  const qtyUsable = isSorting ? colorUsable : Number(watch('qtyUsable') || 0)
 
   const qtyReject = showsWaste
     ? isSorting
       ? Math.max(0, +(qtyInput - colorUsable).toFixed(3))
       : Math.max(0, +(qtyInput - qtyUsable - qtyWaste).toFixed(3))
     : 0
+  const measuredShrink = showsMeasuredOut
+    ? Math.max(0, +(qtyInput - qtyUsable).toFixed(3))
+    : 0
+  const measuredOverIn = showsMeasuredOut && qtyUsable - qtyInput > 0.001
 
   useEffect(() => {
     setValue('qtyReject', String(qtyReject))
@@ -418,26 +437,71 @@ export function ProcessStageForm({
       }
     }
 
+    if (isCrushing) {
+      const measured = Number(values.qtyUsable)
+      const inbound = Number(values.qtyInput)
+      if (!(measured > 0)) {
+        setServerErrors([
+          {
+            label: 'Measured after crushing',
+            message: 'Enter the measured kg after crushing.',
+          },
+        ])
+        return
+      }
+      if (measured - inbound > 0.001) {
+        setServerErrors([
+          {
+            label: 'Measured after crushing',
+            message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
+          },
+        ])
+        return
+      }
+    }
+
+    if (isDrying) {
+      const measured = Number(values.qtyUsable)
+      const inbound = Number(values.qtyInput)
+      if (!(measured > 0)) {
+        setServerErrors([
+          {
+            label: 'Measured after drying',
+            message: 'Enter the measured kg after drying.',
+          },
+        ])
+        return
+      }
+      if (measured - inbound > 0.001) {
+        setServerErrors([
+          {
+            label: 'Measured after drying',
+            message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
+          },
+        ])
+        return
+      }
+    }
+
     try {
       const { data } = await api.post(`/process/${stage}`, {
         ...values,
         inputBatchNumber: activeBatch || values.inputBatchNumber,
         qtyInput: Number(values.qtyInput),
-        qtyUsable: isSorting
-          ? qtyUsable
-          : isCrushOrDry
-            ? Number(values.qtyInput)
-            : Number(values.qtyUsable),
+        qtyUsable: isSorting ? qtyUsable : Number(values.qtyUsable),
         qtyReject: showsWaste ? qtyReject : 0,
         qtyWaste: 0,
         colorLines: isSorting ? colorLines : undefined,
-        labourCost: Number(values.labourCost || 0),
-        energyCost: Number(values.energyCost || 0),
+        labourCost: meta.showLabourCost !== false ? Number(values.labourCost || 0) : 0,
+        energyCost: meta.showEnergyCost !== false ? Number(values.energyCost || 0) : 0,
         waterQty: Number(values.waterQty || 0),
         chemicalCost: Number(values.chemicalCost || 0),
         detergentCost: Number(values.detergentCost || 0),
         moistureReading: values.moistureReading === '' ? null : Number(values.moistureReading),
-        downtimeMinutes: Number(values.downtimeMinutes || 0),
+        downtimeMinutes: meta.showDowntime ? Number(values.downtimeMinutes || 0) : 0,
+        downtimeReason: meta.showDowntime ? values.downtimeReason || null : null,
+        operatorName: meta.showOperator ? values.operatorName || null : null,
+        machineName: meta.showMachine ? values.machineName || null : null,
         teamName: meta.showTeam ? values.teamName : undefined,
         confirmUnusualYield,
       })
@@ -808,15 +872,17 @@ export function ProcessStageForm({
           <Card>
             <div
               className={
-                showsWaste
+                showsWaste || showsMeasuredOut
                   ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
                   : 'grid gap-3 sm:grid-cols-2'
               }
             >
-              <Field label="Qty in (kg)">
+              <Field label="Qty in (kg)" hint="From the lot — cannot be edited">
                 <input
                   inputMode="decimal"
-                  className="dgn-input"
+                  className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                  readOnly
+                  tabIndex={-1}
                   {...register('qtyInput', { required: true })}
                 />
               </Field>
@@ -838,6 +904,40 @@ export function ProcessStageForm({
                     />
                   </Field>
                 </>
+              ) : showsMeasuredOut ? (
+                <>
+                  <Field
+                    label={
+                      isCrushing
+                        ? 'Measured after crushing (kg)'
+                        : 'Measured after drying (kg)'
+                    }
+                    hint={
+                      measuredOverIn
+                        ? 'Cannot be more than qty in'
+                        : 'Weigh the material and enter the scale reading'
+                    }
+                  >
+                    <input
+                      inputMode="decimal"
+                      className={`dgn-input ${
+                        measuredOverIn ? 'border-red-400 ring-1 ring-red-300' : ''
+                      }`}
+                      {...register('qtyUsable', { required: true })}
+                    />
+                  </Field>
+                  <Field
+                    label="Difference (kg)"
+                    hint="Qty in − measured (weight change, not waste)"
+                  >
+                    <input
+                      className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                      value={qtyInput > 0 || qtyUsable > 0 ? String(measuredShrink) : ''}
+                      readOnly
+                      tabIndex={-1}
+                    />
+                  </Field>
+                </>
               ) : (
                 <Field label="Qty out (kg)" hint="Same as qty in — no waste on this stage">
                   <input
@@ -849,12 +949,16 @@ export function ProcessStageForm({
                 </Field>
               )}
             </div>
-            {showsWaste && (
+            {(showsWaste || showsMeasuredOut) && (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
                 <StatPill
-                  label="Accounted"
-                  value={`${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`}
+                  label={showsMeasuredOut ? 'Measured / in' : 'Accounted'}
+                  value={
+                    showsMeasuredOut
+                      ? `${qtyUsable || 0} / ${qtyInput || 0} kg`
+                      : `${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`
+                  }
                 />
               </div>
             )}
@@ -876,46 +980,43 @@ export function ProcessStageForm({
                 </select>
               </Field>
             )}
-            <Field label="Operator">
-              <select className="dgn-input" {...register('operatorName')}>
-                <option value="">Select staff</option>
-                {(staff.data || []).map((e) => {
-                  const name =
-                    `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
-                    e.employeeCode ||
-                    `Staff ${e.id}`
-                  return (
-                    <option key={e.id} value={name}>
-                      {name}
-                      {e.employeeCode ? ` (${e.employeeCode})` : ''}
-                    </option>
-                  )
-                })}
-              </select>
-            </Field>
-            {meta.showTeam !== false && (
-              <Field label="Team">
-                <input className="dgn-input" {...register('teamName')} />
+            {meta.showOperator !== false && (
+              <Field label="Operator">
+                <select className="dgn-input" {...register('operatorName')}>
+                  <option value="">Select staff</option>
+                  {(staff.data || []).map((e) => {
+                    const name =
+                      `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
+                      e.employeeCode ||
+                      `Staff ${e.id}`
+                    return (
+                      <option key={e.id} value={name}>
+                        {name}
+                        {e.employeeCode ? ` (${e.employeeCode})` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
               </Field>
             )}
-            <Field label="Labour cost / kg (₦)">
-              <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
-            </Field>
-            {isWashing ? (
-              <Field
-                label="Energy (kWh)"
-                hint="Electricity used — kilowatt-hours (kWh). 1 kWh = 1000 W for 1 hour."
-              >
-                <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
+            {meta.showTeam && (
+              <Field label="Team">
+                <input className="dgn-input" {...register('teamName')} placeholder="Team name" />
               </Field>
-            ) : (
+            )}
+            {meta.showLabourCost !== false && (
+              <Field label="Labour cost / kg (₦)">
+                <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
+              </Field>
+            )}
+            {meta.showEnergyCost !== false && (
               <Field label="Energy cost (₦)">
                 <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
               </Field>
             )}
             {meta.showWashFields && (
               <>
-                <Field label="Water (litres)">
+                <Field label="Water cost (₦)">
                   <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
                 </Field>
                 <Field label="Chemical cost (₦)">
@@ -931,12 +1032,20 @@ export function ProcessStageForm({
                 <input inputMode="decimal" className="dgn-input" {...register('moistureReading')} />
               </Field>
             )}
-            <Field label="Downtime (min)">
-              <input inputMode="numeric" className="dgn-input" {...register('downtimeMinutes')} />
-            </Field>
-            <Field label="Downtime reason">
-              <input className="dgn-input" {...register('downtimeReason')} />
-            </Field>
+            {meta.showDowntime && (
+              <>
+                <Field label="Downtime (min)">
+                  <input
+                    inputMode="numeric"
+                    className="dgn-input"
+                    {...register('downtimeMinutes')}
+                  />
+                </Field>
+                <Field label="Downtime reason">
+                  <input className="dgn-input" {...register('downtimeReason')} />
+                </Field>
+              </>
+            )}
             <Field label="Notes">
               <input className="dgn-input" {...register('notes')} />
             </Field>
@@ -963,7 +1072,9 @@ export function ProcessStageForm({
           disabled={
             formState.isSubmitting ||
             !selected ||
-            (isSorting && (colorsOverLot || !colorLines.length))
+            (isSorting && (colorsOverLot || !colorLines.length)) ||
+            (isCrushing && (!(qtyUsable > 0) || measuredOverIn)) ||
+            (isDrying && (!(qtyUsable > 0) || measuredOverIn))
           }
           className="dgn-btn dgn-btn-primary w-full sm:w-auto"
         >

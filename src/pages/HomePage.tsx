@@ -121,8 +121,8 @@ const actions = [
   },
   {
     to: '/machines',
-    title: 'Machines & OEE',
-    desc: 'Machine performance and downtime',
+    title: 'Machines & insights',
+    desc: 'Downtime, operators, products & OEE',
     icon: Gauge,
     permission: 'batch.view',
     tone: 'from-cyan-700 to-cyan-900',
