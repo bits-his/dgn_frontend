@@ -6,7 +6,7 @@ import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
-import { CreditBar, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
+import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
 
 type SaleRow = {
@@ -47,6 +47,8 @@ type DistributorDetail = {
   paymentTermsDays: number
   creditLimit: number
   notes: string | null
+  distributorKind?: 'INTERNAL' | 'EXTERNAL' | string | null
+  minOrderQty?: number | null
   isActive: boolean
   credit: DistributorCredit & { unpaid: UnpaidInvoice[]; paymentTermsDays: number }
   totals: {
@@ -124,6 +126,8 @@ export function DistributorDetailPage() {
     creditLimit: '',
     paymentTermsDays: '',
     notes: '',
+    distributorKind: 'EXTERNAL' as 'INTERNAL' | 'EXTERNAL',
+    minOrderQty: '',
     isActive: true,
   })
 
@@ -148,6 +152,8 @@ export function DistributorDetailPage() {
       creditLimit: String(d.creditLimit ?? ''),
       paymentTermsDays: String(d.paymentTermsDays ?? 14),
       notes: d.notes || '',
+      distributorKind: String(d.distributorKind || '').toUpperCase() === 'INTERNAL' ? 'INTERNAL' : 'EXTERNAL',
+      minOrderQty: String(d.minOrderQty ?? ''),
       isActive: d.isActive !== false,
     })
   }, [detail.data])
@@ -164,6 +170,8 @@ export function DistributorDetailPage() {
         creditLimit: Number(form.creditLimit),
         paymentTermsDays: Number(form.paymentTermsDays || 14),
         notes: form.notes.trim() || null,
+        distributorKind: form.distributorKind,
+        minOrderQty: Number(form.minOrderQty),
         isActive: form.isActive,
       })
       return data.data
@@ -253,7 +261,12 @@ export function DistributorDetailPage() {
 
       <Card className="mb-6">
       <h1 className="text-xl font-semibold tracking-tight">{d.name}</h1>
-      <p className="mt-1 font-mono text-xs text-[var(--ink-muted)]">{d.code}</p>
+      <p className="mt-1 font-mono text-xs text-[var(--ink-muted)]">
+        {d.code} · {kindLabel(d.distributorKind)}
+        {Number(d.minOrderQty || 0) > 0
+          ? ` · min ${Number(d.minOrderQty).toLocaleString()} units`
+          : ''}
+      </p>
         <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
           <span></span>
           <span className={creditClosed ? 'font-semibold text-red-700' : 'font-semibold text-teal-800'}>
@@ -300,6 +313,15 @@ export function DistributorDetailPage() {
               <Fact label="Region" value={d.region || '—'} />
               <Fact label="Address" value={d.address || '—'} />
               <Fact label="Payment terms" value={`${d.paymentTermsDays} days`} />
+              <Fact label="Type" value={kindLabel(d.distributorKind)} />
+              <Fact
+                label="Minimum quantity"
+                value={
+                  Number(d.minOrderQty || 0) > 0
+                    ? `${Number(d.minOrderQty).toLocaleString()} units`
+                    : 'None'
+                }
+              />
               <Fact label="Status" value={d.isActive ? 'Active' : 'Inactive'} />
               {d.notes && (
                 <div className="sm:col-span-2">
@@ -366,6 +388,35 @@ export function DistributorDetailPage() {
                   max={365}
                   value={form.paymentTermsDays}
                   onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
+                />
+              </Field>
+              <Field label="Type">
+                <select
+                  className="dgn-input"
+                  value={form.distributorKind}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      distributorKind: e.target.value === 'INTERNAL' ? 'INTERNAL' : 'EXTERNAL',
+                    }))
+                  }
+                >
+                  <option value="EXTERNAL">External</option>
+                  <option value="INTERNAL">Internal</option>
+                </select>
+              </Field>
+              <Field
+                label="Minimum quantity"
+                hint="Cannot sell fewer than this many units in one sale"
+              >
+                <input
+                  className="dgn-input"
+                  type="number"
+                  min={0}
+                  inputMode="decimal"
+                  value={form.minOrderQty}
+                  onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
+                  required
                 />
               </Field>
               <Field label="Status">
@@ -529,7 +580,6 @@ export function DistributorDetailPage() {
                   <th className="py-2 pr-4">Goods</th>
                   <th className="py-2 pr-4 text-right">Value</th>
                   <th className="py-2 pr-4">Payment</th>
-                  <th className="py-2 pr-4">Vehicle</th>
                 </tr>
               </thead>
               <tbody>
@@ -568,10 +618,6 @@ export function DistributorDetailPage() {
                       {sale.balanceDue > 0 && (
                         <p className="mt-1 text-xs text-red-700">{money(sale.balanceDue)} due</p>
                       )}
-                    </td>
-                    <td className="py-3 pr-4 text-xs text-zinc-800">
-                      {sale.vehicleNumber || '—'}
-                      {sale.destination && <p>{sale.destination}</p>}
                     </td>
                   </tr>
                 ))}

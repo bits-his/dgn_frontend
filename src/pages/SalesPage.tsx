@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Printer, Trash2, Truck } from 'lucide-react'
+import { Plus, Printer, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
@@ -27,6 +27,8 @@ type Customer = {
   customerType: string
   phone: string | null
   address: string | null
+  distributorKind?: string | null
+  minOrderQty?: number | null
 }
 
 type DistributorCreditView = {
@@ -36,6 +38,8 @@ type DistributorCreditView = {
   utilizationPercent: number
   atLimit: boolean
   paymentTermsDays: number
+  minOrderQty?: number
+  distributorKind?: string
 }
 
 type SaleRow = {
@@ -265,7 +269,6 @@ export function SalesPage() {
                   <th className="py-2 pr-4 text-right">Value</th>
                   <th className="py-2 pr-4 text-right">Margin</th>
                   <th className="py-2 pr-4">Payment</th>
-                  <th className="py-2 pr-4">Vehicle</th>
                 </tr>
               </thead>
               <tbody>
@@ -300,9 +303,6 @@ export function SalesPage() {
                         <p className="text-xs text-zinc-500">
                           {sale.customerType.toLowerCase()}
                         </p>
-                      )}
-                      {sale.destination && (
-                        <p className="text-xs text-zinc-500">{sale.destination}</p>
                       )}
                     </td>
                     <td className="py-3 pr-4">
@@ -350,10 +350,6 @@ export function SalesPage() {
                         <p className="mt-1 text-xs text-red-700">{money(sale.balanceDue)} due</p>
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-zinc-700">
-                      {sale.vehicleNumber || '—'}
-                      {sale.driverName && <p>{sale.driverName}</p>}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -377,12 +373,7 @@ function NewSaleForm({
   const [saleType, setSaleType] = useState('CASH')
   const [lines, setLines] = useState<CartLine[]>([])
   const [discount, setDiscount] = useState('0')
-  const [transportCharge, setTransportCharge] = useState('0')
   const [amountPaid, setAmountPaid] = useState('')
-  const [vehicleNumber, setVehicleNumber] = useState('')
-  const [driverName, setDriverName] = useState('')
-  const [driverPhone, setDriverPhone] = useState('')
-  const [destination, setDestination] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
@@ -410,17 +401,21 @@ function NewSaleForm({
     }
   }, [customers.data, initialCustomerId, customerId])
 
-  useEffect(() => {
-    if (!selectedCustomer) return
-    if (selectedCustomer.address && !destination) setDestination(selectedCustomer.address)
-  }, [selectedCustomer?.id])
-
   const distributorCredit = useQuery({
     queryKey: ['distributor-credit', selectedCustomer?.code],
     enabled: Boolean(selectedIsDistributor && selectedCustomer?.code),
     queryFn: async () => {
       const { data } = await api.get(`/distributors/${selectedCustomer!.code}`)
-      return data.data.credit as DistributorCreditView
+      const profile = data.data as {
+        minOrderQty?: number
+        distributorKind?: string
+        credit: DistributorCreditView
+      }
+      return {
+        ...profile.credit,
+        minOrderQty: Number(profile.minOrderQty || 0),
+        distributorKind: profile.distributorKind,
+      } as DistributorCreditView
     },
   })
 
@@ -446,8 +441,7 @@ function NewSaleForm({
       cost += qty * (line.unitCost || 0)
     }
     const disc = Number(discount) || 0
-    const transport = Number(transportCharge) || 0
-    const total = subtotal - disc + transport
+    const total = subtotal - disc
     const margin = subtotal - disc - cost
     return {
       subtotal,
@@ -456,8 +450,9 @@ function NewSaleForm({
       margin,
       marginPercent: subtotal - disc > 0 ? (margin / (subtotal - disc)) * 100 : 0,
       balance: total - (Number(amountPaid) || 0),
+      qty: lines.reduce((sum, line) => sum + (Number(line.qty) || 0), 0),
     }
-  }, [lines, discount, transportCharge, amountPaid])
+  }, [lines, discount, amountPaid])
 
   const addLine = (batch: SellableBatch) => {
     setLines((prev) => [
@@ -492,12 +487,7 @@ function NewSaleForm({
           unitPrice: Number(line.unitPrice),
         })),
         discount: Number(discount) || 0,
-        transportCharge: Number(transportCharge) || 0,
         amountPaid: Number(amountPaid) || 0,
-        vehicleNumber,
-        driverName,
-        driverPhone,
-        destination,
         notes,
         confirmLowMargin,
       })
@@ -513,6 +503,8 @@ function NewSaleForm({
       const body = res?.data
       if (body && body.code === 'CREDIT_LIMIT_EXCEEDED') {
         setError(String(body.err || body.message || 'Credit limit reached'))
+      } else if (body && body.code === 'BELOW_MIN_ORDER_QTY') {
+        setError(String(body.err || 'This sale is below the distributor minimum'))
       } else if (body && body.warning) {
         setWarning(String(body.message))
       } else if (body && body.errors) {
@@ -532,10 +524,10 @@ function NewSaleForm({
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Sale recorded</h1>
         </div>
         <Card>
-          <p className="text-sm text-[var(--ink-muted)]">Dispatch note</p>
+          <p className="text-sm text-[var(--ink-muted)]">Sale</p>
           <p className="mt-1 font-mono text-2xl font-semibold">{result.saleNumber}</p>
           <p className="mt-3 text-sm text-[var(--ink-muted)]">
-            Stock has been reduced on the batches dispatched and the revenue is now recorded
+            Stock has been reduced on the batches sold and the revenue is now recorded
             against them.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
@@ -568,7 +560,15 @@ function NewSaleForm({
       thisSaleDue > 0.001 &&
       projectedOutstanding > credit.creditLimit + 0.001,
   )
-  const canSubmit = Boolean(customerId && lines.length > 0 && !saving && !creditBlocked)
+  const minOrderQty = Number(
+    credit?.minOrderQty ?? selectedCustomer?.minOrderQty ?? 0,
+  )
+  const belowMin = Boolean(
+    selectedIsDistributor && minOrderQty > 0 && computed.qty + 0.0001 < minOrderQty,
+  )
+  const canSubmit = Boolean(
+    customerId && lines.length > 0 && !saving && !creditBlocked && !belowMin,
+  )
 
   return (
     <div>
@@ -588,18 +588,16 @@ function NewSaleForm({
                 <select
                   className="dgn-input"
                   value={customerId}
-                  onChange={(e) => {
-                    setCustomerId(e.target.value)
-                    const found = (customers.data ?? []).find(
-                      (c) => String(c.id) === e.target.value
-                    )
-                    if (found && found.address && !destination) setDestination(found.address)
-                  }}
+                  onChange={(e) => setCustomerId(e.target.value)}
                 >
                   <option value="">Select customer</option>
                   {(customers.data ?? []).map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.customerType.toLowerCase()})
+                      {c.name} ({c.customerType.toLowerCase()}
+                      {c.customerType === 'DISTRIBUTOR' && c.distributorKind
+                        ? ` · ${String(c.distributorKind).toLowerCase()}`
+                        : ''}
+                      )
                     </option>
                   ))}
                 </select>
@@ -642,8 +640,11 @@ function NewSaleForm({
                 <p className="mt-2 text-xs text-[var(--ink-muted)]">
                   They owe {money(credit.outstanding)} of a {money(credit.creditLimit)} limit
                   {thisSaleDue > 0
-                    ? ` · this dispatch would add ${money(thisSaleDue)} unpaid`
-                    : ' · this dispatch is fully paid'}
+                    ? ` · this sale would add ${money(thisSaleDue)} unpaid`
+                    : ' · this sale is fully paid'}
+                  {minOrderQty > 0
+                    ? ` · minimum ${minOrderQty.toLocaleString()} units`
+                    : ''}
                   .
                 </p>
                 {creditBlocked && (
@@ -657,11 +658,11 @@ function NewSaleForm({
           </Card>
 
           <Card>
-            <h2 className="text-base font-semibold">Goods leaving the factory</h2>
+            <h2 className="text-base font-semibold">Goods</h2>
             {sellable.data && sellable.data.length === 0 && (
               <p className="mt-3 rounded-xl bg-[var(--accent-soft)] p-3 text-sm text-[var(--accent-strong)]">
                 Nothing is sellable right now. Finished goods must be accepted by quality control
-                before they can be dispatched.
+                before they can be sold.
               </p>
             )}
 
@@ -767,38 +768,7 @@ function NewSaleForm({
           </Card>
 
           <Card>
-            <h2 className="text-base font-semibold">Dispatch details</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Vehicle number">
-                <input
-                  className="dgn-input"
-                  value={vehicleNumber}
-                  onChange={(e) => setVehicleNumber(e.target.value)}
-                  placeholder="KN-455-XA"
-                />
-              </Field>
-              <Field label="Driver name">
-                <input
-                  className="dgn-input"
-                  value={driverName}
-                  onChange={(e) => setDriverName(e.target.value)}
-                />
-              </Field>
-              <Field label="Driver phone">
-                <input
-                  className="dgn-input"
-                  value={driverPhone}
-                  onChange={(e) => setDriverPhone(e.target.value)}
-                />
-              </Field>
-              <Field label="Destination">
-                <input
-                  className="dgn-input"
-                  value={destination}
-                  onChange={(e) => setDestination(e.target.value)}
-                />
-              </Field>
-            </div>
+            <h2 className="text-base font-semibold">Notes</h2>
             <div className="mt-4">
               <Field label="Notes">
                 <textarea
@@ -806,7 +776,7 @@ function NewSaleForm({
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Anything the office should know about this dispatch"
+                  placeholder="Anything the office should know about this sale"
                 />
               </Field>
             </div>
@@ -826,15 +796,6 @@ function NewSaleForm({
                   onChange={(e) => setDiscount(e.target.value)}
                 />
               </Field>
-              <Field label="Transport charged (₦)" hint="Added on top, if the customer pays it">
-                <input
-                  className="dgn-input"
-                  type="number"
-                  inputMode="decimal"
-                  value={transportCharge}
-                  onChange={(e) => setTransportCharge(e.target.value)}
-                />
-              </Field>
               <Field label="Amount paid now (₦)">
                 <input
                   className="dgn-input"
@@ -850,7 +811,6 @@ function NewSaleForm({
             <div className="mt-5 space-y-2 rounded-2xl bg-zinc-50 p-4 text-sm">
               <Row label="Goods value" value={money(computed.subtotal)} />
               <Row label="Discount" value={`− ${money(Number(discount) || 0)}`} />
-              <Row label="Transport" value={`+ ${money(Number(transportCharge) || 0)}`} />
               <div className="border-t border-[var(--line)] pt-2">
                 <Row label="Customer pays" value={money(computed.total)} strong />
               </div>
@@ -884,6 +844,13 @@ function NewSaleForm({
               </div>
             )}
 
+            {belowMin && (
+              <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+                This distributor has a minimum of {minOrderQty.toLocaleString()} units. This sale
+                is {computed.qty.toLocaleString()}.
+              </p>
+            )}
+
             {creditBlocked && (
               <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
                 This distributor is at their credit limit. Record a payment on their ledger, or
@@ -896,12 +863,13 @@ function NewSaleForm({
               disabled={!canSubmit}
               onClick={() => submit(false)}
             >
-              <Truck className="h-4 w-4" />
               {saving
                 ? 'Recording…'
                 : creditBlocked
                   ? 'Credit limit reached'
-                  : 'Record sale & dispatch'}
+                  : belowMin
+                    ? 'Below minimum quantity'
+                    : 'Record sale'}
             </button>
           </Card>
         </div>

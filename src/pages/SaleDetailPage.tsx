@@ -239,59 +239,42 @@ export function SaleDetailPage() {
         <div className="mt-4 space-y-2 text-sm">
           <Row label="Goods value" value={money(s.subtotal)} />
           <Row label="Discount" value={`− ${money(s.discount)}`} />
-          <Row label="Transport charged" value={`+ ${money(s.transportCharge)}`} />
           <div className="border-t border-[var(--line)] pt-2">
             <Row label="Total" value={money(s.totalAmount)} strong />
           </div>
           <Row label="Paid" value={money(s.amountPaid)} />
           <Row label="Balance" value={money(s.balanceDue)} tone={unpaid ? 'bad' : 'good'} strong />
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Fact label="Business date" value={formatBusinessDate(s.businessDate)} />
           <Fact label="Recorded by" value={s.soldBy || '—'} />
-          <Fact
-            label="Dispatched"
-            value={s.dispatchedAt ? new Date(s.dispatchedAt).toLocaleString() : '—'}
-          />
         </div>
       </Card>
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card>
-          <h2 className="text-base font-semibold">Customer</h2>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <Fact label="Name" value={s.customer?.name || '—'} />
-            <Fact label="Type" value={s.customer?.customerType?.toLowerCase() || '—'} />
-            <Fact label="Phone" value={s.customer?.phone || '—'} />
-            <Fact label="Address" value={s.customer?.address || '—'} />
-            {customerIsDistributor && (
-              <div className="sm:col-span-2">
-                <Link
-                  to={`/distributors/${s.customer!.code}`}
-                  className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
-                >
-                  Open distributor ledger
-                </Link>
-              </div>
-            )}
-          </dl>
-        </Card>
-
-        <Card>
-          <h2 className="text-base font-semibold">Transport</h2>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <Fact label="Vehicle" value={s.vehicleNumber || '—'} />
-            <Fact label="Driver" value={s.driverName || '—'} />
-            <Fact label="Driver phone" value={s.driverPhone || '—'} />
-            <Fact label="Destination" value={s.destination || '—'} />
-          </dl>
-          {s.dispatchNotes && (
-            <div className="mt-4">
-              <Fact label="Notes" value={s.dispatchNotes} />
+      <Card className="mb-6">
+        <h2 className="text-base font-semibold">Customer</h2>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <Fact label="Name" value={s.customer?.name || '—'} />
+          <Fact label="Type" value={s.customer?.customerType?.toLowerCase() || '—'} />
+          <Fact label="Phone" value={s.customer?.phone || '—'} />
+          <Fact label="Address" value={s.customer?.address || '—'} />
+          {customerIsDistributor && (
+            <div className="sm:col-span-2">
+              <Link
+                to={`/distributors/${s.customer!.code}`}
+                className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
+              >
+                Open distributor ledger
+              </Link>
             </div>
           )}
-        </Card>
-      </div>
+        </dl>
+        {s.dispatchNotes && (
+          <div className="mt-4">
+            <Fact label="Notes" value={s.dispatchNotes} />
+          </div>
+        )}
+      </Card>
 
       <Card className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -357,7 +340,7 @@ export function SaleDetailPage() {
       </Card>
 
       <Card className="mb-6">
-        <h2 className="text-base font-semibold">Goods dispatched</h2>
+        <h2 className="text-base font-semibold">Goods</h2>
         <p className="text-sm text-zinc-700">
           {s.lines.length} line{s.lines.length === 1 ? '' : 's'}
         </p>
