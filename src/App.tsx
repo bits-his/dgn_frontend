@@ -20,6 +20,8 @@ import { QcPage } from '@/pages/QcPage'
 import { QcTrendsPage } from '@/pages/QcTrendsPage'
 import { SalesPage } from '@/pages/SalesPage'
 import { SaleDetailPage } from '@/pages/SaleDetailPage'
+import { DistributorsPage } from '@/pages/DistributorsPage'
+import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LabourPage } from '@/pages/LabourPage'
@@ -71,6 +73,8 @@ function App() {
                 <Route path="/sales" element={<SalesPage />} />
                 <Route path="/sales/margins" element={<SalesMarginPage />} />
                 <Route path="/sales/:saleNumber" element={<SaleDetailPage />} />
+                <Route path="/distributors" element={<DistributorsPage />} />
+                <Route path="/distributors/:code" element={<DistributorDetailPage />} />
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
