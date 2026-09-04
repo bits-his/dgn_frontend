@@ -15,6 +15,15 @@ function kg(n: number | null | undefined) {
   return `${Number(n).toLocaleString()} kg`
 }
 
+function formatMinutes(mins: number | null | undefined) {
+  if (mins == null || !Number.isFinite(mins) || mins <= 0) return '0 min'
+  const h = Math.floor(mins / 60)
+  const m = Math.round(mins % 60)
+  if (h > 0 && m > 0) return `${h}h ${m}m (${mins} mins)`
+  if (h > 0) return `${h}h (${mins} mins)`
+  return `${mins} mins`
+}
+
 function parseColorBreakdown(raw?: string | null) {
   if (!raw) return [] as Array<{ color: string; qtyKg: number; batchNumber?: string }>
   try {
@@ -71,10 +80,14 @@ type CostSummary = {
   lineageAllocations: Array<{
     fromBatchNumber: string
     fromBatchType: string
+    materialName?: string | null
+    locationName?: string | null
+    locationCode?: string | null
     qtyConsumed: number
     parentQtyIn: number
     allocationRatio: number
     allocatedAmount: number
+    unitPrice?: number | null
   }>
   costScope: string
   overheadIncluded: boolean
@@ -139,6 +152,24 @@ export function BatchDetailPage() {
           notes?: string | null
           material?: { name: string }
           location?: { name: string }
+          product?: {
+            id?: number
+            name: string
+            code?: string
+            unitsPerDozen?: number
+            uom?: string
+          }
+          machine?: {
+            id?: number
+            name: string
+            code?: string
+          }
+          shift?: {
+            id?: number
+            name: string
+          }
+          startedAt?: string
+          endedAt?: string
           createdBy?: { firstname: string; lastname: string }
           scrapReceipt?: {
             netWeight: number
@@ -153,6 +184,8 @@ export function BatchDetailPage() {
           }
           processRuns?: ProcessRunRow[]
           productionRun?: {
+            id: number
+            status?: string
             qtyProduced: number
             qtyGood: number
             qtyReject: number
@@ -164,12 +197,37 @@ export function BatchDetailPage() {
             outputPerHour: number
             materialPerUnit: number
             materialConsumed: number
+            materialVariance?: number
             operatorName?: string
+            runtimeMinutes: number
             downtimeMinutes: number
             downtimeReason?: string
-            machine?: { name: string }
-            product?: { name: string }
-            inputBatch?: { batchNumber: string }
+            scheduledMinutes?: number
+            labourCost?: number
+            energyCost?: number
+            otherCost?: number
+            startedAt?: string
+            endedAt?: string
+            notes?: string
+            machine?: { id?: number; name: string; code?: string; ratedOutputPerHour?: number }
+            product?: {
+              id?: number
+              name: string
+              code?: string
+              uom?: string
+              unitsPerDozen?: number
+              standardMaterialPerUnit?: number
+            }
+            shift?: { id?: number; name: string; startTime?: string; endTime?: string }
+            inputBatch?: {
+              id?: number
+              batchNumber: string
+              batchType?: string
+              uom?: string
+              qtyRemaining?: number
+              material?: { name: string }
+              location?: { name: string; code?: string }
+            }
           }
           qcChecks?: Array<{
             id: number
@@ -208,12 +266,18 @@ export function BatchDetailPage() {
             qty: number
             uom: string
             businessDate?: string | null
+            location?: { name: string; code?: string }
             createdAt?: string
           }>
           inputs?: Array<{
             id: number
             qtyConsumed: number
-            fromBatch?: { batchNumber: string; batchType: string }
+            fromBatch?: {
+              batchNumber: string
+              batchType: string
+              material?: { name: string }
+              location?: { name: string; code?: string }
+            }
           }>
           outputs?: Array<{
             id: number
@@ -227,6 +291,8 @@ export function BatchDetailPage() {
           inheritedCost: number
           costPerKg: number | null
           trueRecycledCostPerKg: number | null
+          costPerUnit: number | null
+          costPerDozen: number | null
           yieldPercent: number | null
           rejectPercent: number | null
           oeePercent: number | null
@@ -264,6 +330,44 @@ export function BatchDetailPage() {
   const typeLabel = TYPE_LABEL[batch.batchType] || batch.batchType
   const stageRows = costSummary?.stageBreakdown || []
 
+  const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
+
+  const prodGoodUnits = Number(productionRun?.qtyGood || batch.qtyOut || 0)
+  const prodRejectUnits = Number(productionRun?.qtyReject || batch.qtyReject || 0)
+  const prodTotalUnits = Number(productionRun?.qtyProduced || (prodGoodUnits + prodRejectUnits) || 0)
+  const prodTotalCost = Number(summary.totalCost || 0)
+  const prodUnitsPerDozen = Number(productionRun?.product?.unitsPerDozen || batch.product?.unitsPerDozen || 12)
+  const prodCostPerPiece = summary.costPerUnit != null ? Number(summary.costPerUnit) : (prodGoodUnits > 0 ? prodTotalCost / prodGoodUnits : 0)
+  const prodCostPerDozen = summary.costPerDozen != null ? Number(summary.costPerDozen) : (prodCostPerPiece * prodUnitsPerDozen)
+
+  // Material In allocation & location info
+  const firstAlloc = costSummary?.lineageAllocations?.[0]
+  const inputBatchNumber = firstAlloc?.fromBatchNumber || productionRun?.inputBatch?.batchNumber || batch.inputs?.[0]?.fromBatch?.batchNumber || ''
+  const inputMaterialName = firstAlloc?.materialName || productionRun?.inputBatch?.material?.name || batch.inputs?.[0]?.fromBatch?.material?.name || batch.material?.name || 'Raw Material'
+  const inputLocationName = firstAlloc?.locationName || productionRun?.inputBatch?.location?.name || batch.inputs?.[0]?.fromBatch?.location?.name || 'Raw Material Store'
+  const inputLocationCode = firstAlloc?.locationCode || productionRun?.inputBatch?.location?.code || ''
+  const materialConsumed = Number(firstAlloc?.qtyConsumed || productionRun?.materialConsumed || batch.qtyIn || 0)
+  const materialCost = Number(firstAlloc?.allocatedAmount || summary.inheritedCost || 0)
+  const inputMaterialUnitPrice = firstAlloc?.unitPrice != null
+    ? Number(firstAlloc.unitPrice)
+    : (materialConsumed > 0 && materialCost > 0 ? materialCost / materialConsumed : 0)
+
+  // Direct and overhead costs
+  const labourCost = Number(productionRun?.labourCost || costSummary?.directByClass?.['LABOUR'] || 0)
+  const energyCost = Number(productionRun?.energyCost || costSummary?.directByClass?.['UTILITIES'] || 0)
+  const overheadCost = Number(costSummary?.accumulatedByClass?.['OVERHEAD'] || 0)
+  const otherCost = Number(productionRun?.otherCost || costSummary?.directByClass?.['OTHER'] || 0)
+
+  // OEE & execution metrics
+  const oeePercent = Number(productionRun?.oeePercent || summary.oeePercent || 0)
+  const qualityPercent = Number(productionRun?.qualityPercent || summary.yieldPercent || (prodTotalUnits > 0 ? +((prodGoodUnits / prodTotalUnits) * 100).toFixed(1) : 0))
+  const rejectPercent = Number(productionRun?.rejectPercent || summary.rejectPercent || (prodTotalUnits > 0 ? +((prodRejectUnits / prodTotalUnits) * 100).toFixed(1) : 0))
+  const runtimeMinutes = Number(productionRun?.runtimeMinutes || 0)
+  const downtimeMinutes = Number(productionRun?.downtimeMinutes || 0)
+  const downtimeReason = productionRun?.downtimeReason || ''
+  const outputPerHour = Number(productionRun?.outputPerHour || 0)
+  const isNotCompleted = isProd && (batch.status === 'IN_PROGRESS' || productionRun?.status === 'IN_PROGRESS' || !productionRun?.endedAt)
+
   return (
     <div className="space-y-3">
       <PageHeader
@@ -271,25 +375,75 @@ export function BatchDetailPage() {
         title={batch.batchNumber}
         description={[
           typeLabel,
-          batch.sortColor ? colorLabel(batch.sortColor) : null,
+          batch.product?.name || (batch.sortColor ? colorLabel(batch.sortColor) : null),
           batch.material?.name || null,
+          productionRun?.machine?.name ? `Machine: ${productionRun.machine.name}` : null,
+          productionRun?.operatorName ? `Operator: ${productionRun.operatorName}` : null,
         ]
           .filter(Boolean)
           .join(' · ')}
+        actions={
+          isNotCompleted && productionRun ? (
+            <Link
+              to={`/production/${productionRun.id}/complete`}
+              className="dgn-btn dgn-btn-primary !px-3.5 !py-2 text-sm font-semibold inline-flex items-center gap-1.5 shadow-sm"
+            >
+              Complete Run →
+            </Link>
+          ) : null
+        }
       />
+
+      {isNotCompleted && (
+        <Card className="!p-3.5 border-l-4 !border-l-amber-500">
+          <div className="flex items-center gap-3">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-[var(--ink)]">Production in progress · Not completed</p>
+              <p className="text-xs text-[var(--ink-muted)]">
+                Material has been issued ({materialConsumed} kg). Enter good units, rejects, and runtime when finished.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="!p-4">
         <h2 className="text-base font-semibold">Basic info</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Fact label="Qty in" value={kg(batch.qtyIn)} strong />
-          <Fact label="Qty available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
-          <Fact label="Total cost" value={money(summary.totalCost)} />
-          <Fact label="Cost / kg" value={costPerKg != null ? `${money(costPerKg)}/kg` : '—'} />
+          {isProd ? (
+            <>
+              <Fact
+                label="Good produced"
+                value={isNotCompleted && prodGoodUnits === 0 ? 'Pending completion' : `${prodGoodUnits} ${batch.uom || 'pcs'}`}
+                strong
+              />
+              <Fact
+                label="Cost / pc (price/1)"
+                value={prodCostPerPiece > 0 ? `${money(prodCostPerPiece)}/pc` : (isNotCompleted ? 'Pending completion' : '—')}
+                strong
+              />
+              <Fact
+                label="Cost / dozen"
+                value={prodCostPerDozen > 0 ? `${money(prodCostPerDozen)}/dz` : (isNotCompleted ? 'Pending completion' : '—')}
+              />
+              <Fact label="Current total cost" value={money(summary.totalCost)} strong />
+            </>
+          ) : (
+            <>
+              <Fact label="Qty in" value={kg(batch.qtyIn)} strong />
+              <Fact label="Qty available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
+              <Fact label="Total cost" value={money(summary.totalCost)} />
+              <Fact label="Cost / kg" value={costPerKg != null ? `${money(costPerKg)}/kg` : '—'} />
+            </>
+          )}
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--ink-muted)]">
-          {batch.sortColor && <span>Colour: {colorLabel(batch.sortColor)}</span>}
           {batch.location?.name && <span>Location: {batch.location.name}</span>}
+          {batch.product?.name && <span>Product: {batch.product.name}</span>}
+          {batch.sortColor && <span>Colour: {colorLabel(batch.sortColor)}</span>}
           <span>Stage: {typeLabel}</span>
+          <span>Status: {isNotCompleted ? 'IN_PROGRESS (Not completed)' : batch.status}</span>
         </div>
       </Card>
 
@@ -299,6 +453,147 @@ export function BatchDetailPage() {
           <p className="mt-1 text-sm">
             Status {batch.status}. Do not use, produce or sell until QC clears it.
           </p>
+        </Card>
+      )}
+
+      {/* Material In for Production */}
+      {isProd && (
+        <Card className="!p-4">
+          <h2 className="text-base font-semibold">Material in</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div>
+              <Fact label="Input batch" value={inputBatchNumber || '—'} />
+              {inputBatchNumber && (
+                <Link
+                  to={`/batches/${inputBatchNumber}`}
+                  className="mt-1 inline-block text-xs font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  View input batch →
+                </Link>
+              )}
+            </div>
+            <Fact label="Material" value={inputMaterialName} />
+            <Fact label="From location" value={`${inputLocationName}${inputLocationCode ? ` (${inputLocationCode})` : ''}`} />
+            <Fact label="Material used" value={kg(materialConsumed)} strong />
+            <Fact label="Price / kg at location" value={inputMaterialUnitPrice > 0 ? `${money(inputMaterialUnitPrice)}/kg` : '—'} strong />
+            <Fact label="Total material cost" value={money(materialCost)} strong />
+          </div>
+        </Card>
+      )}
+
+      {/* Production Run Details */}
+      {productionRun && (
+        <Card className="!p-4">
+          <h2 className="text-base font-semibold">Production run</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Fact label="Machine" value={productionRun.machine?.name || '—'} />
+            <Fact label="Product" value={productionRun.product?.name || batch.product?.name || '—'} />
+            <Fact label="Operator" value={productionRun.operatorName || '—'} />
+            <Fact label="Shift" value={productionRun.shift?.name || batch.shift?.name || '—'} />
+            <Fact label="Produced (gross)" value={`${prodTotalUnits} ${batch.uom || 'pcs'}`} />
+            <Fact label="Good units" value={`${prodGoodUnits} ${batch.uom || 'pcs'}`} strong />
+            <Fact label="Yield" value={`${qualityPercent}%`} />
+            <Fact label="Rejects" value={`${prodRejectUnits} ${batch.uom || 'pcs'}`} />
+            <Fact label="Reject %" value={`${rejectPercent}%`} />
+            <Fact label="Runtime" value={formatMinutes(runtimeMinutes)} />
+            <Fact label="Downtime" value={downtimeMinutes > 0 ? `${formatMinutes(downtimeMinutes)}${downtimeReason ? ` (${downtimeReason})` : ''}` : '0 min'} />
+            <Fact label="Output / hr" value={`${outputPerHour} ${batch.uom || 'pcs'}/hr`} />
+            <Fact label="OEE" value={`${oeePercent}%`} strong />
+          </div>
+        </Card>
+      )}
+
+      {/* Production Cost Breakdown */}
+      {isProd && (
+        <Card className="!p-4">
+          <h2 className="text-base font-semibold">Production cost breakdown</h2>
+          <ul className="mt-3 divide-y divide-[var(--line)]">
+            <li className="flex justify-between gap-3 py-2 text-sm">
+              <div>
+                <span className="font-medium">Material in</span>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {materialConsumed} kg @ {inputMaterialUnitPrice > 0 ? `${money(inputMaterialUnitPrice)}/kg` : '—'} from {inputLocationName}
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="font-semibold tabular-nums">{money(materialCost)}</span>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {prodGoodUnits > 0 ? `${money(materialCost / prodGoodUnits)}/pc` : '—'}
+                </p>
+              </div>
+            </li>
+
+            <li className="flex justify-between gap-3 py-2 text-sm">
+              <div>
+                <span className="font-medium">Direct labour</span>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  Formula: Rate × 10 × {materialConsumed} kg
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="font-semibold tabular-nums">{money(labourCost)}</span>
+                <p className="text-xs text-[var(--ink-muted)]">
+                  {prodGoodUnits > 0 ? `${money(labourCost / prodGoodUnits)}/pc` : '—'}
+                </p>
+              </div>
+            </li>
+
+            {energyCost > 0 && (
+              <li className="flex justify-between gap-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium">Energy & utilities</span>
+                  <p className="text-xs text-[var(--ink-muted)]">Machine operation</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-semibold tabular-nums">{money(energyCost)}</span>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    {prodGoodUnits > 0 ? `${money(energyCost / prodGoodUnits)}/pc` : '—'}
+                  </p>
+                </div>
+              </li>
+            )}
+
+            {overheadCost > 0 && (
+              <li className="flex justify-between gap-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium">Factory overhead</span>
+                  <p className="text-xs text-[var(--ink-muted)]">Allocated overhead</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-semibold tabular-nums">{money(overheadCost)}</span>
+                  <p className="text-xs text-[var(--ink-muted)]">
+                    {prodGoodUnits > 0 ? `${money(overheadCost / prodGoodUnits)}/pc` : '—'}
+                  </p>
+                </div>
+              </li>
+            )}
+
+            {otherCost > 0 && (
+              <li className="flex justify-between gap-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium">Other direct costs</span>
+                </div>
+                <div className="text-right">
+                  <span className="font-semibold tabular-nums">{money(otherCost)}</span>
+                </div>
+              </li>
+            )}
+
+            <li className="flex justify-between gap-3 py-2.5 text-sm font-bold border-t border-[var(--line)]">
+              <div>
+                <span>Total production cost</span>
+                <p className="text-xs font-normal text-[var(--ink-muted)]">
+                  {prodGoodUnits} good {batch.uom || 'pcs'} produced
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="tabular-nums text-base">{money(prodTotalCost)}</span>
+                <p className="text-xs font-semibold text-[var(--ink-muted)]">
+                  {money(prodCostPerPiece)}/pc · {money(prodCostPerDozen)}/dz
+                </p>
+              </div>
+            </li>
+          </ul>
         </Card>
       )}
 
@@ -373,7 +668,7 @@ export function BatchDetailPage() {
         </Card>
       ) : null}
 
-      {(processRuns.length > 0 || stageRows.length > 0) && (
+      {!isProd && (processRuns.length > 0 || stageRows.length > 0) && (
         <Card className="!p-4">
           <h2 className="text-base font-semibold">Process stages</h2>
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -424,22 +719,6 @@ export function BatchDetailPage() {
                     />
                   )
                 })}
-          </div>
-        </Card>
-      )}
-
-      {productionRun && (
-        <Card className="!p-4">
-          <h2 className="text-base font-semibold">Production</h2>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Fact label="Machine" value={productionRun.machine?.name || '—'} />
-            <Fact label="Product" value={productionRun.product?.name || '—'} />
-            <Fact label="Produced" value={String(productionRun.qtyProduced)} />
-            <Fact label="Good" value={String(productionRun.qtyGood)} />
-            <Fact label="Waste %" value={`${productionRun.rejectPercent}%`} />
-            <Fact label="OEE" value={`${productionRun.oeePercent}%`} />
-            <Fact label="Material used" value={kg(productionRun.materialConsumed)} />
-            <Fact label="Operator" value={productionRun.operatorName || '—'} />
           </div>
         </Card>
       )}

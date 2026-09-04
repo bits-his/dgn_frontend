@@ -86,6 +86,49 @@ export function StatPill({
   )
 }
 
+export function formatAmountTyping(raw: string) {
+  let s = raw.replace(/[^\d.]/g, '')
+  const dot = s.indexOf('.')
+  if (dot !== -1) {
+    s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, '').slice(0, 2)
+  }
+  const [whole = '', frac] = s.split('.')
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (s.includes('.')) return `${grouped}.${frac ?? ''}`
+  return grouped
+}
+
+export function parseAmountTyping(formatted: string) {
+  return formatted.replace(/,/g, '')
+}
+
+export function NairaAmountInput({
+  value,
+  onChange,
+  placeholder,
+  required,
+}: {
+  value: string
+  onChange: (numeric: string) => void
+  placeholder?: string
+  required?: boolean
+}) {
+  const display = formatAmountTyping(value)
+  return (
+    <div className="flex items-center rounded-xl border border-[var(--line)] bg-white transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">
+      <span className="pl-3 text-sm text-[var(--ink-muted)]">₦</span>
+      <input
+        className="min-w-0 flex-1 bg-transparent px-2 py-[0.85rem] outline-none"
+        inputMode="decimal"
+        value={display}
+        placeholder={placeholder}
+        required={required}
+        onChange={(e) => onChange(parseAmountTyping(formatAmountTyping(e.target.value)))}
+      />
+    </div>
+  )
+}
+
 export function ErrorBanner({
   title = 'Fix these before saving',
   items,

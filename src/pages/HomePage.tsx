@@ -13,6 +13,7 @@ import {
   Flame,
   Search,
   Truck,
+  Store,
   Users,
   Receipt,
 } from 'lucide-react'
@@ -87,6 +88,14 @@ const actions = [
     tone: 'from-indigo-600 to-indigo-800',
   },
   {
+    to: '/distributors',
+    title: 'Distributors',
+    desc: 'Credit limits, what they owe, and who is blocked',
+    icon: Store,
+    permission: 'sales.view',
+    tone: 'from-orange-600 to-amber-800',
+  },
+  {
     to: '/staff',
     title: 'Staff',
     desc: 'Staff directory, attendance, roles and system access',
@@ -107,7 +116,7 @@ const actions = [
     title: 'Production',
     desc: 'Make finished goods from dried lots',
     icon: Cog,
-    permission: 'production.create',
+    permission: 'batch.view',
     tone: 'from-violet-600 to-violet-800',
   },
   {

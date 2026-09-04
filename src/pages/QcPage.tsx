@@ -90,7 +90,10 @@ export function QcPage() {
     queryKey: ['qc-queue'],
     queryFn: async () => {
       const { data } = await api.get('/qc/queue')
-      return data.data as QueueBatch[]
+      const items = (data.data as QueueBatch[]) || []
+      return items.filter(
+        (b) => !(b.batchType === 'PROD' && (b.status === 'IN_PROGRESS' || b.status === 'PENDING'))
+      )
     },
   })
 

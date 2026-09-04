@@ -16,8 +16,8 @@
   --bg-sidebar-hover: #1c242e;
   --bg-sidebar-active: #243040;
   --ink: #14191f;
-  --ink-muted: #5c6b7a;
-  --ink-faint: #8a97a5;
+  --ink-muted: #3a4550;
+  --ink-faint: #4b5563;
   --line: #d7dee6;
   --accent: #d97706;
   --accent-strong: #b45309;
@@ -135,6 +135,24 @@ h3 {
   margin-bottom: 0.4rem;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--ink-muted);
+  color: #1f2933;
   letter-spacing: 0.02em;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body,
+  #root {
+    background: #fff !important;
+    min-height: auto;
+  }
+
+  .dgn-print-hide {
+    display: none !important;
+  }
 }

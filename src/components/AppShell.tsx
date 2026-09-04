@@ -28,6 +28,7 @@ import {
   Droplets,
   Flame,
   Contact,
+  Store,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
@@ -69,10 +70,11 @@ const recyclingGroup: NavGroup = {
 
 const mainNavRest: NavItem[] = [
   { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
-  { to: '/production', label: 'Production', icon: Cog, permission: 'production.create' },
+  { to: '/production', label: 'Production', icon: Cog, permission: 'batch.view' },
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, permission: 'sales.view' },
+  { to: '/distributors', label: 'Distributors', icon: Store, permission: 'sales.view' },
   { to: '/batches', label: 'Batches', icon: Search, permission: 'batch.view' },
   { to: '/masters', label: 'Masters', icon: Boxes, permission: 'masters.manage' },
 ]
