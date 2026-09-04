@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Factory, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card, Field, StatPill } from '@/components/ui'
 
 type ProductionRunRow = {
   id: number
@@ -58,8 +58,6 @@ type CompleteFormValues = {
   startTime: string
   endTime: string
   runtimeMinutes: string
-  downtimeMinutes: string
-  downtimeReason: string
   scheduledMinutes: string
   qtyGood: string
   qtyReject: string
@@ -69,6 +67,7 @@ type CompleteFormValues = {
   energyCost: string
   otherCost: string
   notes: string
+  autoRelease: boolean
 }
 
 function calculateMinutesBetween(startTime?: string, endTime?: string): number {
@@ -130,8 +129,6 @@ export function CompleteProductionPage() {
       startTime: '06:00',
       endTime: '14:00',
       runtimeMinutes: '480',
-      downtimeMinutes: '0',
-      downtimeReason: '',
       scheduledMinutes: '480',
       qtyGood: '',
       qtyReject: '0',
@@ -141,6 +138,7 @@ export function CompleteProductionPage() {
       energyCost: '0',
       otherCost: '0',
       notes: '',
+      autoRelease: true,
     },
   })
 
@@ -222,12 +220,11 @@ export function CompleteProductionPage() {
         qtyGood: good,
         qtyReject: reject,
         runtimeMinutes: Number(values.runtimeMinutes || 0),
-        downtimeMinutes: Number(values.downtimeMinutes || 0),
-        downtimeReason: values.downtimeReason || null,
         scheduledMinutes: Number(values.scheduledMinutes || 0),
         labourCost: Number(values.labourCost || 0),
         energyCost: Number(values.energyCost || 0),
         otherCost: Number(values.otherCost || 0),
+        autoRelease: values.autoRelease !== false,
         notes: values.notes || null,
         confirmUnusualRun,
       })
@@ -280,7 +277,7 @@ export function CompleteProductionPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="max-w-3xl mx-auto space-y-3">
       {/* Back link */}
       <div>
         <Link
@@ -292,32 +289,31 @@ export function CompleteProductionPage() {
         </Link>
       </div>
 
-      <PageHeader
-        eyebrow="Shift Completion"
-        title={`Complete Production — ${run.batch?.batchNumber || `Run #${run.id}`}`}
-        description="Select shift start and end times, enter good pieces and defective rejects, calculate labor cost, and issue the completed goods batch."
-      />
-
       {/* Compact Run Summary Banner */}
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-xs">
-        <div className="flex items-center gap-3 pb-3 border-b border-zinc-100">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-strong)]">
+      <div className="rounded-xl border border-zinc-200 bg-white p-3 shadow-xs">
+        <div className="flex items-center gap-2.5 pb-2.5 border-b border-zinc-100">
+          <div className="flex size-8 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent-strong)]">
             <Factory className="size-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-zinc-900">
+              <span className="font-bold text-sm text-zinc-900">
                 {run.batch?.batchNumber || `Run #${run.id}`}
               </span>
               <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800">
                 In progress
               </span>
+              {Number(run.downtimeMinutes || 0) > 0 && (
+                <span className="rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold text-amber-900">
+                  Downtime: {run.downtimeMinutes}m{run.downtimeReason ? ` (${run.downtimeReason})` : ''}
+                </span>
+              )}
             </div>
-            <p className="text-xs text-zinc-400">Started {formatDateTime(run.startedAt)}</p>
+            <p className="text-[11px] text-zinc-400">Started {formatDateTime(run.startedAt)}</p>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+        <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
           <div>
             <span className="text-zinc-400 block text-[10px] uppercase font-bold">Machine</span>
             <span className="font-semibold text-zinc-800">{run.machine?.name || '—'}</span>
@@ -346,19 +342,19 @@ export function CompleteProductionPage() {
       </div>
 
       {serverError && (
-        <div className="rounded-xl bg-red-50 p-4 text-sm font-medium text-red-700 border border-red-200">
+        <div className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700 border border-red-200">
           {serverError}
         </div>
       )}
 
       {warning && (
-        <div className="rounded-xl bg-amber-50 p-4 border border-amber-200">
+        <div className="rounded-xl bg-amber-50 p-3 border border-amber-200">
           <p className="text-sm font-semibold text-amber-900">
             Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
           </p>
           <button
             type="button"
-            className="dgn-btn dgn-btn-primary mt-3 text-xs"
+            className="dgn-btn dgn-btn-primary mt-2 text-xs"
             onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
           >
             Confirm unusual run
@@ -366,218 +362,208 @@ export function CompleteProductionPage() {
         </div>
       )}
 
-      <form className="space-y-4" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
-        {/* Shift Timing & Runtime Selection */}
-        <Card>
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-zinc-900">Shift Timing & Runtime</h2>
-            <span className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-bold text-zinc-700">
-              Runtime: {Math.floor(runtimeMins / 60)} hrs {runtimeMins % 60} mins ({runtimeMins} min)
-            </span>
-          </div>
-          <p className="text-xs text-zinc-500 mt-1">
-            Times default to shift standards ({run.shift?.name || 'Shift'}). Adjust start and end
-            times as needed.
-          </p>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-4">
-            <Field label="Start Time">
-              <input
-                type="time"
-                className="dgn-input font-medium"
-                {...form.register('startTime', {
-                  onChange: (e) => handleTimeChange(e.target.value, watchEndTime),
-                })}
-              />
-            </Field>
-
-            <Field label="End Time">
-              <input
-                type="time"
-                className="dgn-input font-medium"
-                {...form.register('endTime', {
-                  onChange: (e) => handleTimeChange(watchStartTime, e.target.value),
-                })}
-              />
-            </Field>
-
-            <Field label="Downtime (min)">
-              <input
-                inputMode="numeric"
-                type="number"
-                placeholder="0"
-                className="dgn-input"
-                {...form.register('downtimeMinutes')}
-              />
-            </Field>
-
-            <Field label="Downtime Reason">
-              <input
-                className="dgn-input"
-                placeholder="e.g. Power, mould jammed"
-                {...form.register('downtimeReason')}
-              />
-            </Field>
-          </div>
-        </Card>
-
-        {/* Output Pieces with automatic total */}
-        <Card>
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-zinc-900">Finished Units Breakdown</h2>
-            <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-              Total Produced: {totalProduced.toLocaleString()} pcs
-            </span>
-          </div>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <Field label="Good Units (pcs)">
-              <input
-                inputMode="decimal"
-                type="number"
-                placeholder="e.g. 480"
-                className="dgn-input font-bold text-emerald-700 text-base"
-                {...form.register('qtyGood', { required: true })}
-              />
-            </Field>
-
-            <Field label="Reject Units (pcs)">
-              <input
-                inputMode="decimal"
-                type="number"
-                placeholder="0"
-                className="dgn-input font-semibold text-red-600"
-                {...form.register('qtyReject')}
-              />
-            </Field>
-
-            <Field
-              label="Total Produced (pcs) — Auto Calculated"
-              hint="Good + Reject units"
-            >
-              <input
-                readOnly
-                type="number"
-                value={totalProduced}
-                className="dgn-input font-bold bg-zinc-100 text-zinc-900 cursor-not-allowed text-base"
-              />
-            </Field>
-          </div>
-        </Card>
-
-        {/* Labor Calculation Section */}
-        <Card className="border-amber-200 bg-amber-50/40">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-amber-950">
-                Labor Calculation (Rate × 10 × kg used)
-              </h2>
-              <p className="mt-0.5 text-xs text-amber-800">
-                Formula: Rate ₦{labourRate} × 10 × {fmt(consumedKg, 1)} kg = ₦
-                {fmt(labourRate * 10 * consumedKg, 2)}
-              </p>
+      {/* SINGLE CARD FOR SHIFT COMPLETION */}
+      <Card className="!p-4 shadow-xs border border-zinc-200">
+        <form className="space-y-4" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
+          {/* Section 1: Shift Timing */}
+          <div>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">1. Shift Timing & Runtime</h2>
+              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-bold text-zinc-700">
+                Runtime: {Math.floor(runtimeMins / 60)}h {runtimeMins % 60}m ({runtimeMins} min)
+              </span>
             </div>
-            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900">
-              ₦{fmt(labourRate * 10 * consumedKg, 2)}
-            </span>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              <Field label="Shift Start Time">
+                <input
+                  type="time"
+                  className="dgn-input font-medium"
+                  {...form.register('startTime', {
+                    onChange: (e) => handleTimeChange(e.target.value, watchEndTime),
+                  })}
+                />
+              </Field>
+
+              <Field label="Shift End Time">
+                <input
+                  type="time"
+                  className="dgn-input font-medium"
+                  {...form.register('endTime', {
+                    onChange: (e) => handleTimeChange(watchStartTime, e.target.value),
+                  })}
+                />
+              </Field>
+            </div>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Labor Rate (₦)">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                placeholder="e.g. 10"
-                {...form.register('labourRate', {
-                  onChange: (e) => handleRateChange(e.target.value),
-                })}
-              />
-            </Field>
+          {/* Section 2: Output Pieces */}
+          <div>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">2. Finished Units Breakdown</h2>
+              <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                Total: {totalProduced.toLocaleString()} pcs
+              </span>
+            </div>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-3">
+              <Field label="Good Units (pcs)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  placeholder="e.g. 480"
+                  className="dgn-input font-bold text-emerald-700 text-base"
+                  {...form.register('qtyGood', { required: true })}
+                />
+              </Field>
 
-            <Field label="Calculated Labour Cost ₦ (Editable)">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input font-bold text-amber-950"
-                {...form.register('labourCost')}
-              />
-            </Field>
-          </div>
-        </Card>
+              <Field label="Reject Units (pcs)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  placeholder="0"
+                  className="dgn-input font-semibold text-red-600"
+                  {...form.register('qtyReject')}
+                />
+              </Field>
 
-        {/* Other Costs */}
-        <Card>
-          <h2 className="text-base font-semibold text-zinc-900">Energy & Other Costs</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Energy ₦">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                {...form.register('energyCost')}
-              />
-            </Field>
-            <Field label="Other Cost ₦">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                {...form.register('otherCost')}
-              />
-            </Field>
+              <Field
+                label="Total Produced (pcs)"
+                hint="Good + Reject units (Auto)"
+              >
+                <input
+                  readOnly
+                  type="number"
+                  value={totalProduced}
+                  className="dgn-input font-bold bg-zinc-100 text-zinc-900 cursor-not-allowed text-base"
+                />
+              </Field>
+            </div>
           </div>
 
-          <div className="mt-4">
-            <Field label="Shift Completion Notes">
-              <textarea
-                rows={2}
-                className="dgn-input"
-                placeholder="Machine performance, operator feedback, mould condition..."
-                {...form.register('notes')}
-              />
-            </Field>
+          {/* Section 3: Labor Calculation */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
+            <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
+              <div>
+                <h2 className="text-xs font-bold uppercase tracking-wider text-amber-950">
+                  3. Labor Calculation (Rate × 10 × kg used)
+                </h2>
+                <p className="mt-0.5 text-[11px] text-amber-800">
+                  Formula: Rate ₦{labourRate} × 10 × {fmt(consumedKg, 1)} kg = ₦
+                  {fmt(labourRate * 10 * consumedKg, 2)}
+                </p>
+              </div>
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
+                ₦{fmt(labourRate * 10 * consumedKg, 2)}
+              </span>
+            </div>
+
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              <Field label="Labor Rate (₦)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input bg-white"
+                  placeholder="e.g. 10"
+                  {...form.register('labourRate', {
+                    onChange: (e) => handleRateChange(e.target.value),
+                  })}
+                />
+              </Field>
+
+              <Field label="Calculated Labour Cost ₦ (Editable)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input font-bold text-amber-950 bg-white"
+                  {...form.register('labourCost')}
+                />
+              </Field>
+            </div>
           </div>
-        </Card>
 
-        {/* Live Metrics Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
-          <StatPill
-            label="Reject %"
-            value={`${liveMetrics.rejectPct}%`}
-            tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
-          />
-          <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
-          <StatPill
-            label="OEE (live)"
-            value={`${liveMetrics.oee}%`}
-            tone={liveMetrics.oee >= 80 ? 'success' : liveMetrics.oee >= 60 ? 'accent' : 'default'}
-          />
-        </div>
+          {/* Section 4: Other Costs */}
+          <div>
+            <div className="border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">4. Energy & Other Costs</h2>
+            </div>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              <Field label="Energy ₦">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input"
+                  {...form.register('energyCost')}
+                />
+              </Field>
+              <Field label="Other Cost ₦">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input"
+                  {...form.register('otherCost')}
+                />
+              </Field>
+            </div>
+          </div>
 
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-ghost"
-            onClick={() => navigate('/production')}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={form.formState.isSubmitting}
-            className="dgn-btn dgn-btn-primary flex items-center gap-2"
-          >
-            <CheckCircle2 className="size-4" />
-            {form.formState.isSubmitting ? 'Saving Output…' : 'Complete Run & Save Output'}
-          </button>
-        </div>
-      </form>
+          {/* Live Metrics Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-zinc-100">
+            <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
+            <StatPill
+              label="Reject %"
+              value={`${liveMetrics.rejectPct}%`}
+              tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
+            />
+            <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
+            <StatPill
+              label="OEE (live)"
+              value={`${liveMetrics.oee}%`}
+              tone={liveMetrics.oee >= 80 ? 'success' : liveMetrics.oee >= 60 ? 'accent' : 'default'}
+            />
+          </div>
+
+          {/* Quality Control Auto-Approval Checkbox */}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 transition-colors hover:bg-emerald-50/80">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                {...form.register('autoRelease')}
+              />
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  Auto-approve for sale (Skip Quality Control & ready to sell)
+                </span>
+                <p className="text-[11px] text-emerald-700">
+                  When active, finishes with <strong>ACCEPTED</strong> status so it is immediately available for sale in the Sales module. Uncheck if this batch must go through manual inspection in the QC queue.
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-100">
+            <button
+              type="button"
+              className="dgn-btn dgn-btn-ghost text-xs"
+              onClick={() => navigate('/production')}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={form.formState.isSubmitting}
+              className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="size-4" />
+              {form.formState.isSubmitting ? 'Saving Output…' : 'Complete Run & Save Output'}
+            </button>
+          </div>
+        </form>
+      </Card>
     </div>
   )
 }
