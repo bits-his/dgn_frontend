@@ -45,7 +45,7 @@ export function MastersPage() {
     mutationFn: async () => {
       const payloads: Record<TabKey, Record<string, unknown>> = {
         materials: { code, name, category: extra, uom: 'kg', isActive: true },
-        suppliers: { code, name, supplierType: extra, isActive: true },
+        suppliers: { name, supplierType: extra, isActive: true },
         products: { code, name, uom: extra || 'pcs', isActive: true },
         machines: { code, name, machineType: extra || 'PRODUCTION', isActive: true },
         customers: { code, name, customerType: extra || 'WHOLESALE', isActive: true },
@@ -109,14 +109,16 @@ export function MastersPage() {
             createMutation.mutate()
           }}
         >
-          <Field label="Code">
-            <input
-              className="dgn-input"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              required
-            />
-          </Field>
+          {tab !== 'suppliers' && (
+            <Field label="Code">
+              <input
+                className="dgn-input"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+              />
+            </Field>
+          )}
           <Field label="Name">
             <input
               className="dgn-input"

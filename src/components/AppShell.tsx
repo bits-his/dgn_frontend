@@ -60,7 +60,6 @@ const recyclingGroup: NavGroup = {
   icon: Factory,
   items: [
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, permission: 'receiving.create' },
-    { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
     { to: '/process/sorting', label: 'Sorting', icon: Filter, permission: 'batch.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, permission: 'batch.create' },
@@ -69,6 +68,7 @@ const recyclingGroup: NavGroup = {
 }
 
 const mainNavRest: NavItem[] = [
+  { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
   { to: '/production', label: 'Production', icon: Cog, permission: 'production.create' },
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory.view' },

@@ -14,7 +14,6 @@ type Supplier = {
 }
 
 type FormState = {
-  code: string
   name: string
   supplierType: string
   phone: string
@@ -23,7 +22,6 @@ type FormState = {
 }
 
 const emptyForm: FormState = {
-  code: '',
   name: '',
   supplierType: 'PICKER',
   phone: '',
@@ -81,7 +79,6 @@ export function SuppliersPage() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const payload = {
-        code: form.code.trim() || undefined,
         name: form.name.trim(),
         supplierType: form.supplierType || 'PICKER',
         phone: form.phone.trim() || null,
@@ -93,12 +90,7 @@ export function SuppliersPage() {
         const { data } = await api.patch(`/masters/suppliers/${editingId}`, payload)
         return data.data as Supplier
       }
-      const body = {
-        ...payload,
-        code: payload.code || `SUP-${Date.now().toString().slice(-6)}`,
-        isActive: true,
-      }
-      const { data } = await api.post('/masters/suppliers', body)
+      const { data } = await api.post('/masters/suppliers', payload)
       return data.data as Supplier
     },
     onSuccess: async () => {
@@ -134,7 +126,6 @@ export function SuppliersPage() {
   const startEdit = (row: Supplier) => {
     setEditingId(row.id)
     setForm({
-      code: row.code || '',
       name: row.name || '',
       supplierType: row.supplierType || 'PICKER',
       phone: row.phone || '',
@@ -171,6 +162,15 @@ export function SuppliersPage() {
             </button>
           )}
         </div>
+        {editingId && (
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">
+            Code:{' '}
+            <span className="font-mono font-medium text-[var(--ink)]">
+              {suppliers.data?.find((s) => s.id === editingId)?.code || '—'}
+            </span>{' '}
+            (auto)
+          </p>
+        )}
 
         <form
           className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
@@ -186,14 +186,6 @@ export function SuppliersPage() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
               required
               placeholder="Supplier name"
-            />
-          </Field>
-          <Field label="Code" hint={editingId ? undefined : 'Optional — auto if blank'}>
-            <input
-              className="dgn-input"
-              value={form.code}
-              onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-              placeholder="SUP-…"
             />
           </Field>
           <Field label="Type">

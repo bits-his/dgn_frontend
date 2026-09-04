@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
 import { cn } from '@/lib/utils'
@@ -30,7 +30,6 @@ async function fetchMaster(path: string) {
 
 export function ScrapReceivingPage() {
   const navigate = useNavigate()
-  const qc = useQueryClient()
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ netWeight: number } | null>(null)
   const [success, setSuccess] = useState<{
@@ -38,14 +37,6 @@ export function ScrapReceivingPage() {
     nextStage: string
     inboundForm: string
   } | null>(null)
-  const [showNewSupplier, setShowNewSupplier] = useState(false)
-  const [newSupplier, setNewSupplier] = useState({
-    code: '',
-    name: '',
-    supplierType: 'PICKER',
-    phone: '',
-  })
-  const [supplierMsg, setSupplierMsg] = useState('')
 
   const materials = useQuery({
     queryKey: ['materials'],
@@ -58,38 +49,6 @@ export function ScrapReceivingPage() {
   const locations = useQuery({
     queryKey: ['locations'],
     queryFn: () => fetchMaster('/masters/locations'),
-  })
-
-  const createSupplier = useMutation({
-    mutationFn: async () => {
-      const code =
-        newSupplier.code.trim() ||
-        `SUP-${Date.now().toString().slice(-6)}`
-      const { data } = await api.post('/masters/suppliers', {
-        code,
-        name: newSupplier.name.trim(),
-        supplierType: newSupplier.supplierType || 'PICKER',
-        phone: newSupplier.phone.trim() || null,
-        isActive: true,
-      })
-      return data.data as MasterItem
-    },
-    onSuccess: async (row) => {
-      setSupplierMsg('Supplier saved')
-      setShowNewSupplier(false)
-      setNewSupplier({ code: '', name: '', supplierType: 'PICKER', phone: '' })
-      await qc.invalidateQueries({ queryKey: ['suppliers'] })
-      await qc.invalidateQueries({ queryKey: ['masters', 'suppliers'] })
-      setValue('supplierId', String(row.id))
-    },
-    onError: (err: unknown) => {
-      const axiosErr = err as { response?: { data?: { err?: string; msg?: string } } }
-      setSupplierMsg(
-        axiosErr.response?.data?.err ||
-          axiosErr.response?.data?.msg ||
-          'Could not save supplier',
-      )
-    },
   })
 
   const { register, handleSubmit, watch, setValue, formState } = useForm<FormValues>({
@@ -264,86 +223,13 @@ export function ScrapReceivingPage() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold tracking-tight">Material & store</h2>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                to="/suppliers"
-                className="text-sm font-semibold text-[var(--ink-muted)] hover:text-[var(--accent-strong)]"
-              >
-                All suppliers
-              </Link>
-              <button
-                type="button"
-                className="text-sm font-semibold text-[var(--accent-strong)]"
-                onClick={() => {
-                  setShowNewSupplier((v) => !v)
-                  setSupplierMsg('')
-                }}
-              >
-                {showNewSupplier ? 'Cancel new supplier' : '+ New supplier'}
-              </button>
-            </div>
+            <Link
+              to="/suppliers"
+              className="text-sm font-semibold text-[var(--accent-strong)]"
+            >
+              Manage suppliers
+            </Link>
           </div>
-
-          {showNewSupplier && (
-            <div className="mt-4 rounded-xl bg-zinc-50 p-3 ring-1 ring-[var(--line)]">
-              <p className="text-sm font-semibold">Create supplier</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Name">
-                  <input
-                    className="dgn-input"
-                    value={newSupplier.name}
-                    onChange={(e) => setNewSupplier((s) => ({ ...s, name: e.target.value }))}
-                    placeholder="Supplier name"
-                  />
-                </Field>
-                <Field label="Code" hint="Optional — auto if blank">
-                  <input
-                    className="dgn-input"
-                    value={newSupplier.code}
-                    onChange={(e) => setNewSupplier((s) => ({ ...s, code: e.target.value }))}
-                    placeholder="SUP-…"
-                  />
-                </Field>
-                <Field label="Type">
-                  <select
-                    className="dgn-input"
-                    value={newSupplier.supplierType}
-                    onChange={(e) =>
-                      setNewSupplier((s) => ({ ...s, supplierType: e.target.value }))
-                    }
-                  >
-                    <option value="PICKER">Picker</option>
-                    <option value="DEALER">Dealer</option>
-                    <option value="COMPANY">Company</option>
-                    <option value="OTHER">Other</option>
-                  </select>
-                </Field>
-                <Field label="Phone">
-                  <input
-                    className="dgn-input"
-                    value={newSupplier.phone}
-                    onChange={(e) => setNewSupplier((s) => ({ ...s, phone: e.target.value }))}
-                  />
-                </Field>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  className="dgn-btn dgn-btn-primary"
-                  disabled={createSupplier.isPending || !newSupplier.name.trim()}
-                  onClick={() => {
-                    setSupplierMsg('')
-                    createSupplier.mutate()
-                  }}
-                >
-                  {createSupplier.isPending ? 'Saving…' : 'Save supplier'}
-                </button>
-                {supplierMsg && (
-                  <p className="text-sm text-[var(--ink-muted)]">{supplierMsg}</p>
-                )}
-              </div>
-            </div>
-          )}
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <Field label="Supplier">
