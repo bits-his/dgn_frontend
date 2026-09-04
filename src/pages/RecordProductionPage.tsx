@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card, Field, StatPill } from '@/components/ui'
 
 type MasterItem = {
   id: number
@@ -46,6 +46,7 @@ type SingleStepFormValues = {
   energyCost: string
   otherCost: string
   notes: string
+  autoRelease: boolean
 }
 
 function calculateMinutesBetween(startTime?: string, endTime?: string): number {
@@ -135,6 +136,7 @@ export function RecordProductionPage() {
       energyCost: '0',
       otherCost: '0',
       notes: '',
+      autoRelease: true,
     },
   })
 
@@ -227,6 +229,7 @@ export function RecordProductionPage() {
         labourCost: Number(values.labourCost || 0),
         energyCost: Number(values.energyCost || 0),
         otherCost: Number(values.otherCost || 0),
+        autoRelease: values.autoRelease !== false,
         notes: values.notes || null,
         confirmUnusualRun,
       })
@@ -262,359 +265,365 @@ export function RecordProductionPage() {
   const selectedBatch = inputs.data?.find((b) => b.batchNumber === form.watch('inputBatchNumber'))
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
-      {/* Back Link */}
-      <div>
-        <Link
-          to="/production"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900 transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to Production Runs
-        </Link>
-      </div>
-
-      <PageHeader
-        eyebrow="Shop Floor Manufacturing"
-        title="Record Production (1-Step Completed)"
-        description="Log a complete production run with material consumed, shift time selection, good and reject pieces, and labor cost."
-      />
-
-      {serverError && (
-        <div className="rounded-xl bg-red-50 p-4 text-sm font-medium text-red-700 border border-red-200">
-          {serverError}
-        </div>
-      )}
-
-      {warning && (
-        <div className="rounded-xl bg-amber-50 p-4 border border-amber-200">
-          <p className="text-sm font-semibold text-amber-900">
-            Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
-          </p>
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-primary mt-3 text-xs"
-            onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
-          >
-            Confirm unusual run
-          </button>
-        </div>
-      )}
-
-      <form className="space-y-4" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
-        {/* Machine & Product */}
-        <Card>
-          <h2 className="text-base font-semibold text-zinc-900">Machine, Product & Staff</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Machine">
-              <select className="dgn-input" {...form.register('machineId', { required: true })}>
-                <option value="">Select machine</option>
-                {machines.data?.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name} ({m.code})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Product">
-              <select className="dgn-input" {...form.register('productId', { required: true })}>
-                <option value="">Select product</option>
-                {products.data?.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.uom || 'pcs'})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Shift (Auto-sets standard times)">
-              <select className="dgn-input" {...form.register('shiftId')}>
-                <option value="">Select shift</option>
-                {shifts.data?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.startTime || ''} - {s.endTime || ''})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Operator">
-              <select className="dgn-input" {...form.register('operatorName')}>
-                <option value="">Select staff</option>
-                {(staff.data || []).map((e) => {
-                  const name =
-                    `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
-                    e.employeeCode ||
-                    `Staff ${e.id}`
-                  return (
-                    <option key={e.id} value={name}>
-                      {name} {e.employeeCode ? `(${e.employeeCode})` : ''}
-                    </option>
-                  )
-                })}
-              </select>
-            </Field>
-          </div>
-        </Card>
-
-        {/* Shift Timing & Runtime Selection */}
-        <Card>
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold text-zinc-900">Shift Timing & Runtime</h2>
-            <span className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-bold text-zinc-700">
-              Runtime: {Math.floor(runtimeMins / 60)} hrs {runtimeMins % 60} mins ({runtimeMins} min)
-            </span>
-          </div>
-          <p className="text-xs text-zinc-500 mt-1">
-            Times pre-fill based on the selected shift. You can adjust the start and end times
-            freely.
-          </p>
-
-          <div className="mt-4 grid gap-4 sm:grid-cols-4">
-            <Field label="Start Time">
-              <input
-                type="time"
-                className="dgn-input font-medium"
-                {...form.register('startTime', {
-                  onChange: (e) => handleTimeChange(e.target.value, watchEndTime),
-                })}
-              />
-            </Field>
-
-            <Field label="End Time">
-              <input
-                type="time"
-                className="dgn-input font-medium"
-                {...form.register('endTime', {
-                  onChange: (e) => handleTimeChange(watchStartTime, e.target.value),
-                })}
-              />
-            </Field>
-
-            <Field label="Downtime (min)">
-              <input
-                inputMode="numeric"
-                type="number"
-                placeholder="0"
-                className="dgn-input"
-                {...form.register('downtimeMinutes')}
-              />
-            </Field>
-
-            <Field label="Downtime Reason">
-              <input
-                className="dgn-input"
-                placeholder="e.g. Power, mould adjustment"
-                {...form.register('downtimeReason')}
-              />
-            </Field>
-          </div>
-        </Card>
-
-        {/* Material & Output Units */}
-        <Card>
-          <h2 className="text-base font-semibold text-zinc-900">Material & Finished Pieces</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Dried Material Batch (Input)">
-              <select
-                className="dgn-input"
-                {...form.register('inputBatchNumber', { required: true })}
+    <div className="max-w-4xl mx-auto space-y-3">
+      <Card className="p-4 sm:p-5">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <Link
+                to="/production"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 hover:text-zinc-900 transition-colors"
               >
-                <option value="">Choose batch</option>
-                {inputs.data?.map((b) => (
-                  <option key={b.id} value={b.batchNumber}>
-                    {b.batchNumber} · {b.material?.name || b.batchType} · {b.qtyRemaining} {b.uom}{' '}
-                    available
-                  </option>
-                ))}
-              </select>
-            </Field>
+                <ArrowLeft className="size-3.5" />
+                Back
+              </Link>
+              <span className="text-zinc-300">/</span>
+              <span className="text-xs font-semibold text-[var(--accent-strong)]">Production</span>
+            </div>
+            <h1 className="mt-1 text-base font-bold text-zinc-900">
+              Record Production Run (1-Step Completed)
+            </h1>
+            <p className="text-xs text-zinc-500">
+              Directly record a finished run with material input, shift times, good/reject units, and costs.
+            </p>
+          </div>
+        </div>
 
-            <Field label="Material Consumed (kg)">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input font-bold"
-                placeholder="e.g. 100"
-                {...form.register('materialConsumed', {
-                  required: true,
-                  onChange: (e) => {
-                    handleLabourRateChange(form.getValues('labourRate'), Number(e.target.value) || 0)
-                  },
-                })}
-              />
-            </Field>
+        {serverError && (
+          <div className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700 border border-red-200">
+            {serverError}
+          </div>
+        )}
+
+        {warning && (
+          <div className="mt-3 rounded-xl bg-amber-50 p-3 border border-amber-200">
+            <p className="text-xs font-semibold text-amber-900">
+              Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
+            </p>
+            <button
+              type="button"
+              className="dgn-btn dgn-btn-primary mt-2 text-xs"
+              onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
+            >
+              Confirm unusual run
+            </button>
+          </div>
+        )}
+
+        <form className="mt-3.5 space-y-3.5" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
+          {/* Section 1: Machine, Product & Staff */}
+          <div>
+            <div className="border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">1. Machine, Product & Staff</h2>
+            </div>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              <Field label="Machine">
+                <select className="dgn-input" {...form.register('machineId', { required: true })}>
+                  <option value="">Select machine</option>
+                  {machines.data?.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.code})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Product">
+                <select className="dgn-input" {...form.register('productId', { required: true })}>
+                  <option value="">Select product</option>
+                  {products.data?.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.uom || 'pcs'})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Shift (Auto-sets standard times)">
+                <select className="dgn-input" {...form.register('shiftId')}>
+                  <option value="">Select shift</option>
+                  {shifts.data?.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.startTime || ''} - {s.endTime || ''})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Operator">
+                <select className="dgn-input" {...form.register('operatorName')}>
+                  <option value="">Select staff</option>
+                  {(staff.data || []).map((e) => {
+                    const name =
+                      `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
+                      e.employeeCode ||
+                      `Staff ${e.id}`
+                    return (
+                      <option key={e.id} value={name}>
+                        {name} {e.employeeCode ? `(${e.employeeCode})` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </Field>
+            </div>
           </div>
 
-          {selectedBatch && (
-            <p className="mt-2 text-xs text-zinc-500">
-              Selected: <strong>{selectedBatch.batchNumber}</strong> · Available:{' '}
-              <strong>{selectedBatch.qtyRemaining} kg</strong>
-            </p>
-          )}
-
-          {/* Automatic Output Calculation: Good + Bad = Total */}
-          <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold uppercase tracking-wider text-zinc-600">
-                Units Produced Breakdown
-              </p>
-              <span className="text-xs font-semibold text-emerald-800">
-                Total Produced: <strong>{totalProduced.toLocaleString()} pcs</strong>
+          {/* Section 2: Shift Timing & Runtime */}
+          <div>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">2. Shift Timing & Runtime</h2>
+              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-700">
+                Runtime: {Math.floor(runtimeMins / 60)}h {runtimeMins % 60}m ({runtimeMins} min)
               </span>
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Good Units (pcs)">
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-4">
+              <Field label="Start Time">
                 <input
-                  inputMode="decimal"
-                  type="number"
-                  placeholder="e.g. 480"
-                  className="dgn-input font-bold text-emerald-700"
-                  {...form.register('qtyGood', { required: true })}
+                  type="time"
+                  className="dgn-input font-medium"
+                  {...form.register('startTime', {
+                    onChange: (e) => handleTimeChange(e.target.value, watchEndTime),
+                  })}
                 />
               </Field>
 
-              <Field label="Reject Units (pcs)">
+              <Field label="End Time">
                 <input
-                  inputMode="decimal"
+                  type="time"
+                  className="dgn-input font-medium"
+                  {...form.register('endTime', {
+                    onChange: (e) => handleTimeChange(watchStartTime, e.target.value),
+                  })}
+                />
+              </Field>
+
+              <Field label="Downtime (min)">
+                <input
+                  inputMode="numeric"
                   type="number"
                   placeholder="0"
-                  className="dgn-input font-semibold text-red-600"
-                  {...form.register('qtyReject')}
+                  className="dgn-input"
+                  {...form.register('downtimeMinutes')}
                 />
               </Field>
 
-              <Field
-                label="Total Produced (pcs) — Auto Calculated"
-                hint="Automatically calculated: Good + Reject"
-              >
+              <Field label="Downtime Reason">
                 <input
-                  readOnly
-                  type="number"
-                  value={totalProduced}
-                  className="dgn-input font-bold bg-zinc-100 text-zinc-900 cursor-not-allowed"
+                  className="dgn-input"
+                  placeholder="e.g. Power, mould change"
+                  {...form.register('downtimeReason')}
                 />
               </Field>
             </div>
           </div>
-        </Card>
 
-        {/* Labor calculation */}
-        <Card className="border-amber-200 bg-amber-50/40">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-amber-950">
-                Labor Calculation (Rate × 10 × kg used)
-              </h2>
-              <p className="mt-0.5 text-xs text-amber-800">
-                Formula: Rate ₦{watchRate} × 10 × {watchConsumed} kg = ₦
-                {(watchRate * 10 * watchConsumed).toFixed(2)}
-              </p>
+          {/* Section 3: Material & Finished Pieces Output */}
+          <div>
+            <div className="border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">3. Material & Finished Pieces Output</h2>
             </div>
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-900">
-              ₦{(watchRate * 10 * watchConsumed).toFixed(2)}
-            </span>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              <Field
+                label="Dried Material Batch (Input)"
+                hint={selectedBatch ? `${selectedBatch.qtyRemaining} kg available` : undefined}
+              >
+                <select
+                  className="dgn-input"
+                  {...form.register('inputBatchNumber', { required: true })}
+                >
+                  <option value="">Choose batch</option>
+                  {inputs.data?.map((b) => (
+                    <option key={b.id} value={b.batchNumber}>
+                      {b.batchNumber} · {b.material?.name || b.batchType} ({b.qtyRemaining} {b.uom})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Material Consumed (kg)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input font-bold"
+                  placeholder="e.g. 100"
+                  {...form.register('materialConsumed', {
+                    required: true,
+                    onChange: (e) => {
+                      handleLabourRateChange(form.getValues('labourRate'), Number(e.target.value) || 0)
+                    },
+                  })}
+                />
+              </Field>
+            </div>
+
+            {/* Output Pieces Breakdown */}
+            <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-600">
+                  Finished Pieces Breakdown
+                </span>
+                <span className="text-xs font-bold text-emerald-800">
+                  Total: {totalProduced.toLocaleString()} pcs
+                </span>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field label="Good Units (pcs)">
+                  <input
+                    inputMode="decimal"
+                    type="number"
+                    placeholder="e.g. 480"
+                    className="dgn-input font-bold text-emerald-700 bg-white"
+                    {...form.register('qtyGood', { required: true })}
+                  />
+                </Field>
+
+                <Field label="Reject Units (pcs)">
+                  <input
+                    inputMode="decimal"
+                    type="number"
+                    placeholder="0"
+                    className="dgn-input font-semibold text-red-600 bg-white"
+                    {...form.register('qtyReject')}
+                  />
+                </Field>
+
+                <Field label="Total Produced (pcs)">
+                  <input
+                    readOnly
+                    type="number"
+                    value={totalProduced}
+                    className="dgn-input font-bold bg-zinc-100 text-zinc-900 cursor-not-allowed"
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Labor Rate (₦)">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                placeholder="e.g. 10"
-                {...form.register('labourRate', {
-                  onChange: (e) => {
-                    handleLabourRateChange(
-                      e.target.value,
-                      Number(form.getValues('materialConsumed')) || 0
-                    )
-                  },
-                })}
-              />
-            </Field>
+          {/* Section 4: Labor & Operating Costs */}
+          <div>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">4. Labor & Operating Costs</h2>
+              <span className="text-[11px] font-medium text-amber-800">
+                Formula: Rate ₦{watchRate} × 10 × {watchConsumed} kg = ₦{(watchRate * 10 * watchConsumed).toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-4">
+              <Field label="Labor Rate (₦)">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input"
+                  placeholder="e.g. 10"
+                  {...form.register('labourRate', {
+                    onChange: (e) => {
+                      handleLabourRateChange(
+                        e.target.value,
+                        Number(form.getValues('materialConsumed')) || 0
+                      )
+                    },
+                  })}
+                />
+              </Field>
 
-            <Field label="Calculated Labour Cost ₦ (Editable)">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input font-bold text-amber-900"
-                {...form.register('labourCost')}
-              />
+              <Field label="Labour Cost ₦">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input font-bold text-amber-900"
+                  {...form.register('labourCost')}
+                />
+              </Field>
+
+              <Field label="Energy ₦">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input"
+                  {...form.register('energyCost')}
+                />
+              </Field>
+
+              <Field label="Other Cost ₦">
+                <input
+                  inputMode="decimal"
+                  type="number"
+                  step="any"
+                  className="dgn-input"
+                  {...form.register('otherCost')}
+                />
+              </Field>
+            </div>
+          </div>
+
+          {/* Section 5: Notes */}
+          <div>
+            <Field label="Notes / Shift Remarks">
+              <textarea rows={2} className="dgn-input" placeholder="Optional notes on this run..." {...form.register('notes')} />
             </Field>
           </div>
-        </Card>
 
-        {/* Costs & Notes */}
-        <Card>
-          <h2 className="text-base font-semibold text-zinc-900">Energy & Other Costs</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Energy ₦">
+          {/* Quality Control Auto-Approval Checkbox */}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 transition-colors hover:bg-emerald-50/80">
+            <label className="flex items-start gap-2.5 cursor-pointer">
               <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                {...form.register('energyCost')}
+                type="checkbox"
+                className="mt-0.5 size-4 rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                {...form.register('autoRelease')}
               />
-            </Field>
-            <Field label="Other Cost ₦">
-              <input
-                inputMode="decimal"
-                type="number"
-                step="any"
-                className="dgn-input"
-                {...form.register('otherCost')}
-              />
-            </Field>
+              <div className="space-y-0.5">
+                <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  Auto-approve for sale (Skip Quality Control & ready to sell)
+                </span>
+                <p className="text-[11px] text-emerald-700">
+                  When active, finishes with <strong>ACCEPTED</strong> status so it is immediately available for sale in the Sales module. Uncheck if this batch must go through manual inspection in the QC queue.
+                </p>
+              </div>
+            </label>
           </div>
 
-          <div className="mt-4">
-            <Field label="Notes">
-              <textarea rows={2} className="dgn-input" {...form.register('notes')} />
-            </Field>
+          {/* Live Metrics Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-zinc-100">
+            <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
+            <StatPill
+              label="Reject %"
+              value={`${liveMetrics.rejectPct}%`}
+              tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
+            />
+            <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
+            <StatPill
+              label="OEE (live)"
+              value={`${liveMetrics.oee}%`}
+              tone={liveMetrics.oee >= 80 ? 'success' : liveMetrics.oee >= 60 ? 'accent' : 'default'}
+            />
           </div>
-        </Card>
 
-        {/* Live Metrics Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
-          <StatPill
-            label="Reject %"
-            value={`${liveMetrics.rejectPct}%`}
-            tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
-          />
-          <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
-          <StatPill
-            label="OEE (live)"
-            value={`${liveMetrics.oee}%`}
-            tone={liveMetrics.oee >= 80 ? 'success' : liveMetrics.oee >= 60 ? 'accent' : 'default'}
-          />
-        </div>
-
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-ghost"
-            onClick={() => navigate('/production')}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={form.formState.isSubmitting}
-            className="dgn-btn dgn-btn-primary flex items-center gap-2"
-          >
-            <CheckCircle2 className="size-4" />
-            {form.formState.isSubmitting ? 'Saving…' : 'Save Completed Run'}
-          </button>
-        </div>
-      </form>
+          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-100">
+            <button
+              type="button"
+              className="dgn-btn dgn-btn-ghost text-xs"
+              onClick={() => navigate('/production')}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={form.formState.isSubmitting}
+              className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
+            >
+              <CheckCircle2 className="size-4" />
+              {form.formState.isSubmitting ? 'Saving…' : 'Save Completed Run'}
+            </button>
+          </div>
+        </form>
+      </Card>
     </div>
   )
 }

@@ -241,16 +241,10 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Dispatch
+              Sale
             </p>
             <p className="mt-1 text-sm text-zinc-800">
-              Destination: {s.destination || '—'}
-            </p>
-            <p className="text-sm text-zinc-800">Vehicle: {s.vehicleNumber || '—'}</p>
-            <p className="text-sm text-zinc-800">Driver: {s.driverName || '—'}</p>
-            {s.driverPhone && <p className="text-sm text-zinc-800">{s.driverPhone}</p>}
-            <p className="text-sm text-zinc-800">
-              Dispatched: {s.dispatchedAt ? formatWhen(s.dispatchedAt) : '—'}
+              Date: {formatBusinessDate(s.businessDate)}
             </p>
             <p className="text-sm text-zinc-800">Recorded by: {s.soldBy || '—'}</p>
           </div>
@@ -335,7 +329,6 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
             <>
               <DocRow label="Goods value" value={money(s.subtotal)} />
               <DocRow label="Discount" value={`− ${money(s.discount)}`} />
-              <DocRow label="Transport" value={`+ ${money(s.transportCharge)}`} />
             </>
           )}
           <DocRow label="Invoice total" value={money(s.totalAmount)} strong />
@@ -363,8 +356,7 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
           </div>
         </footer>
         <p className="mt-8 text-xs text-zinc-500">
-          Goods leave the factory against this invoice. Please check quantity and condition on
-          collection. Balance on credit sales is due per the terms above.
+          Please check quantity and condition. Balance on credit sales is due per the terms above.
         </p>
       </article>
     </div>

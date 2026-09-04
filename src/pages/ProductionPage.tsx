@@ -130,6 +130,32 @@ function formatDateTime(raw?: string | null) {
   })
 }
 
+function getCurrentTimeString(date = new Date()): string {
+  const h = String(date.getHours()).padStart(2, '0')
+  const m = String(date.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+function getTimeMinusMinutes(minutes: number, baseDate = new Date()): string {
+  const d = new Date(baseDate.getTime() - minutes * 60 * 1000)
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+function calculateMinutesBetween(startTime?: string, endTime?: string): number {
+  if (!startTime || !endTime) return 0
+  const [sh, sm] = startTime.split(':').map(Number)
+  const [eh, em] = endTime.split(':').map(Number)
+  if (Number.isNaN(sh) || Number.isNaN(sm) || Number.isNaN(eh) || Number.isNaN(em)) return 0
+
+  let diff = eh * 60 + em - (sh * 60 + sm)
+  if (diff < 0) {
+    diff += 24 * 60
+  }
+  return diff
+}
+
 export function ProductionPage() {
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
@@ -143,6 +169,18 @@ export function ProductionPage() {
   // Modal states
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
   const [serverError, setServerError] = useState('')
+
+  // Downtime modal states
+  const [downtimeRun, setDowntimeRun] = useState<ProductionRunRow | null>(null)
+  const [downtimeFrom, setDowntimeFrom] = useState<string>('')
+  const [downtimeTo, setDowntimeTo] = useState<string>('')
+  const [downtimeMinutes, setDowntimeMinutes] = useState<string>('30')
+  const [downtimeReason, setDowntimeReason] = useState<string>('Power Outage / Generator switch')
+  const [customReason, setCustomReason] = useState<string>('')
+  const [downtimeNotes, setDowntimeNotes] = useState<string>('')
+  const [isSubmittingDowntime, setIsSubmittingDowntime] = useState(false)
+  const [downtimeError, setDowntimeError] = useState('')
+  const [downtimeSuccess, setDowntimeSuccess] = useState('')
 
   // Queries
   const machines = useQuery({
@@ -289,6 +327,80 @@ export function ProductionPage() {
       } else {
         setServerError(res?.err || 'Failed to issue material and start run')
       }
+    }
+  }
+
+  const handleOpenDowntimeModal = (run: ProductionRunRow) => {
+    setDowntimeRun(run)
+    const to = getCurrentTimeString()
+    const from = getTimeMinusMinutes(30)
+    setDowntimeFrom(from)
+    setDowntimeTo(to)
+    setDowntimeMinutes('30')
+    setDowntimeReason('Power Outage / Generator switch')
+    setCustomReason('')
+    setDowntimeNotes('')
+    setDowntimeError('')
+    setDowntimeSuccess('')
+  }
+
+  const handleDowntimeTimeChange = (from: string, to: string) => {
+    setDowntimeFrom(from)
+    setDowntimeTo(to)
+    if (from && to) {
+      const diff = calculateMinutesBetween(from, to)
+      setDowntimeMinutes(String(diff))
+    }
+  }
+
+  const handleSelectPresetMinutes = (minsStr: string) => {
+    setDowntimeMinutes(minsStr)
+    const m = Number(minsStr) || 0
+    if (downtimeTo && m > 0) {
+      const [eh, em] = downtimeTo.split(':').map(Number)
+      if (!Number.isNaN(eh) && !Number.isNaN(em)) {
+        let totalMins = eh * 60 + em - m
+        if (totalMins < 0) totalMins += 24 * 60
+        const sh = String(Math.floor(totalMins / 60)).padStart(2, '0')
+        const sm = String(totalMins % 60).padStart(2, '0')
+        setDowntimeFrom(`${sh}:${sm}`)
+      }
+    }
+  }
+
+  const handleSaveDowntime = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!downtimeRun) return
+    const mins = Number(downtimeMinutes)
+    if (Number.isNaN(mins) || mins <= 0) {
+      setDowntimeError('Please enter valid downtime minutes (greater than 0)')
+      return
+    }
+
+    const reason = downtimeReason === 'Other' ? customReason.trim() || 'Other' : downtimeReason
+
+    setIsSubmittingDowntime(true)
+    setDowntimeError('')
+    try {
+      await api.post(`/production/runs/${downtimeRun.id}/downtime`, {
+        downtimeMinutes: mins,
+        downtimeReason: reason,
+        notes: downtimeNotes.trim() || undefined,
+      })
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      setDowntimeSuccess(`Logged ${mins}m downtime successfully!`)
+      setTimeout(() => {
+        setDowntimeRun(null)
+      }, 900)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
+      const msg =
+        axiosErr.response?.data?.errors?.downtimeMinutes ||
+        axiosErr.response?.data?.err ||
+        'Failed to log downtime'
+      setDowntimeError(msg)
+    } finally {
+      setIsSubmittingDowntime(false)
     }
   }
 
@@ -611,13 +723,25 @@ export function ProductionPage() {
                           </Link>
 
                           {isRunning && canCreate && (
-                            <Link
-                              to={`/production/${run.id}/complete`}
-                              className="dgn-btn dgn-btn-primary !px-2 !py-1 text-xs font-semibold flex items-center gap-1 shadow-2xs"
-                            >
-                              <CheckCircle2 className="size-3" />
-                              Complete
-                            </Link>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDowntimeModal(run)}
+                                className="dgn-btn dgn-btn-secondary !px-2 !py-1 text-xs font-semibold flex items-center gap-1 border-amber-300 text-amber-900 bg-amber-50/80 hover:bg-amber-100 transition-colors"
+                                title="Log downtime during active run"
+                              >
+                                <Clock className="size-3 text-amber-700" />
+                                Downtime{Number(run.downtimeMinutes || 0) > 0 ? ` (${run.downtimeMinutes}m)` : ''}
+                              </button>
+
+                              <Link
+                                to={`/production/${run.id}/complete`}
+                                className="dgn-btn dgn-btn-primary !px-2 !py-1 text-xs font-semibold flex items-center gap-1 shadow-2xs"
+                              >
+                                <CheckCircle2 className="size-3" />
+                                Complete
+                              </Link>
+                            </>
                           )}
                         </div>
                       </td>
@@ -632,16 +756,16 @@ export function ProductionPage() {
       {/* MODAL: RECORD ISSUING OF MATERIAL & OPERATOR */}
       {isIssueModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="relative w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl overflow-y-auto max-h-[92vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl overflow-y-auto max-h-[92vh]">
+            <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
               <div className="flex items-center gap-2">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
-                  <Play className="size-4" />
+                <div className="flex size-7 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                  <Play className="size-3.5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-zinc-900">Issue Material to Operator</h2>
+                  <h2 className="text-sm font-bold text-zinc-900">Issue Material to Operator</h2>
                   <p className="text-[11px] text-zinc-500">
-                    Give raw material to the operator to begin the machine run.
+                    Assign material and operator to begin the machine run.
                   </p>
                 </div>
               </div>
@@ -655,16 +779,16 @@ export function ProductionPage() {
             </div>
 
             {serverError && (
-              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs font-medium text-red-700 border border-red-200">
+              <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
                 {serverError}
               </div>
             )}
 
             <form
-              className="mt-3.5 space-y-3.5"
+              className="mt-2.5 space-y-2.5"
               onSubmit={issueForm.handleSubmit((vals) => handleStartRun(vals))}
             >
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 <Field label="Machine">
                   <select
                     className="dgn-input text-xs"
@@ -720,20 +844,23 @@ export function ProductionPage() {
                     })}
                   </select>
                 </Field>
-              </div>
 
-              {/* Material Input selection & quantity */}
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 space-y-2.5">
-                <Field label="Dried Material Batch (Input)">
+                <Field
+                  label="Dried Material Batch (Input)"
+                  hint={
+                    selectedInputBatch
+                      ? `${selectedInputBatch.qtyRemaining} kg available`
+                      : undefined
+                  }
+                >
                   <select
-                    className="dgn-input text-xs"
+                    className="dgn-input text-xs font-medium"
                     {...issueForm.register('inputBatchNumber', { required: true })}
                   >
                     <option value="">Choose dried batch</option>
                     {inputs.data?.map((b) => (
                       <option key={b.id} value={b.batchNumber}>
-                        {b.batchNumber} · {b.material?.name || b.batchType} ·{' '}
-                        {fmt(b.qtyRemaining, 1)} {b.uom} left
+                        {b.batchNumber} · {b.material?.name || b.batchType} ({fmt(b.qtyRemaining, 1)} {b.uom})
                       </option>
                     ))}
                   </select>
@@ -749,20 +876,13 @@ export function ProductionPage() {
                     {...issueForm.register('materialConsumed', { required: true })}
                   />
                 </Field>
-
-                {selectedInputBatch && (
-                  <p className="text-[11px] text-zinc-500">
-                    Selected batch: <strong>{selectedInputBatch.batchNumber}</strong> · Available:{' '}
-                    <strong>{selectedInputBatch.qtyRemaining} kg</strong>
-                  </p>
-                )}
               </div>
 
-              <Field label="Notes / Machine Setup Instructions">
+              <Field label="Notes / Setup Instructions">
                 <textarea
                   rows={2}
                   className="dgn-input text-xs"
-                  placeholder="e.g. Started batch with clean mould, shift note..."
+                  placeholder="Optional machine setup or shift instructions..."
                   {...issueForm.register('notes')}
                 />
               </Field>
@@ -772,7 +892,7 @@ export function ProductionPage() {
                   to="/production/new"
                   className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
                 >
-                  Or record completed run (1-step)
+                  Or record 1-step run
                 </Link>
 
                 <div className="flex items-center gap-2">
@@ -789,9 +909,183 @@ export function ProductionPage() {
                     className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
                   >
                     <Play className="size-3.5" />
-                    {issueForm.formState.isSubmitting ? 'Issuing…' : 'Start Run & Issue Material'}
+                    {issueForm.formState.isSubmitting ? 'Issuing…' : 'Start Run & Issue'}
                   </button>
                 </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: LOG DOWNTIME ON IN-PROGRESS RUN */}
+      {downtimeRun && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl overflow-y-auto max-h-[92vh]">
+            <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
+              <div className="flex items-center gap-2">
+                <div className="flex size-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                  <Clock className="size-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-zinc-900">
+                    Log Machine Downtime
+                  </h2>
+                  <p className="text-[11px] text-zinc-500">
+                    {downtimeRun.batch?.batchNumber || `Run #${downtimeRun.id}`} · {downtimeRun.machine?.name || 'Machine'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                onClick={() => setDowntimeRun(null)}
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            {downtimeSuccess && (
+              <div className="mt-2.5 rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200">
+                {downtimeSuccess}
+              </div>
+            )}
+
+            {downtimeError && (
+              <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
+                {downtimeError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveDowntime} className="mt-3 space-y-3">
+              <div className="rounded-lg bg-zinc-50 p-2 text-xs border border-zinc-200/80 flex items-center justify-between">
+                <span className="text-zinc-500">Previously Logged:</span>
+                <span className="font-bold text-zinc-800">
+                  {Number(downtimeRun.downtimeMinutes || 0)} minutes
+                  {downtimeRun.downtimeReason ? ` (${downtimeRun.downtimeReason})` : ''}
+                </span>
+              </div>
+
+              {/* FROM & TO TIME SELECTION */}
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                  Downtime Period (From & To)
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                      Stopped At (From)
+                    </span>
+                    <input
+                      type="time"
+                      className="dgn-input font-medium"
+                      value={downtimeFrom}
+                      onChange={(e) => handleDowntimeTimeChange(e.target.value, downtimeTo)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">
+                      Resumed At (To)
+                    </span>
+                    <input
+                      type="time"
+                      className="dgn-input font-medium"
+                      value={downtimeTo}
+                      onChange={(e) => handleDowntimeTimeChange(downtimeFrom, e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Calculated duration & presets */}
+              <div className="rounded-lg bg-amber-50/70 border border-amber-200/80 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-amber-950">Calculated Downtime:</span>
+                  <span className="text-sm font-bold text-amber-900">
+                    {downtimeMinutes} minutes
+                    {Number(downtimeMinutes) >= 60 && ` (${Math.floor(Number(downtimeMinutes) / 60)}h ${Number(downtimeMinutes) % 60}m)`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-amber-200/60">
+                  <span className="text-[10px] font-semibold text-amber-800 uppercase tracking-wider">Quick:</span>
+                  {['15', '30', '45', '60', '90', '120'].map((mins) => (
+                    <button
+                      key={mins}
+                      type="button"
+                      onClick={() => handleSelectPresetMinutes(mins)}
+                      className={`rounded px-1.5 py-0.5 text-xs font-medium transition-colors ${
+                        downtimeMinutes === mins
+                          ? 'bg-amber-600 text-white font-bold'
+                          : 'bg-white text-zinc-700 hover:bg-amber-100 border border-amber-200'
+                      }`}
+                    >
+                      {mins}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                  Reason for Downtime
+                </label>
+                <select
+                  className="dgn-input text-xs"
+                  value={downtimeReason}
+                  onChange={(e) => setDowntimeReason(e.target.value)}
+                >
+                  <option value="Power Outage / Generator switch">Power Outage / Generator switch</option>
+                  <option value="Mould Jammed / Cleaning">Mould Jammed / Cleaning</option>
+                  <option value="Machine Breakdown / Mechanical fault">Machine Breakdown / Mechanical fault</option>
+                  <option value="Heater / Temperature issue">Heater / Temperature issue</option>
+                  <option value="Raw Material shortage / feed issue">Raw Material shortage / feed issue</option>
+                  <option value="Operator Break / Shift change">Operator Break / Shift change</option>
+                  <option value="Preventive Maintenance">Preventive Maintenance</option>
+                  <option value="Other">Other reason…</option>
+                </select>
+                {downtimeReason === 'Other' && (
+                  <input
+                    type="text"
+                    className="dgn-input text-xs mt-1.5"
+                    placeholder="Specify downtime reason…"
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    required
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-zinc-700 mb-1">
+                  Floor Notes / Observation (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  className="dgn-input text-xs"
+                  placeholder="e.g. Fuse tripped, replaced heating element, cleared nozzle..."
+                  value={downtimeNotes}
+                  onChange={(e) => setDowntimeNotes(e.target.value)}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-ghost text-xs"
+                  onClick={() => setDowntimeRun(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingDowntime}
+                  className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
+                >
+                  <Clock className="size-3.5" />
+                  {isSubmittingDowntime ? 'Saving…' : 'Save Downtime'}
+                </button>
               </div>
             </form>
           </div>
