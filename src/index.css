@@ -1,0 +1,140 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Sora';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('https://cdn.jsdelivr.net/fontsource/fonts/sora@latest/latin-wght-normal.woff2')
+    format('woff2-variations');
+}
+
+:root {
+  --bg: #eef1f4;
+  --bg-elevated: #ffffff;
+  --bg-sidebar: #12171d;
+  --bg-sidebar-hover: #1c242e;
+  --bg-sidebar-active: #243040;
+  --ink: #14191f;
+  --ink-muted: #5c6b7a;
+  --ink-faint: #8a97a5;
+  --line: #d7dee6;
+  --accent: #d97706;
+  --accent-strong: #b45309;
+  --accent-soft: rgba(217, 119, 6, 0.12);
+  --success: #0f766e;
+  --danger: #b91c1c;
+  --warning: #b45309;
+  --shadow: 0 10px 30px rgba(18, 23, 29, 0.06);
+  --radius: 16px;
+  --font-display: 'Sora', 'Avenir Next', 'Segoe UI', sans-serif;
+  --font-body: 'Sora', 'Avenir Next', 'Segoe UI', sans-serif;
+
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(217, 119, 6, 0.08), transparent 55%),
+    radial-gradient(900px 400px at 100% 0%, rgba(15, 118, 110, 0.06), transparent 50%),
+    var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100svh;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+}
+
+.dgn-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.dgn-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.85rem 0.95rem;
+  font: inherit;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dgn-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.dgn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  border-radius: 12px;
+  padding: 0.85rem 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.dgn-btn:active {
+  transform: translateY(1px);
+}
+
+.dgn-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dgn-btn-primary {
+  background: linear-gradient(180deg, #f59e0b, var(--accent));
+  color: #1a1205;
+}
+
+.dgn-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #fbbf24, var(--accent-strong));
+}
+
+.dgn-btn-secondary {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.dgn-btn-ghost {
+  background: transparent;
+  color: inherit;
+}
+
+.dgn-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+}
