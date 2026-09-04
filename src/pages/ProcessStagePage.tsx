@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
 import { SORT_COLORS } from '@/lib/sortColors'
@@ -13,8 +14,8 @@ const STAGE_META: Record<
     title: string
     eyebrow: string
     description: string
-    inputLabel: string
-    inputPlaceholder: string
+    queueTitle: string
+    emptyHint: string
     showWashFields?: boolean
     showDryFields?: boolean
     showMachine?: boolean
@@ -25,18 +26,18 @@ const STAGE_META: Record<
     title: 'Sorting',
     eyebrow: 'Recycling stage',
     description:
-      'Pick a scrap ticket only. Split by colour — each colour gets its own BAT- lot for the next stages.',
-    inputLabel: 'Scrap ticket',
-    inputPlaceholder: 'Choose scrap ticket (SCR-…)',
+      'Choose a scrap ticket from the queue, then split it by colour into BAT- lots.',
+    queueTitle: 'Scrap tickets waiting to sort',
+    emptyHint: 'No scrap tickets waiting. Buy raw scrap first.',
     showTeam: true,
   },
   crushing: {
     title: 'Crushing',
     eyebrow: 'Recycling stage',
     description:
-      'Only sorted colour lots appear here. Crush one BAT- lot; the same number stays with this colour.',
-    inputLabel: 'Sorted lot',
-    inputPlaceholder: 'Choose sorted lot (BAT-…)',
+      'Choose a sorted colour lot from the queue. The same BAT- number continues after crushing.',
+    queueTitle: 'Sorted lots waiting to crush',
+    emptyHint: 'No sorted lots waiting. Finish sorting first.',
     showMachine: true,
     showTeam: true,
   },
@@ -44,9 +45,9 @@ const STAGE_META: Record<
     title: 'Washing',
     eyebrow: 'Recycling stage',
     description:
-      'Only crushed lots appear here (from crushing, or scrap bought already crushed). Same BAT- number.',
-    inputLabel: 'Crushed lot',
-    inputPlaceholder: 'Choose crushed lot (BAT-…)',
+      'Choose a crushed lot from the queue (from crushing, or bought already crushed).',
+    queueTitle: 'Crushed lots waiting to wash',
+    emptyHint: 'No crushed lots waiting. Crush a sorted lot, or buy already crushed.',
     showWashFields: true,
     showMachine: true,
     showTeam: false,
@@ -54,9 +55,9 @@ const STAGE_META: Record<
   drying: {
     title: 'Drying',
     eyebrow: 'Recycling stage',
-    description: 'Only washed lots appear here. Dry ready for production — same BAT- number.',
-    inputLabel: 'Washed lot',
-    inputPlaceholder: 'Choose washed lot (BAT-…)',
+    description: 'Choose a washed lot from the queue. Dry it ready for production.',
+    queueTitle: 'Washed lots waiting to dry',
+    emptyHint: 'No washed lots waiting. Finish washing first.',
     showDryFields: true,
     showMachine: true,
     showTeam: true,
@@ -88,13 +89,73 @@ type InputBatch = {
   batchNumber: string
   batchType: string
   qtyRemaining: number | string
+  qtyIn?: number | string
   uom: string
   sortColor?: string | null
+  businessDate?: string | null
+  createdAt?: string
   material?: { name: string }
+  location?: { name: string }
 }
 
 type ColorLine = { color: string; qtyKg: number }
 type ColorLot = { batchNumber: string; color: string; qtyKg: number }
+
+function colorName(code?: string | null) {
+  if (!code) return '—'
+  return SORT_COLORS.find((c) => c.code === code)?.name || code
+}
+
+function formatBusinessDate(raw?: string | null) {
+  if (!raw || raw.length !== 6) return null
+  const yy = Number(raw.slice(0, 2))
+  const mm = Number(raw.slice(2, 4))
+  const dd = Number(raw.slice(4, 6))
+  if (!yy || !mm || !dd) return null
+  return new Date(2000 + yy, mm - 1, dd).toLocaleDateString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatCreatedAt(raw?: string) {
+  if (!raw) return '—'
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString(undefined, {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function qtyLabel(value: string | number | undefined, uom: string) {
+  if (value == null || value === '') return '—'
+  return `${Number(value).toLocaleString()} ${uom || 'kg'}`
+}
+
+const emptyForm = (batchNumber = ''): FormValues => ({
+  inputBatchNumber: batchNumber,
+  qtyInput: '',
+  qtyUsable: '',
+  qtyReject: '0',
+  qtyWaste: '0',
+  machineName: '',
+  operatorName: '',
+  teamName: '',
+  labourCost: '0',
+  energyCost: '0',
+  waterQty: '0',
+  chemicalCost: '0',
+  detergentCost: '0',
+  moistureReading: '',
+  downtimeMinutes: '0',
+  downtimeReason: '',
+  notes: '',
+})
 
 export function ProcessStageForm({
   stage = 'sorting',
@@ -106,8 +167,17 @@ export function ProcessStageForm({
 }) {
   const isSorting = stage === 'sorting'
   const isWashing = stage === 'washing'
+  const isCrushOrDry = stage === 'crushing' || stage === 'drying'
+  const showsWaste = isSorting || isWashing
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [activeBatch, setActiveBatch] = useState<string | null>(
+    () => presetBatchNumber || searchParams.get('batch') || null,
+  )
+  const [queueFilter, setQueueFilter] = useState('')
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
   const [successBatch, setSuccessBatch] = useState<string | null>(null)
@@ -130,6 +200,15 @@ export function ProcessStageForm({
     },
   })
 
+  const machines = useQuery({
+    queryKey: ['machines'],
+    queryFn: async () => {
+      const { data } = await api.get('/masters/machines')
+      return data.data as Array<{ id: number; name: string; code?: string }>
+    },
+    enabled: Boolean(STAGE_META[stage]?.showMachine),
+  })
+
   const inputs = useQuery({
     queryKey: ['process-inputs', stage],
     queryFn: async () => {
@@ -139,28 +218,13 @@ export function ProcessStageForm({
   })
 
   const { register, handleSubmit, watch, setValue, formState, reset } = useForm<FormValues>({
-    defaultValues: {
-      inputBatchNumber: presetBatchNumber,
-      qtyInput: '',
-      qtyUsable: '',
-      qtyReject: '0',
-      qtyWaste: '0',
-      machineName: '',
-      operatorName: '',
-      teamName: '',
-      labourCost: '0',
-      energyCost: '0',
-      waterQty: '0',
-      chemicalCost: '0',
-      detergentCost: '0',
-      moistureReading: '',
-      downtimeMinutes: '0',
-      downtimeReason: '',
-      notes: '',
-    },
+    defaultValues: emptyForm(activeBatch || ''),
   })
 
+  // Reset when stage changes; keep ?batch= if present for this stage.
   useEffect(() => {
+    const fromUrl = searchParams.get('batch') || presetBatchNumber || null
+    setActiveBatch(fromUrl)
     setSuccessBatch(null)
     setColorLots([])
     setScrapTicket(null)
@@ -169,35 +233,46 @@ export function ProcessStageForm({
     setColorLines([])
     setPickColor('')
     setPickKg('')
-    reset({
-      inputBatchNumber: presetBatchNumber,
-      qtyInput: '',
-      qtyUsable: '',
-      qtyReject: '0',
-      qtyWaste: '0',
-      machineName: '',
-      operatorName: '',
-      teamName: '',
-      labourCost: '0',
-      energyCost: '0',
-      waterQty: '0',
-      chemicalCost: '0',
-      detergentCost: '0',
-      moistureReading: '',
-      downtimeMinutes: '0',
-      downtimeReason: '',
-      notes: '',
-    })
-  }, [stage, presetBatchNumber, reset])
+    setQueueFilter('')
+    reset(emptyForm(fromUrl || ''))
+  }, [stage, presetBatchNumber, reset]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedNumber = watch('inputBatchNumber')
-  const selected = inputs.data?.find((b) => b.batchNumber === selectedNumber)
+  const selected = inputs.data?.find((b) => b.batchNumber === activeBatch)
+
+  const openBatch = (batchNumber: string) => {
+    setActiveBatch(batchNumber)
+    setSuccessBatch(null)
+    setServerErrors([])
+    setWarning(null)
+    setColorLines([])
+    setPickColor('')
+    setPickKg('')
+    reset(emptyForm(batchNumber))
+    setSearchParams({ batch: batchNumber }, { replace: true })
+  }
+
+  const backToQueue = () => {
+    setActiveBatch(null)
+    setSuccessBatch(null)
+    setColorLots([])
+    setScrapTicket(null)
+    setServerErrors([])
+    setWarning(null)
+    setColorLines([])
+    reset(emptyForm())
+    setSearchParams({}, { replace: true })
+    queryClient.invalidateQueries({ queryKey: ['process-inputs', stage] })
+  }
 
   useEffect(() => {
-    if (selected) {
+    if (selected && activeBatch) {
+      setValue('inputBatchNumber', selected.batchNumber)
       setValue('qtyInput', String(selected.qtyRemaining))
+      if (isCrushOrDry) {
+        setValue('qtyUsable', String(selected.qtyRemaining))
+      }
     }
-  }, [selected, setValue])
+  }, [selected, activeBatch, setValue, isCrushOrDry])
 
   const qtyInput = Number(watch('qtyInput') || 0)
   const qtyWaste = Number(watch('qtyWaste') || 0)
@@ -205,11 +280,23 @@ export function ProcessStageForm({
     () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
     [colorLines],
   )
-  const qtyUsable = isSorting ? colorUsable : Number(watch('qtyUsable') || 0)
-  // Sorting: reject = available − colours. Wash/crush/dry: reject = qty in − usable out.
-  const qtyReject = isSorting
-    ? Math.max(0, +(qtyInput - colorUsable).toFixed(3))
-    : Math.max(0, +(qtyInput - qtyUsable - qtyWaste).toFixed(3))
+  const qtyUsable = isSorting
+    ? colorUsable
+    : isCrushOrDry
+      ? qtyInput
+      : Number(watch('qtyUsable') || 0)
+
+  useEffect(() => {
+    if (isCrushOrDry) {
+      setValue('qtyUsable', String(qtyInput || 0))
+    }
+  }, [isCrushOrDry, qtyInput, setValue])
+
+  const qtyReject = showsWaste
+    ? isSorting
+      ? Math.max(0, +(qtyInput - colorUsable).toFixed(3))
+      : Math.max(0, +(qtyInput - qtyUsable - qtyWaste).toFixed(3))
+    : 0
 
   useEffect(() => {
     setValue('qtyReject', String(qtyReject))
@@ -229,8 +316,25 @@ export function ProcessStageForm({
     (c) => !colorLines.some((line) => line.color === c.code),
   )
 
-  const colorName = (code: string) =>
-    SORT_COLORS.find((c) => c.code === code)?.name || code
+  const filteredQueue = useMemo(() => {
+    const rows = inputs.data || []
+    const q = queueFilter.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((b) => {
+      const hay = [
+        b.batchNumber,
+        b.material?.name,
+        b.location?.name,
+        b.sortColor,
+        colorName(b.sortColor),
+        b.batchType,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [inputs.data, queueFilter])
 
   const addColorLine = () => {
     setServerErrors([])
@@ -242,10 +346,7 @@ export function ProcessStageForm({
     }
     if (!(qtyKg > 0)) {
       setServerErrors([
-        {
-          label: 'Kg',
-          message: 'Enter a weight greater than zero for this colour.',
-        },
+        { label: 'Kg', message: 'Enter a weight greater than zero for this colour.' },
       ])
       return
     }
@@ -320,10 +421,15 @@ export function ProcessStageForm({
     try {
       const { data } = await api.post(`/process/${stage}`, {
         ...values,
+        inputBatchNumber: activeBatch || values.inputBatchNumber,
         qtyInput: Number(values.qtyInput),
-        qtyUsable: isSorting ? qtyUsable : Number(values.qtyUsable),
-        qtyReject: qtyReject,
-        qtyWaste: isSorting || isWashing ? 0 : Number(values.qtyWaste || 0),
+        qtyUsable: isSorting
+          ? qtyUsable
+          : isCrushOrDry
+            ? Number(values.qtyInput)
+            : Number(values.qtyUsable),
+        qtyReject: showsWaste ? qtyReject : 0,
+        qtyWaste: 0,
         colorLines: isSorting ? colorLines : undefined,
         labourCost: Number(values.labourCost || 0),
         energyCost: Number(values.energyCost || 0),
@@ -340,6 +446,8 @@ export function ProcessStageForm({
         setScrapTicket(data.scrapTicket || values.inputBatchNumber)
       }
       setSuccessBatch(data.batchNumber)
+      queryClient.invalidateQueries({ queryKey: ['process-inputs', stage] })
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: {
@@ -375,209 +483,336 @@ export function ProcessStageForm({
     }
     const next = nextMap[stage]
     return (
-      <Card className="text-center !p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-          {isSorting ? 'Colour lots issued' : `${meta.title} saved`}
-        </p>
-        {isSorting && colorLots.length > 0 ? (
-          <>
-            <p className="mt-2 text-sm text-[var(--ink-muted)]">
-              Sorted from scrap {scrapTicket}. Each colour now has its own BAT- number for the
-              rest of the line.
-            </p>
-            <ul className="mx-auto mt-4 max-w-md divide-y divide-[var(--line)] rounded-xl text-left ring-1 ring-[var(--line)]">
-              {colorLots.map((lot) => (
-                <li key={lot.batchNumber} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div>
-                    <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
-                    <p className="text-xs text-[var(--ink-muted)]">
-                      {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-[var(--accent-strong)]"
-                    onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+      <div>
+        <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+        <Card className="text-center !p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+            {isSorting ? 'Colour lots issued' : `${meta.title} saved`}
+          </p>
+          {isSorting && colorLots.length > 0 ? (
+            <>
+              <p className="mt-2 text-sm text-[var(--ink-muted)]">
+                Sorted from scrap {scrapTicket}. Each colour now has its own BAT- number for the
+                rest of the line.
+              </p>
+              <ul className="mx-auto mt-4 max-w-md divide-y divide-[var(--line)] rounded-xl text-left ring-1 ring-[var(--line)]">
+                {colorLots.map((lot) => (
+                  <li
+                    key={lot.batchNumber}
+                    className="flex items-center justify-between gap-3 px-4 py-3"
                   >
-                    Open
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <p className="mt-2 text-2xl font-semibold tracking-tight">{successBatch}</p>
-        )}
-        <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
-          {next && (
-            <button
-              type="button"
-              className="dgn-btn dgn-btn-primary"
-              onClick={() => navigate(`/process/${next}`)}
-            >
-              Next: {STAGE_META[next]?.title}
-            </button>
+                    <div>
+                      <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
+                      <p className="text-xs text-[var(--ink-muted)]">
+                        {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-[var(--accent-strong)]"
+                      onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+                    >
+                      Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-2 text-2xl font-semibold tracking-tight">{successBatch}</p>
           )}
-          {!isSorting && (
-            <button
-              type="button"
-              className="dgn-btn dgn-btn-secondary"
-              onClick={() => navigate(`/batches/${successBatch}`)}
-            >
-              Batch 360°
+          <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
+            {next && (
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-primary"
+                onClick={() => navigate(`/process/${next}`)}
+              >
+                Next: {STAGE_META[next]?.title}
+              </button>
+            )}
+            {!isSorting && (
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-secondary"
+                onClick={() => navigate(`/batches/${successBatch}`)}
+              >
+                Batch 360°
+              </button>
+            )}
+            <button type="button" className="dgn-btn dgn-btn-secondary" onClick={backToQueue}>
+              Back to queue
             </button>
-          )}
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-secondary"
-            onClick={() => {
-              setSuccessBatch(null)
-              setColorLots([])
-              setScrapTicket(null)
-            }}
-          >
-            Another run
-          </button>
-        </div>
-      </Card>
+          </div>
+        </Card>
+      </div>
     )
   }
 
+  // ——— Queue: pick a batch first ———
+  if (!activeBatch) {
+    return (
+      <div>
+        <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+
+        <Card className="mb-4 !p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">{meta.queueTitle}</h2>
+              <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
+                Click a row to open the {meta.title.toLowerCase()} form for that batch.
+              </p>
+            </div>
+            <label className="block sm:w-64">
+              <span className="dgn-label">Filter</span>
+              <input
+                className="dgn-input"
+                value={queueFilter}
+                onChange={(e) => setQueueFilter(e.target.value)}
+                placeholder="Batch, colour, material…"
+              />
+            </label>
+          </div>
+        </Card>
+
+        <Card className="!overflow-hidden !p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-3 font-semibold">Batch</th>
+                  {!isSorting && <th className="px-3 py-3 font-semibold">Colour</th>}
+                  <th className="px-3 py-3 font-semibold">Material</th>
+                  <th className="px-3 py-3 font-semibold text-right">Available</th>
+                  <th className="px-3 py-3 font-semibold">Location</th>
+                  <th className="px-3 py-3 font-semibold">Date</th>
+                  <th className="px-4 py-3 font-semibold text-right"> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {inputs.isLoading && (
+                  <tr>
+                    <td
+                      colSpan={isSorting ? 6 : 7}
+                      className="px-4 py-10 text-center text-[var(--ink-muted)]"
+                    >
+                      Loading queue…
+                    </td>
+                  </tr>
+                )}
+                {!inputs.isLoading &&
+                  filteredQueue.map((batch) => {
+                    const biz = formatBusinessDate(batch.businessDate)
+                    return (
+                      <tr
+                        key={batch.id}
+                        className="cursor-pointer border-b border-[var(--line)] transition hover:bg-[var(--accent-soft)]/40"
+                        onClick={() => openBatch(batch.batchNumber)}
+                      >
+                        <td className="px-4 py-3">
+                          <p className="font-semibold tracking-tight">{batch.batchNumber}</p>
+                          <p className="mt-0.5 text-xs text-[var(--ink-faint)]">{batch.batchType}</p>
+                        </td>
+                        {!isSorting && (
+                          <td className="px-3 py-3 text-[var(--ink-muted)]">
+                            {colorName(batch.sortColor)}
+                          </td>
+                        )}
+                        <td className="px-3 py-3">{batch.material?.name || '—'}</td>
+                        <td className="px-3 py-3 text-right font-medium tabular-nums">
+                          {qtyLabel(batch.qtyRemaining, batch.uom)}
+                        </td>
+                        <td className="px-3 py-3 text-[var(--ink-muted)]">
+                          {batch.location?.name || '—'}
+                        </td>
+                        <td className="px-3 py-3 text-[var(--ink-muted)] tabular-nums">
+                          {biz || formatCreatedAt(batch.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openBatch(batch.batchNumber)
+                            }}
+                          >
+                            Process
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                {!inputs.isLoading && filteredQueue.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={isSorting ? 6 : 7}
+                      className="px-4 py-10 text-center text-[var(--ink-muted)]"
+                    >
+                      {queueFilter.trim()
+                        ? 'No batches match that filter.'
+                        : meta.emptyHint}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  // ——— Form: process the chosen batch ———
   return (
     <div>
       <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+
+      <button
+        type="button"
+        onClick={backToQueue}
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--accent-strong)] hover:underline"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to queue
+      </button>
+
+      {!selected && !inputs.isLoading && (
+        <Card className="mb-4 border-amber-200 bg-amber-50 text-amber-950 !p-4">
+          <p className="text-sm">
+            {activeBatch} is not in this stage queue anymore (already processed or moved).
+          </p>
+          <button type="button" className="dgn-btn dgn-btn-secondary mt-3" onClick={backToQueue}>
+            Choose another batch
+          </button>
+        </Card>
+      )}
+
+      {selected && (
+        <Card className="mb-4 !p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
+                Processing
+              </p>
+              <p className="mt-1 text-xl font-semibold tracking-tight">{selected.batchNumber}</p>
+              <p className="mt-0.5 text-sm text-[var(--ink-muted)]">
+                {selected.material?.name || selected.batchType}
+                {selected.sortColor ? ` · ${colorName(selected.sortColor)}` : ''}
+                {selected.location?.name ? ` · ${selected.location.name}` : ''}
+              </p>
+            </div>
+            <StatPill
+              label="Available"
+              value={`${selected.qtyRemaining} ${selected.uom}`}
+              tone="accent"
+            />
+          </div>
+        </Card>
+      )}
 
       <form
         className="space-y-4"
         onSubmit={handleSubmit((values) => submitPayload(values, false))}
       >
-        <Card>
-          <h2 className="text-lg font-semibold tracking-tight">Input batch</h2>
-          <div className="mt-4 grid gap-4">
-            <Field label={meta.inputLabel}>
-              <select className="dgn-input" {...register('inputBatchNumber', { required: true })}>
-                <option value="">{meta.inputPlaceholder}</option>
-                {inputs.data?.map((b) => (
-                  <option key={b.id} value={b.batchNumber}>
-                    {b.batchNumber}
-                    {b.sortColor ? ` · ${colorName(b.sortColor)}` : ''}
-                    {' · '}
-                    {b.material?.name || b.batchType} · {b.qtyRemaining} {b.uom}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            {inputs.isSuccess && !(inputs.data && inputs.data.length) && (
-              <p className="text-sm text-[var(--ink-muted)]">
-                No lots waiting for this stage. Finish the previous stage first
-                {isSorting ? ' (buy raw scrap)' : ''}.
-              </p>
-            )}
-            {selected && (
-              <div className="grid gap-2 sm:grid-cols-3">
-                <StatPill label="Available" value={`${selected.qtyRemaining} ${selected.uom}`} />
-                <StatPill
-                  label={selected.sortColor ? 'Colour' : 'Type'}
-                  value={selected.sortColor ? colorName(selected.sortColor) : selected.batchType}
-                  tone="accent"
-                />
-                <StatPill label="Material" value={selected.material?.name || '—'} />
-              </div>
-            )}
-          </div>
-        </Card>
+        <input type="hidden" {...register('inputBatchNumber', { required: true })} />
 
         {isSorting ? (
-          <>
-            <Card>
-              <h2 className="text-lg font-semibold tracking-tight">Colours → new lots</h2>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                Each colour becomes its own BAT- lot. Reject is whatever is left on the scrap
-                ticket.
-              </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-[1.2fr_1fr_auto]">
-                <Field label="Colour">
-                  <select
-                    className="dgn-input"
-                    value={pickColor}
-                    onChange={(e) => setPickColor(e.target.value)}
-                  >
-                    <option value="">Select colour</option>
-                    {availableColors.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field
-                  label="Kg"
-                  hint={qtyInput > 0 ? `Left in lot: ${colorRoomLeft} kg` : undefined}
+          <Card>
+            <h2 className="text-lg font-semibold tracking-tight">Colours → new lots</h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Each colour becomes its own BAT- lot. Waste is whatever is left on the scrap ticket.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[1.2fr_1fr_auto]">
+              <Field label="Colour">
+                <select
+                  className="dgn-input"
+                  value={pickColor}
+                  onChange={(e) => setPickColor(e.target.value)}
                 >
-                  <input
-                    inputMode="decimal"
-                    className="dgn-input"
-                    value={pickKg}
-                    max={colorRoomLeft > 0 ? colorRoomLeft : undefined}
-                    onChange={(e) => setPickKg(e.target.value)}
-                  />
-                </Field>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    className="dgn-btn dgn-btn-secondary w-full"
-                    disabled={!(qtyInput > 0) || colorRoomLeft <= 0}
-                    onClick={addColorLine}
-                  >
-                    Add colour
-                  </button>
-                </div>
-              </div>
-
-              {colorLines.length > 0 && (
-                <ul className="mt-4 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
-                  {colorLines.map((line) => (
-                    <li
-                      key={line.color}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
-                    >
-                      <span className="font-medium">{colorName(line.color)}</span>
-                      <span className="text-[var(--ink-muted)]">{line.qtyKg.toLocaleString()} kg</span>
-                      <button
-                        type="button"
-                        className="text-xs font-semibold text-red-700"
-                        onClick={() => removeColorLine(line.color)}
-                      >
-                        Remove
-                      </button>
-                    </li>
+                  <option value="">Select colour</option>
+                  {availableColors.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
                   ))}
-                </ul>
-              )}
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Field label="Qty in (kg)">
-                  <input
-                    className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                    value={qtyInput > 0 ? String(qtyInput) : ''}
-                    readOnly
-                    tabIndex={-1}
-                  />
-                </Field>
-                <Field label="Reject (kg)" hint="Available − colours">
-                  <input
-                    className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                    value={qtyInput > 0 ? String(qtyReject) : ''}
-                    readOnly
-                    tabIndex={-1}
-                  />
-                </Field>
+                </select>
+              </Field>
+              <Field
+                label="Kg"
+                hint={qtyInput > 0 ? `Left in lot: ${colorRoomLeft} kg` : undefined}
+              >
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  value={pickKg}
+                  max={colorRoomLeft > 0 ? colorRoomLeft : undefined}
+                  onChange={(e) => setPickKg(e.target.value)}
+                />
+              </Field>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-secondary w-full"
+                  disabled={!(qtyInput > 0) || colorRoomLeft <= 0}
+                  onClick={addColorLine}
+                >
+                  Add colour
+                </button>
               </div>
-            </Card>
-          </>
+            </div>
+
+            {colorLines.length > 0 && (
+              <ul className="mt-4 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+                {colorLines.map((line) => (
+                  <li
+                    key={line.color}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
+                    <span className="font-medium">{colorName(line.color)}</span>
+                    <span className="text-[var(--ink-muted)]">
+                      {line.qtyKg.toLocaleString()} kg
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-red-700"
+                      onClick={() => removeColorLine(line.color)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <Field label="Qty in (kg)">
+                <input
+                  className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                  value={qtyInput > 0 ? String(qtyInput) : ''}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </Field>
+              <Field label="Waste (kg)" hint="Available − colours">
+                <input
+                  className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                  value={qtyInput > 0 ? String(qtyReject) : ''}
+                  readOnly
+                  tabIndex={-1}
+                />
+              </Field>
+            </div>
+          </Card>
         ) : (
           <Card>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              className={
+                showsWaste
+                  ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
+                  : 'grid gap-3 sm:grid-cols-2'
+              }
+            >
               <Field label="Qty in (kg)">
                 <input
                   inputMode="decimal"
@@ -585,29 +820,44 @@ export function ProcessStageForm({
                   {...register('qtyInput', { required: true })}
                 />
               </Field>
-              <Field label="Usable out (kg)">
-                <input
-                  inputMode="decimal"
-                  className="dgn-input"
-                  {...register('qtyUsable', { required: true })}
-                />
-              </Field>
-              <Field label="Reject (kg)" hint="Qty in − usable out">
-                <input
-                  className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                  value={qtyInput > 0 || qtyUsable > 0 ? String(qtyReject) : ''}
-                  readOnly
-                  tabIndex={-1}
-                />
-              </Field>
+              {showsWaste ? (
+                <>
+                  <Field label="Usable out (kg)">
+                    <input
+                      inputMode="decimal"
+                      className="dgn-input"
+                      {...register('qtyUsable', { required: true })}
+                    />
+                  </Field>
+                  <Field label="Waste (kg)" hint="Qty in − usable out">
+                    <input
+                      className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                      value={qtyInput > 0 || qtyUsable > 0 ? String(qtyReject) : ''}
+                      readOnly
+                      tabIndex={-1}
+                    />
+                  </Field>
+                </>
+              ) : (
+                <Field label="Qty out (kg)" hint="Same as qty in — no waste on this stage">
+                  <input
+                    className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                    value={qtyInput > 0 ? String(qtyInput) : ''}
+                    readOnly
+                    tabIndex={-1}
+                  />
+                </Field>
+              )}
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
-              <StatPill
-                label="Accounted"
-                value={`${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`}
-              />
-            </div>
+            {showsWaste && (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
+                <StatPill
+                  label="Accounted"
+                  value={`${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`}
+                />
+              </div>
+            )}
           </Card>
         )}
 
@@ -615,14 +865,25 @@ export function ProcessStageForm({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {meta.showMachine && (
               <Field label="Machine">
-                <input className="dgn-input" {...register('machineName')} />
+                <select className="dgn-input" {...register('machineName')}>
+                  <option value="">Select machine</option>
+                  {(machines.data || []).map((m) => (
+                    <option key={m.id} value={m.name}>
+                      {m.name}
+                      {m.code ? ` (${m.code})` : ''}
+                    </option>
+                  ))}
+                </select>
               </Field>
             )}
             <Field label="Operator">
               <select className="dgn-input" {...register('operatorName')}>
                 <option value="">Select staff</option>
                 {(staff.data || []).map((e) => {
-                  const name = `${e.firstname || ''} ${e.lastname || ''}`.trim() || e.employeeCode || `Staff ${e.id}`
+                  const name =
+                    `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
+                    e.employeeCode ||
+                    `Staff ${e.id}`
                   return (
                     <option key={e.id} value={name}>
                       {name}
@@ -637,7 +898,7 @@ export function ProcessStageForm({
                 <input className="dgn-input" {...register('teamName')} />
               </Field>
             )}
-            <Field label="Labour cost (₦)">
+            <Field label="Labour cost / kg (₦)">
               <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
             </Field>
             {isWashing ? (
@@ -699,7 +960,11 @@ export function ProcessStageForm({
 
         <button
           type="submit"
-          disabled={formState.isSubmitting || (isSorting && colorsOverLot)}
+          disabled={
+            formState.isSubmitting ||
+            !selected ||
+            (isSorting && (colorsOverLot || !colorLines.length))
+          }
           className="dgn-btn dgn-btn-primary w-full sm:w-auto"
         >
           {formState.isSubmitting ? 'Saving…' : `Save ${meta.title.toLowerCase()}`}

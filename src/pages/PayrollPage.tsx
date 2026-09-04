@@ -130,22 +130,39 @@ export function PayrollPage() {
 
       {canRun && <PayrollPreview onCreated={() => runs.refetch()} />}
 
-      <Card className="mt-6">
-        <h2 className="text-base font-semibold">Payroll runs</h2>
-        {runs.data && runs.data.length === 0 && (
-          <p className="mt-3 text-sm text-[var(--ink-muted)]">No payroll has been run yet.</p>
-        )}
-        <div className="mt-4 space-y-3">
-          {(runs.data ?? []).map((run) => (
-            <button
-              key={run.id}
-              onClick={() => setOpenRun(run.runNumber)}
-              className="w-full rounded-2xl border border-[var(--line)] p-4 text-left hover:border-[var(--accent)]"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-semibold">{run.runNumber}</span>
+      <Card className="mt-6 !p-0 overflow-hidden">
+        <h2 className="px-4 pt-4 text-base font-semibold sm:px-6 sm:pt-6">Payroll runs</h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Period</th>
+                <th className="px-3 py-3 font-semibold">Run #</th>
+                <th className="px-3 py-3 font-semibold text-right">Workers</th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-3 py-3 font-semibold text-right">Net total</th>
+                <th className="px-3 py-3 font-semibold text-right">Outstanding</th>
+                <th className="px-4 py-3 font-semibold text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.isLoading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {(runs.data ?? []).map((run) => (
+                <tr
+                  key={run.id}
+                  className="cursor-pointer border-b border-[var(--line)] hover:bg-zinc-50/80"
+                  onClick={() => setOpenRun(run.runNumber)}
+                >
+                  <td className="px-4 py-3 font-medium">{run.periodLabel}</td>
+                  <td className="px-3 py-3 font-mono text-xs font-semibold">{run.runNumber}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">{run.employeeCount}</td>
+                  <td className="px-3 py-3">
                     <span
                       className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
                         run.status === 'PAID'
@@ -157,25 +174,37 @@ export function PayrollPage() {
                     >
                       {run.status}
                     </span>
-                  </div>
-                  <p className="mt-1 font-medium">{run.periodLabel}</p>
-                  <p className="text-xs text-[var(--ink-faint)]">
-                    {run.employeeCount} worker{run.employeeCount === 1 ? '' : 's'}
-                    {run.preparedBy ? ` · prepared by ${run.preparedBy}` : ''}
-                    {run.approvedBy ? ` · approved by ${run.approvedBy}` : ''}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-semibold">{money(run.totalNet)}</p>
-                  {run.outstanding > 0 ? (
-                    <p className="text-xs text-red-700">{money(run.outstanding)} still to pay</p>
-                  ) : (
-                    <p className="text-xs text-teal-700">fully paid</p>
-                  )}
-                </div>
-              </div>
-            </button>
-          ))}
+                  </td>
+                  <td className="px-3 py-3 text-right font-semibold tabular-nums">
+                    {money(run.totalNet)}
+                  </td>
+                  <td
+                    className={`px-3 py-3 text-right tabular-nums ${
+                      run.outstanding > 0 ? 'text-red-700' : 'text-teal-700'
+                    }`}
+                  >
+                    {money(run.outstanding)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
+                      onClick={() => setOpenRun(run.runNumber)}
+                    >
+                      Open
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!runs.isLoading && runs.data?.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    No payroll has been run yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>

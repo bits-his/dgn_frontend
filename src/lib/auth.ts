@@ -6,6 +6,7 @@ export type AuthUser = {
   email: string
   roleCode: string
   employeeId?: number | null
+  menuAccess?: string[]
   permissions: string[]
 }
 

@@ -237,57 +237,113 @@ export function InventoryPage() {
       )}
 
       <div className="mb-4 grid gap-4 lg:grid-cols-3">
-        <Card>
-          <h2 className="text-base font-semibold tracking-tight">By location</h2>
-          <div className="mt-3 space-y-2 text-sm">
-            {overview.data?.byLocation.map((loc) => (
-              <div key={loc.locationId} className="flex items-center justify-between gap-3">
-                <span>
-                  {loc.name}
-                  <span className="ml-2 text-xs text-[var(--ink-faint)]">{loc.locationType}</span>
-                </span>
-                <strong>
-                  {fmt(loc.qty)} {loc.uom}
-                </strong>
-              </div>
-            ))}
-            {!overview.isLoading && !overview.data?.byLocation.length && (
-              <p className="text-[var(--ink-muted)]">No stock on hand.</p>
-            )}
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold tracking-tight">By location</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-2 font-semibold">Location</th>
+                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.data?.byLocation.map((loc) => (
+                  <tr key={loc.locationId} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-2">
+                      {loc.name}
+                      <span className="ml-2 text-xs text-[var(--ink-faint)]">{loc.locationType}</span>
+                    </td>
+                    <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                      {fmt(loc.qty)} {loc.uom}
+                    </td>
+                  </tr>
+                ))}
+                {!overview.isLoading && !overview.data?.byLocation.length && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
+                      No stock on hand.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </Card>
 
-        <Card>
-          <h2 className="text-base font-semibold tracking-tight">By material</h2>
-          <div className="mt-3 space-y-2 text-sm">
-            {overview.data?.byMaterial.map((m) => (
-              <div key={m.materialId} className="flex items-center justify-between gap-3">
-                <span>{m.name}</span>
-                <strong className={m.belowReorder ? 'text-red-600' : undefined}>
-                  {fmt(m.qty)} {m.uom}
-                </strong>
-              </div>
-            ))}
-            {!overview.isLoading && !overview.data?.byMaterial.length && (
-              <p className="text-[var(--ink-muted)]">No material stock.</p>
-            )}
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold tracking-tight">By material</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-2 font-semibold">Material</th>
+                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.data?.byMaterial.map((m) => (
+                  <tr key={m.materialId} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-2">{m.name}</td>
+                    <td
+                      className={`px-4 py-2 text-right font-semibold tabular-nums ${
+                        m.belowReorder ? 'text-red-600' : ''
+                      }`}
+                    >
+                      {fmt(m.qty)} {m.uom}
+                    </td>
+                  </tr>
+                ))}
+                {!overview.isLoading && !overview.data?.byMaterial.length && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
+                      No material stock.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </Card>
 
-        <Card>
-          <h2 className="text-base font-semibold tracking-tight">By product</h2>
-          <div className="mt-3 space-y-2 text-sm">
-            {overview.data?.byProduct.map((p) => (
-              <div key={p.productId} className="flex items-center justify-between gap-3">
-                <span>{p.name}</span>
-                <strong className={p.belowReorder ? 'text-red-600' : undefined}>
-                  {fmt(p.qty)} {p.uom}
-                </strong>
-              </div>
-            ))}
-            {!overview.isLoading && !overview.data?.byProduct.length && (
-              <p className="text-[var(--ink-muted)]">No finished goods yet.</p>
-            )}
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold tracking-tight">By product</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-2 font-semibold">Product</th>
+                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {overview.data?.byProduct.map((p) => (
+                  <tr key={p.productId} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-2">{p.name}</td>
+                    <td
+                      className={`px-4 py-2 text-right font-semibold tabular-nums ${
+                        p.belowReorder ? 'text-red-600' : ''
+                      }`}
+                    >
+                      {fmt(p.qty)} {p.uom}
+                    </td>
+                  </tr>
+                ))}
+                {!overview.isLoading && !overview.data?.byProduct.length && (
+                  <tr>
+                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
+                      No finished goods yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </Card>
       </div>

@@ -5,6 +5,7 @@ import { Bell, RefreshCw, SlidersHorizontal } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
+import { formatDateTime } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
 
 type AlertRow = {
@@ -167,26 +168,58 @@ export function AlertsPage() {
         </div>
       </Card>
 
-      <div className="space-y-3">
-        {(alerts.data?.rows ?? []).map((row) => (
-          <AlertCard key={row.id} row={row} canManage={canManage} onChanged={refresh} />
-        ))}
-        {alerts.data && alerts.data.rows.length === 0 && (
-          <Card>
-            <div className="flex items-center gap-3 text-sm text-[var(--ink-muted)]">
-              <Bell className="h-5 w-5" />
-              {status === 'RESOLVED'
-                ? 'Nothing has been closed yet.'
-                : 'Nothing is wrong right now that the factory knows how to detect.'}
-            </div>
-          </Card>
-        )}
-      </div>
+      <Card className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1200px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Last seen</th>
+                <th className="px-3 py-3 font-semibold">Severity</th>
+                <th className="px-3 py-3 font-semibold">Category</th>
+                <th className="px-3 py-3 font-semibold">Title / message</th>
+                <th className="px-3 py-3 font-semibold">Entity</th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.isLoading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!alerts.isLoading &&
+                (alerts.data?.rows ?? []).map((row) => (
+                  <AlertTableRow
+                    key={row.id}
+                    row={row}
+                    canManage={canManage}
+                    onChanged={refresh}
+                  />
+                ))}
+              {!alerts.isLoading && alerts.data?.rows.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    <span className="inline-flex items-center gap-3">
+                      <Bell className="h-5 w-5" />
+                      {status === 'RESOLVED'
+                        ? 'Nothing has been closed yet.'
+                        : 'Nothing is wrong right now that the factory knows how to detect.'}
+                    </span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   )
 }
 
-function AlertCard({
+function AlertTableRow({
   row,
   canManage,
   onChanged,
@@ -214,64 +247,70 @@ function AlertCard({
   }
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-lg px-2 py-0.5 text-[10px] font-bold ${SEV[row.severity]}`}>
-              {row.severity}
-            </span>
-            <span className="rounded-lg bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold">
-              {row.category}
-            </span>
-            <span className="rounded-lg bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold">
-              {row.status}
-            </span>
-            {row.entityLabel && (
-              <span className="font-mono text-[11px] text-[var(--ink-faint)]">{row.entityLabel}</span>
-            )}
-          </div>
-          <p className="mt-2 font-semibold">{row.title}</p>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">{row.message}</p>
-          <p className="mt-2 text-xs text-[var(--ink-faint)]">
-            Seen {row.occurrenceCount} time{row.occurrenceCount === 1 ? '' : 's'}
-            {row.metricValue != null &&
-              ` · ${row.metricValue}${row.unit ? ` ${row.unit}` : ''}${
-                row.thresholdValue != null ? ` against ${row.thresholdValue}` : ''
-              }`}
-            {row.acknowledgedBy ? ` · acknowledged by ${row.acknowledgedBy}` : ''}
+    <tr className="border-b border-[var(--line)] align-top hover:bg-zinc-50/80">
+      <td className="whitespace-nowrap px-4 py-3 text-[var(--ink-muted)] tabular-nums">
+        {formatDateTime(row.lastSeenAt)}
+        <p className="mt-1 text-xs text-[var(--ink-faint)]">
+          {row.occurrenceCount} occurrence{row.occurrenceCount === 1 ? '' : 's'}
+        </p>
+      </td>
+      <td className="px-3 py-3">
+        <span className={`inline-flex rounded-lg px-2 py-0.5 text-[10px] font-bold ${SEV[row.severity]}`}>
+          {row.severity}
+        </span>
+      </td>
+      <td className="px-3 py-3">{row.category}</td>
+      <td className="max-w-md px-3 py-3">
+        <p className="font-semibold">{row.title}</p>
+        <p className="mt-1 text-sm text-[var(--ink-muted)]">{row.message}</p>
+        {row.metricValue != null && (
+          <p className="mt-1 text-xs text-[var(--ink-faint)]">
+            {row.metricValue}
+            {row.unit ? ` ${row.unit}` : ''}
+            {row.thresholdValue != null ? ` against ${row.thresholdValue}` : ''}
           </p>
-          {row.acknowledgeNote && (
-            <p className="mt-2 text-xs text-[var(--ink-muted)]">Note: {row.acknowledgeNote}</p>
-          )}
-          {row.resolutionNote && (
-            <p className="mt-2 text-xs text-teal-700">{row.resolutionNote}</p>
-          )}
-        </div>
-        <div className="flex flex-col items-end gap-2">
+        )}
+        {row.acknowledgeNote && (
+          <p className="mt-2 text-xs text-[var(--ink-muted)]">Note: {row.acknowledgeNote}</p>
+        )}
+        {row.resolutionNote && (
+          <p className="mt-2 text-xs text-teal-700">{row.resolutionNote}</p>
+        )}
+      </td>
+      <td className="px-3 py-3 font-mono text-xs text-[var(--ink-muted)]">
+        {row.entityLabel || '—'}
+      </td>
+      <td className="px-3 py-3">
+        <span className="inline-flex rounded-lg bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold">
+          {row.status}
+        </span>
+        {row.acknowledgedBy && (
+          <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.acknowledgedBy}</p>
+        )}
+      </td>
+      <td className="w-72 px-4 py-3">
+        <div className="flex flex-wrap gap-2">
           {row.linkPath && (
             <Link to={row.linkPath} className="dgn-btn dgn-btn-secondary">
               Go there
             </Link>
           )}
         </div>
-      </div>
 
-      {canManage && row.status === 'OPEN' && (
-        <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-[var(--line)] pt-4">
-          <div className="min-w-[200px] flex-1">
+        {canManage && row.status === 'OPEN' && (
+          <div className="mt-3">
             <Field label="What are you doing about it?" hint="Optional">
               <input className="dgn-input" value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
+            <button className="dgn-btn dgn-btn-primary mt-2" disabled={busy} onClick={ack}>
+              {busy ? 'Saving…' : 'I am dealing with this'}
+            </button>
           </div>
-          <button className="dgn-btn dgn-btn-primary" disabled={busy} onClick={ack}>
-            {busy ? 'Saving…' : 'I am dealing with this'}
-          </button>
-        </div>
-      )}
+        )}
 
-      {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    </Card>
+        {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      </td>
+    </tr>
   )
 }
 

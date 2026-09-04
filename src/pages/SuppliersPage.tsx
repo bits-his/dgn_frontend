@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader } from '@/components/ui'
+import { formatDateTime } from '@/lib/dates'
 
 type Supplier = {
   id: number
   code?: string | null
   name: string
+  createdAt?: string
   supplierType?: string | null
   phone?: string | null
   address?: string | null
@@ -243,8 +245,8 @@ export function SuppliersPage() {
         </form>
       </Card>
 
-      <Card className="!p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <Card className="!p-0 overflow-hidden">
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-base font-semibold">Supplier list</h2>
             <p className="text-sm text-[var(--ink-muted)]">
@@ -270,28 +272,35 @@ export function SuppliersPage() {
           </div>
         </div>
 
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
-              <tr className="border-b border-[var(--line)] text-xs text-[var(--ink-faint)]">
-                <th className="py-2 pr-2 font-semibold">Code</th>
-                <th className="py-2 pr-2 font-semibold">Name</th>
-                <th className="py-2 pr-2 font-semibold">Type</th>
-                <th className="py-2 pr-2 font-semibold">Phone</th>
-                <th className="py-2 pr-2 font-semibold">Status</th>
-                <th className="py-2 font-semibold text-right">Action</th>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Code</th>
+                <th className="px-3 py-3 font-semibold">Name</th>
+                <th className="px-3 py-3 font-semibold">Type</th>
+                <th className="px-3 py-3 font-semibold">Phone</th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold text-right">Action</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((row) => (
-                <tr key={row.id} className="border-b border-[var(--line)]">
-                  <td className="py-2.5 pr-2 font-mono text-xs">{row.code || '—'}</td>
-                  <td className="py-2.5 pr-2 font-medium">{row.name}</td>
-                  <td className="py-2.5 pr-2 text-[var(--ink-muted)]">
+                <tr
+                  key={row.id}
+                  className="border-b border-[var(--line)] hover:bg-zinc-50/80"
+                >
+                  <td className="px-4 py-3 text-[var(--ink-muted)] tabular-nums">
+                    {formatDateTime(row.createdAt)}
+                  </td>
+                  <td className="px-3 py-3 font-mono text-xs">{row.code || '—'}</td>
+                  <td className="px-3 py-3 font-medium">{row.name}</td>
+                  <td className="px-3 py-3 text-[var(--ink-muted)]">
                     {TYPE_LABEL[row.supplierType || ''] || row.supplierType || '—'}
                   </td>
-                  <td className="py-2.5 pr-2 text-[var(--ink-muted)]">{row.phone || '—'}</td>
-                  <td className="py-2.5 pr-2">
+                  <td className="px-3 py-3 text-[var(--ink-muted)]">{row.phone || '—'}</td>
+                  <td className="px-3 py-3">
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                         row.isActive === false
@@ -302,7 +311,7 @@ export function SuppliersPage() {
                       {row.isActive === false ? 'Inactive' : 'Active'}
                     </span>
                   </td>
-                  <td className="py-2.5 text-right">
+                  <td className="px-4 py-3 text-right">
                     <button
                       type="button"
                       className="text-sm font-semibold text-[var(--accent-strong)]"
@@ -315,7 +324,7 @@ export function SuppliersPage() {
               ))}
               {!suppliers.isLoading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-[var(--ink-muted)]">
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
                     No suppliers yet. Add one above.
                   </td>
                 </tr>

@@ -2,15 +2,18 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader } from '@/components/ui'
+import { formatDateTime } from '@/lib/dates'
 
 type MasterItem = {
   id: number
   code?: string
   name: string
+  createdAt?: string
   uom?: string
   reorderLevel?: string | number
   ratedOutputPerHour?: string | number
   standardMaterialPerUnit?: string | number
+  supplierType?: string
   customerType?: string
   phone?: string | null
   creditLimit?: string | number
@@ -153,19 +156,53 @@ export function MastersPage() {
         </form>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {rows.data?.map((row) => (
-          <MasterCard key={row.id} row={row} tab={tab} path={active.path} />
-        ))}
-        {!rows.isLoading && !rows.data?.length && (
-          <p className="text-sm text-[var(--ink-muted)]">Nothing configured yet.</p>
-        )}
-      </div>
+      <Card className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Code</th>
+                <th className="px-3 py-3 font-semibold">Name</th>
+                <th className="px-3 py-3 font-semibold">
+                  {tab === 'machines'
+                    ? 'Rated output / hour'
+                    : tab === 'customers'
+                      ? 'Credit limit (₦)'
+                      : tab === 'suppliers'
+                        ? 'Supplier type'
+                        : 'Reorder level'}
+                </th>
+                <th className="px-4 py-3 font-semibold text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.isLoading && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {rows.data?.map((row) => (
+                <MasterRow key={row.id} row={row} tab={tab} path={active.path} />
+              ))}
+              {!rows.isLoading && !rows.data?.length && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Nothing configured yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   )
 }
 
-function MasterCard({ row, tab, path }: { row: MasterItem; tab: TabKey; path: string }) {
+function MasterRow({ row, tab, path }: { row: MasterItem; tab: TabKey; path: string }) {
   const qc = useQueryClient()
   const editableField =
     tab === 'materials' || tab === 'products'
@@ -193,35 +230,44 @@ function MasterCard({ row, tab, path }: { row: MasterItem; tab: TabKey; path: st
   })
 
   return (
-    <Card className="!p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-        {row.code}
-      </p>
-      <p className="mt-1 font-semibold tracking-tight">{row.name}</p>
-
-      {editableField && (
-        <div className="mt-3 flex items-end gap-2">
-          <Field label={editableField.label}>
+    <tr className="border-b border-[var(--line)] hover:bg-zinc-50/80">
+      <td className="px-4 py-3 text-[var(--ink-muted)] tabular-nums">
+        {formatDateTime(row.createdAt)}
+      </td>
+      <td className="px-3 py-3 font-mono text-xs">{row.code || '—'}</td>
+      <td className="px-3 py-3 font-medium">{row.name}</td>
+      <td className="px-3 py-3">
+        {editableField ? (
+          <div className="max-w-48">
             <input
               inputMode="decimal"
               className="dgn-input"
+              aria-label={editableField.label}
               value={value}
               onChange={(e) => {
                 setValue(e.target.value)
                 setSaved(false)
               }}
             />
-          </Field>
+          </div>
+        ) : (
+          <span className="text-[var(--ink-muted)]">{row.supplierType || '—'}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {editableField ? (
           <button
             type="button"
-            className="dgn-btn dgn-btn-secondary"
+            className="text-sm font-semibold text-[var(--accent-strong)]"
             disabled={mutation.isPending}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? 'Saving…' : saved ? 'Saved' : 'Save'}
           </button>
-        </div>
-      )}
-    </Card>
+        ) : (
+          <span className="text-[var(--ink-faint)]">—</span>
+        )}
+      </td>
+    </tr>
   )
 }

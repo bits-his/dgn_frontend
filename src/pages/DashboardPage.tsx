@@ -258,8 +258,8 @@ export function DashboardPage() {
               value={fmt(d.today.unitsProduced)}
               hint={
                 d.today.unitsReject > 0
-                  ? `${fmt(d.today.unitsReject)} rejected (${d.today.rejectPercent}%)`
-                  : 'no rejects recorded'
+                  ? `${fmt(d.today.unitsReject)} waste (${d.today.rejectPercent}%)`
+                  : 'no waste recorded'
               }
             />
             <StatPill label="Sales taken" value={money(d.today.salesValue)} tone="success" />
@@ -417,7 +417,7 @@ export function DashboardPage() {
                 />
                 <Fact label="Units moulded" value={fmt(d.production.unitsProduced)} />
                 <Fact
-                  label="Reject rate"
+                  label="Waste rate"
                   value={`${d.production.rejectPercent}%`}
                   tone={d.production.rejectPercent > 5 ? 'bad' : undefined}
                 />

@@ -33,7 +33,7 @@ const actions = [
   {
     to: '/process/sorting',
     title: 'Sorting',
-    desc: 'Sort usable vs reject from raw scrap lots',
+    desc: 'Sort usable vs waste from raw scrap lots',
     icon: Filter,
     permission: 'batch.create',
     tone: 'from-slate-700 to-slate-900',
@@ -87,9 +87,9 @@ const actions = [
     tone: 'from-indigo-600 to-indigo-800',
   },
   {
-    to: '/labour',
-    title: 'Labour & attendance',
-    desc: "Mark today's crew and record hours or pieces",
+    to: '/staff',
+    title: 'Staff',
+    desc: 'Staff directory, attendance, roles and system access',
     icon: Users,
     permission: 'labour.view',
     tone: 'from-rose-600 to-rose-800',

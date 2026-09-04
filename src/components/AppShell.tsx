@@ -56,7 +56,7 @@ const mainNavTop: NavItem[] = [
 
 const recyclingGroup: NavGroup = {
   id: 'recycling',
-  label: 'Recycling line',
+  label: 'Processing',
   icon: Factory,
   items: [
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, permission: 'receiving.create' },
@@ -79,7 +79,7 @@ const mainNavRest: NavItem[] = [
 
 const financeNav: NavItem[] = [
   { to: '/expenses', label: 'Expenses', icon: Receipt, permission: 'expense.view' },
-  { to: '/labour', label: 'Labour & attendance', icon: Users, permission: 'labour.view' },
+  { to: '/staff', label: 'Staff', icon: Users, permission: 'labour.view' },
   { to: '/payroll', label: 'Payroll', icon: Wallet, permission: 'labour.view' },
 ]
 

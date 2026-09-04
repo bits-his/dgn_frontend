@@ -350,30 +350,50 @@ export function OverheadPage() {
         </>
       )}
 
-      <Card className="mt-6">
-        <h2 className="text-base font-semibold">Allocation history</h2>
+      <Card className="mt-6 !p-0 overflow-hidden">
+        <h2 className="px-4 pt-4 text-base font-semibold sm:px-6 sm:pt-6">Allocation history</h2>
         {history.data && history.data.length === 0 && (
-          <p className="mt-3 text-sm text-[var(--ink-muted)]">
+          <p className="px-4 pb-4 pt-3 text-sm text-[var(--ink-muted)] sm:px-6 sm:pb-6">
             No month has been closed yet, so cost per kilogram currently covers materials and
             direct costs only.
           </p>
         )}
-        <div className="mt-4 space-y-3">
-          {(history.data ?? []).map((row) => (
-            <AllocationCard
-              key={row.id}
-              row={row}
-              canAllocate={canAllocate}
-              onChanged={refresh}
-            />
-          ))}
-        </div>
+        {history.data && history.data.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[1180px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-3 font-semibold">Period</th>
+                  <th className="px-3 py-3 font-semibold">Allocation #</th>
+                  <th className="px-3 py-3 font-semibold">Status</th>
+                  <th className="px-3 py-3 font-semibold text-right">Basis kg</th>
+                  <th className="px-3 py-3 font-semibold text-right">Rate / kg</th>
+                  <th className="px-3 py-3 font-semibold text-right">Batches</th>
+                  <th className="px-3 py-3 font-semibold text-right">Expenses</th>
+                  <th className="px-3 py-3 font-semibold text-right">Wages</th>
+                  <th className="px-3 py-3 font-semibold text-right">Total</th>
+                  <th className="px-4 py-3 font-semibold text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.data.map((row) => (
+                  <AllocationRow
+                    key={row.id}
+                    row={row}
+                    canAllocate={canAllocate}
+                    onChanged={refresh}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </div>
   )
 }
 
-function AllocationCard({
+function AllocationRow({
   row,
   canAllocate,
   onChanged,
@@ -407,72 +427,81 @@ function AllocationCard({
   }
 
   return (
-    <div className="rounded-2xl border border-[var(--line)] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-semibold">{row.allocationNumber}</span>
-            <span
-              className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
-                row.status === 'ALLOCATED' ? 'bg-teal-50 text-teal-800' : 'bg-zinc-100'
-              }`}
-            >
-              {row.status}
-            </span>
-          </div>
-          <p className="mt-1 font-medium">{row.periodLabel}</p>
-          <p className="text-xs text-[var(--ink-faint)]">
-            {money(row.expensePool)} expenses + {money(row.payrollPool)} wages over{' '}
-            {fmt(row.basisKg)} kg · {row.batchCount} batch
-            {row.batchCount === 1 ? '' : 'es'}
-            {row.allocatedBy ? ` · by ${row.allocatedBy}` : ''}
-          </p>
+    <>
+      <tr className="border-b border-[var(--line)] hover:bg-zinc-50/80">
+        <td className="px-4 py-3">
+          <span className="font-medium">{row.periodLabel}</span>
+          {row.allocatedBy && (
+            <p className="text-xs text-[var(--ink-faint)]">by {row.allocatedBy}</p>
+          )}
           {row.reversedBy && (
-            <p className="mt-1 text-xs text-red-700">Reversed by {row.reversedBy}</p>
+            <p className="text-xs text-red-700">Reversed by {row.reversedBy}</p>
           )}
-          {row.notes && (
-            <p className="mt-2 text-xs text-[var(--ink-muted)]">{row.notes}</p>
-          )}
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold">{money(row.ratePerKg)}</p>
-          <p className="text-xs text-[var(--ink-faint)]">per kg</p>
-          {canAllocate && row.status === 'ALLOCATED' && (
+          {row.notes && <p className="text-xs text-[var(--ink-muted)]">{row.notes}</p>}
+        </td>
+        <td className="px-3 py-3 font-mono text-xs font-semibold">{row.allocationNumber}</td>
+        <td className="px-3 py-3">
+          <span
+            className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
+              row.status === 'ALLOCATED' ? 'bg-teal-50 text-teal-800' : 'bg-zinc-100'
+            }`}
+          >
+            {row.status}
+          </span>
+        </td>
+        <td className="px-3 py-3 text-right tabular-nums">{fmt(row.basisKg)}</td>
+        <td className="px-3 py-3 text-right font-semibold tabular-nums">
+          {money(row.ratePerKg)}
+        </td>
+        <td className="px-3 py-3 text-right tabular-nums">{row.batchCount}</td>
+        <td className="px-3 py-3 text-right tabular-nums">{money(row.expensePool)}</td>
+        <td className="px-3 py-3 text-right tabular-nums">{money(row.payrollPool)}</td>
+        <td className="px-3 py-3 text-right font-semibold tabular-nums">
+          {money(row.totalPool)}
+        </td>
+        <td className="px-4 py-3 text-right">
+          {canAllocate && row.status === 'ALLOCATED' ? (
             <button
-              className="dgn-btn dgn-btn-secondary mt-2"
+              className="dgn-btn dgn-btn-secondary"
               onClick={() => setReversing((v) => !v)}
             >
               <RotateCcw className="h-4 w-4" /> Reverse
             </button>
+          ) : (
+            '—'
           )}
-        </div>
-      </div>
-
-      {reversing && (
-        <div className="mt-3 rounded-xl bg-zinc-50 p-3">
-          <Field
-            label="Why are you reversing it?"
-            hint="Required — this removes the overhead from every batch it touched"
-          >
-            <input
-              className="dgn-input"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Late diesel invoice arrived"
-            />
-          </Field>
-          <button
-            className="dgn-btn dgn-btn-secondary mt-3"
-            disabled={busy || reason.trim().length < 5}
-            onClick={reverse}
-          >
-            Confirm reversal
-          </button>
-        </div>
+        </td>
+      </tr>
+      {(reversing || error) && (
+        <tr className="border-b border-[var(--line)]">
+          <td colSpan={10} className="px-4 py-3">
+            {reversing && (
+              <div className="max-w-xl rounded-xl bg-zinc-50 p-3">
+                <Field
+                  label="Why are you reversing it?"
+                  hint="Required — this removes the overhead from every batch it touched"
+                >
+                  <input
+                    className="dgn-input"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Late diesel invoice arrived"
+                  />
+                </Field>
+                <button
+                  className="dgn-btn dgn-btn-secondary mt-3"
+                  disabled={busy || reason.trim().length < 5}
+                  onClick={reverse}
+                >
+                  Confirm reversal
+                </button>
+              </div>
+            )}
+            {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          </td>
+        </tr>
       )}
-
-      {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    </div>
+    </>
   )
 }
 

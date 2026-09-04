@@ -57,7 +57,7 @@ function GroupTable({ title, rows }: { title: string; rows: Grouped[] }) {
               <th className="py-2 pr-4 font-semibold">Name</th>
               <th className="py-2 pr-4 font-semibold">Checks</th>
               <th className="py-2 pr-4 font-semibold">Defects</th>
-              <th className="py-2 font-semibold">Reject rate</th>
+              <th className="py-2 font-semibold">Waste rate</th>
             </tr>
           </thead>
           <tbody>
@@ -125,7 +125,7 @@ export function QcTrendsPage() {
         />
         <StatPill label="Quantity inspected" value={fmt(totals?.inspectedQty ?? 0)} />
         <StatPill
-          label="Reject + rework rate"
+          label="Waste + rework rate"
           value={`${totals?.rejectRatePercent ?? 0}%`}
           tone={(totals?.rejectRatePercent ?? 0) > 5 ? 'danger' : 'success'}
         />

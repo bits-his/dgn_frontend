@@ -5,6 +5,7 @@ import { Ban, ShieldCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
+import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
 
 type QueueBatch = {
@@ -20,6 +21,7 @@ type QueueBatch = {
   machineName: string | null
   locationName: string | null
   shiftName: string | null
+  businessDate: string | null
   checkType: 'PRODUCTION' | 'MATERIAL'
   checkCount: number
 }
@@ -64,7 +66,7 @@ type Decision = 'PASS' | 'FAIL' | 'HOLD'
 
 const DECISION_COPY: Record<Decision, { label: string; help: string }> = {
   PASS: { label: 'Pass', help: 'Release the batch for consumption and sale' },
-  FAIL: { label: 'Fail', help: 'Reject the batch — nothing can be accepted' },
+  FAIL: { label: 'Fail', help: 'Scrap the batch — nothing can be accepted' },
   HOLD: { label: 'Hold', help: 'Freeze the batch until a later decision' },
 }
 
@@ -133,60 +135,94 @@ export function QcPage() {
         </Card>
       )}
 
-      <Card className="mb-4">
-        <h2 className="text-lg font-semibold tracking-tight">Awaiting inspection</h2>
-        <div className="mt-4 space-y-2">
-          {queue.isLoading && <p className="text-[var(--ink-muted)]">Loading…</p>}
-          {queue.data?.map((batch) => (
-            <div
-              key={batch.id}
-              className="flex flex-col gap-3 border-b border-zinc-100 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <div className="flex items-center gap-2">
-                  <Link
-                    to={`/batches/${batch.batchNumber}`}
-                    className="font-semibold text-[var(--accent-strong)] hover:underline"
-                  >
-                    {batch.batchNumber}
-                  </Link>
-                  {batch.status === 'QC_HOLD' && (
-                    <span className="rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--accent-strong)]">
-                      On hold
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-[var(--ink-muted)]">
-                  {batch.productName || batch.materialName || batch.batchType}
-                  {batch.machineName && ` · ${batch.machineName}`}
-                  {batch.shiftName && ` · ${batch.shiftName}`}
-                  {batch.locationName && ` · ${batch.locationName}`}
-                </p>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="text-sm">
-                  <strong>
+      <Card className="mb-4 !p-0 overflow-hidden">
+        <h2 className="px-4 pt-4 text-lg font-semibold tracking-tight sm:px-6 sm:pt-6">
+          Awaiting inspection
+        </h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Batch</th>
+                <th className="px-3 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Type</th>
+                <th className="px-3 py-3 font-semibold">Item</th>
+                <th className="px-3 py-3 font-semibold text-right">Qty</th>
+                <th className="px-3 py-3 font-semibold">Location / machine</th>
+                <th className="px-3 py-3 font-semibold text-right">Inspections</th>
+                <th className="px-4 py-3 font-semibold text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {queue.isLoading && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {queue.data?.map((batch) => (
+                <tr
+                  key={batch.id}
+                  className="border-b border-[var(--line)] hover:bg-zinc-50/80"
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      to={`/batches/${batch.batchNumber}`}
+                      className="font-semibold text-[var(--accent-strong)] hover:underline"
+                    >
+                      {batch.batchNumber}
+                    </Link>
+                    {batch.status === 'QC_HOLD' && (
+                      <p className="mt-0.5 text-xs font-semibold text-[var(--accent-strong)]">
+                        On hold
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-[var(--ink-muted)] tabular-nums">
+                    {formatBusinessDate(batch.businessDate)}
+                  </td>
+                  <td className="px-3 py-3">{batch.batchType}</td>
+                  <td className="px-3 py-3">
+                    {batch.productName || batch.materialName || '—'}
+                  </td>
+                  <td className="px-3 py-3 text-right font-medium tabular-nums">
                     {fmt(batch.qtyRemaining)} {batch.uom}
-                  </strong>{' '}
-                  on hand
-                </span>
-                {canInspect && (
-                  <button
-                    type="button"
-                    className="dgn-btn dgn-btn-primary"
-                    onClick={() => setSelected(batch)}
-                  >
-                    Inspect
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-          {!queue.isLoading && !queue.data?.length && (
-            <p className="text-[var(--ink-muted)]">
-              Nothing waiting. Finished production and drying batches appear here.
-            </p>
-          )}
+                  </td>
+                  <td className="px-3 py-3">
+                    {batch.locationName || batch.machineName || '—'}
+                    {batch.locationName && batch.machineName && (
+                      <p className="text-xs text-[var(--ink-faint)]">{batch.machineName}</p>
+                    )}
+                    {batch.shiftName && (
+                      <p className="text-xs text-[var(--ink-faint)]">{batch.shiftName}</p>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">{batch.checkCount}</td>
+                  <td className="px-4 py-3 text-right">
+                    {canInspect ? (
+                      <button
+                        type="button"
+                        className="dgn-btn dgn-btn-primary"
+                        onClick={() => setSelected(batch)}
+                      >
+                        Inspect
+                      </button>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!queue.isLoading && !queue.data?.length && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Nothing waiting. Finished production and drying batches appear here.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
 
@@ -208,7 +244,7 @@ export function QcPage() {
                 </Link>
                 <span>
                   {batch.itemName || batch.batchType} · {fmt(batch.qtyRemaining)} {batch.uom} ·{' '}
-                  {batch.status === 'QC_HOLD' ? 'on hold' : 'rejected'}
+                  {batch.status === 'QC_HOLD' ? 'on hold' : 'scrapped'}
                 </span>
               </div>
             ))}
@@ -223,9 +259,10 @@ export function QcPage() {
             <thead>
               <tr className="border-b border-[var(--line)] text-[var(--ink-muted)]">
                 <th className="py-3 pr-4 font-semibold">Batch</th>
+                <th className="py-3 pr-4 font-semibold">Date</th>
                 <th className="py-3 pr-4 font-semibold">Decision</th>
                 <th className="py-3 pr-4 font-semibold">Accepted</th>
-                <th className="py-3 pr-4 font-semibold">Rejected</th>
+                <th className="py-3 pr-4 font-semibold">Waste</th>
                 <th className="py-3 pr-4 font-semibold">Rework</th>
                 <th className="py-3 pr-4 font-semibold">Defect rate</th>
                 <th className="py-3 font-semibold">Inspector</th>
@@ -245,6 +282,9 @@ export function QcPage() {
                     ) : (
                       '—'
                     )}
+                  </td>
+                  <td className="py-3 pr-4 text-[var(--ink-muted)] tabular-nums">
+                    {formatBusinessDate(check.businessDate)}
                   </td>
                   <td className="py-3 pr-4">
                     <span
@@ -278,7 +318,7 @@ export function QcPage() {
               ))}
               {!checks.isLoading && !checks.data?.length && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-[var(--ink-muted)]">
+                  <td colSpan={8} className="py-6 text-[var(--ink-muted)]">
                     No inspections recorded yet.
                   </td>
                 </tr>
@@ -620,7 +660,7 @@ function InspectionForm({ batch, onBack }: { batch: QueueBatch; onBack: () => vo
           ) : (
             <>
               <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                <Field label={`Reject and scrap (${batch.uom})`}>
+                <Field label={`Waste (${batch.uom})`}>
                   <input
                     inputMode="decimal"
                     className="dgn-input"
@@ -654,12 +694,12 @@ function InspectionForm({ batch, onBack }: { batch: QueueBatch; onBack: () => vo
                   value={`${fmt(accepted)} ${batch.uom}`}
                   tone={accepted < 0 ? 'danger' : 'success'}
                 />
-                <StatPill label="Rejected" value={`${fmt(rejected)} ${batch.uom}`} tone="danger" />
+                <StatPill label="Waste" value={`${fmt(rejected)} ${batch.uom}`} tone="danger" />
                 <StatPill label="To rework" value={`${fmt(rework)} ${batch.uom}`} tone="accent" />
               </div>
               {accepted < 0 && (
                 <p className="mt-3 text-sm text-red-600">
-                  Reject plus rework is more than the {fmt(batch.qtyRemaining)} {batch.uom} on hand.
+                  Waste plus rework is more than the {fmt(batch.qtyRemaining)} {batch.uom} on hand.
                 </p>
               )}
             </>

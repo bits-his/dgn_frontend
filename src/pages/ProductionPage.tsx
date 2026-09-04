@@ -224,7 +224,7 @@ export function ProductionPage() {
       <PageHeader
         eyebrow="Manufacturing"
         title="Production sheet"
-        description="Consume a dried factory lot, record good and reject pieces, and issue a production batch for the product that came off the machine."
+        description="Consume a dried factory lot, record good and waste pieces, and issue a production batch for the product that came off the machine."
       />
 
       <form className="space-y-4" onSubmit={handleSubmit((values) => submitPayload(values, false))}>
@@ -237,6 +237,7 @@ export function ProductionPage() {
                 {machines.data?.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
+                    {m.code ? ` (${m.code})` : ''}
                   </option>
                 ))}
               </select>
@@ -318,7 +319,7 @@ export function ProductionPage() {
             <Field label="Good (pcs)">
               <input inputMode="decimal" className="dgn-input" {...register('qtyGood', { required: true })} />
             </Field>
-            <Field label="Reject (pcs)">
+            <Field label="Waste (pcs)">
               <input inputMode="decimal" className="dgn-input" {...register('qtyReject')} />
             </Field>
             <Field label="Runtime (min)">
@@ -337,7 +338,7 @@ export function ProductionPage() {
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatPill label="Quality" value={`${metrics.quality}%`} tone="success" />
-            <StatPill label="Reject" value={`${metrics.rejectPct}%`} tone="danger" />
+            <StatPill label="Waste" value={`${metrics.rejectPct}%`} tone="danger" />
             <StatPill label="Output / hr" value={String(metrics.perHour)} />
             <StatPill label="Material / unit" value={`${metrics.matPerUnit} kg`} />
             <StatPill label="Availability" value={`${metrics.availability}%`} />
@@ -349,7 +350,7 @@ export function ProductionPage() {
         <Card>
           <h2 className="text-lg font-semibold tracking-tight">Run costs</h2>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <Field label="Labour ₦">
+            <Field label="Labour / kg (₦)">
               <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
             </Field>
             <Field label="Energy ₦">
@@ -371,7 +372,7 @@ export function ProductionPage() {
         {warning && (
           <Card className="border-amber-200 bg-amber-50 text-amber-950">
             <p className="text-sm">
-              Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
+              Waste rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
             </p>
             <button
               type="button"

@@ -5,6 +5,7 @@ import { Check, Plus, Receipt, X } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
+import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
 
 type Category = {
@@ -161,8 +162,8 @@ export function ExpensesPage() {
         </>
       )}
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <Card className="!p-0 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
           <h2 className="text-base font-semibold">Expense records</h2>
           <div className="flex flex-wrap gap-2">
             {['', 'PENDING', 'APPROVED', 'REJECTED'].map((value) => (
@@ -179,21 +180,48 @@ export function ExpensesPage() {
           </div>
         </div>
 
-        {expenses.data && expenses.data.length === 0 && (
-          <p className="mt-4 text-sm text-[var(--ink-muted)]">Nothing recorded yet.</p>
-        )}
-
-        <div className="mt-4 space-y-3">
-          {(expenses.data ?? []).map((row) => (
-            <ExpenseCard key={row.id} row={row} canApprove={canApprove} />
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Expense #</th>
+                <th className="px-3 py-3 font-semibold">Description</th>
+                <th className="px-3 py-3 font-semibold">Category</th>
+                <th className="px-3 py-3 text-right font-semibold">Amount</th>
+                <th className="px-3 py-3 font-semibold">Status</th>
+                <th className="px-3 py-3 font-semibold">Scope / batch</th>
+                <th className="px-4 py-3 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {expenses.isLoading && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!expenses.isLoading &&
+                (expenses.data ?? []).map((row) => (
+                  <ExpenseTableRows key={row.id} row={row} canApprove={canApprove} />
+                ))}
+              {!expenses.isLoading && expenses.data?.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Nothing recorded yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
   )
 }
 
-function ExpenseCard({ row, canApprove }: { row: ExpenseRow; canApprove: boolean }) {
+function ExpenseTableRows({ row, canApprove }: { row: ExpenseRow; canApprove: boolean }) {
   const queryClient = useQueryClient()
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
@@ -222,49 +250,64 @@ function ExpenseCard({ row, canApprove }: { row: ExpenseRow; canApprove: boolean
   }
 
   return (
-    <div className="rounded-2xl border border-[var(--line)] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs font-semibold">{row.expenseNumber}</span>
-            <span
-              className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[row.status] ?? 'bg-zinc-100'}`}
-            >
-              {row.status}
-            </span>
-            {row.allocationScope === 'BATCH' && row.batchNumber && (
+    <>
+      <tr className="border-b border-[var(--line)] align-top hover:bg-zinc-50/80">
+        <td className="whitespace-nowrap px-4 py-3 text-[var(--ink-muted)] tabular-nums">
+          {formatBusinessDate(row.businessDate)}
+        </td>
+        <td className="px-3 py-3 font-mono text-xs font-semibold">{row.expenseNumber}</td>
+        <td className="max-w-xs px-3 py-3">
+          <p className="font-medium">{row.description}</p>
+          <p className="mt-1 text-xs text-[var(--ink-faint)]">
+            {row.paymentMethod.toLowerCase()}
+            {row.vendorName ? ` · ${row.vendorName}` : ''}
+            {row.receiptRef ? ` · receipt ${row.receiptRef}` : ''}
+          </p>
+          {row.decisionReason && (
+            <p className="mt-2 text-xs text-red-700">{row.decisionReason}</p>
+          )}
+        </td>
+        <td className="px-3 py-3">
+          <p>{row.categoryName || '—'}</p>
+          <p className="mt-0.5 text-xs capitalize text-[var(--ink-faint)]">
+            {row.costClass.toLowerCase()}
+          </p>
+        </td>
+        <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">
+          {money(row.amount)}
+        </td>
+        <td className="px-3 py-3">
+          <span
+            className={`inline-flex rounded-lg px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[row.status] ?? 'bg-zinc-100'}`}
+          >
+            {row.status}
+          </span>
+          {row.approvedBy && (
+            <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.approvedBy}</p>
+          )}
+        </td>
+        <td className="px-3 py-3">
+          {row.allocationScope === 'BATCH' ? (
+            row.batchNumber ? (
               <Link
                 to={`/batches/${row.batchNumber}`}
-                className="rounded-lg bg-zinc-100 px-2 py-0.5 font-mono text-[11px] hover:bg-zinc-200"
+                className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
               >
                 {row.batchNumber}
               </Link>
-            )}
-          </div>
-          <p className="mt-1 font-medium">{row.description}</p>
-          <p className="text-xs text-[var(--ink-faint)]">
-            {row.categoryName} · {row.costClass.toLowerCase()} · {row.paymentMethod.toLowerCase()}
-            {row.vendorName ? ` · ${row.vendorName}` : ''}
-            {row.receiptRef ? ` · receipt ${row.receiptRef}` : ''}
-            {row.businessDate ? ` · ${row.businessDate}` : ''}
-          </p>
-          <p className="mt-1 text-xs text-[var(--ink-faint)]">
-            {row.allocationScope === 'BATCH'
-              ? 'Charged directly to one batch'
-              : "Joins the month's shared overhead pool"}
-            {row.recordedBy ? ` · recorded by ${row.recordedBy}` : ''}
-            {row.approvedBy ? ` · decided by ${row.approvedBy}` : ''}
-          </p>
-          {row.decisionReason && (
-            <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
-              {row.decisionReason}
-            </p>
+            ) : (
+              'Batch'
+            )
+          ) : (
+            <span>Factory overhead</span>
           )}
-        </div>
-        <div className="text-right">
-          <p className="text-lg font-semibold">{money(row.amount)}</p>
-          {canApprove && row.status === 'PENDING' && (
-            <div className="mt-2 flex gap-2">
+          {row.recordedBy && (
+            <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.recordedBy}</p>
+          )}
+        </td>
+        <td className="px-4 py-3">
+          {canApprove && row.status === 'PENDING' ? (
+            <div className="flex justify-end gap-2">
               <button
                 className="dgn-btn dgn-btn-primary"
                 disabled={busy}
@@ -280,31 +323,38 @@ function ExpenseCard({ row, canApprove }: { row: ExpenseRow; canApprove: boolean
                 <X className="h-4 w-4" /> Reject
               </button>
             </div>
+          ) : (
+            <span className="block text-right text-[var(--ink-faint)]">—</span>
           )}
-        </div>
-      </div>
+        </td>
+      </tr>
 
-      {rejecting && (
-        <div className="mt-3 rounded-xl bg-zinc-50 p-3">
-          <Field label="Why is it rejected?" hint="Required — at least 5 characters">
-            <input
-              className="dgn-input"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-          </Field>
-          <button
-            className="dgn-btn dgn-btn-secondary mt-3"
-            disabled={busy || reason.trim().length < 5}
-            onClick={() => decide('REJECT')}
-          >
-            Confirm rejection
-          </button>
-        </div>
+      {(rejecting || error) && (
+        <tr className="border-b border-[var(--line)] bg-zinc-50">
+          <td colSpan={8} className="px-4 py-3">
+            {rejecting && (
+              <div className="ml-auto max-w-xl">
+                <Field label="Why is it rejected?" hint="Required — at least 5 characters">
+                  <input
+                    className="dgn-input"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </Field>
+                <button
+                  className="dgn-btn dgn-btn-secondary mt-3"
+                  disabled={busy || reason.trim().length < 5}
+                  onClick={() => decide('REJECT')}
+                >
+                  Confirm rejection
+                </button>
+              </div>
+            )}
+            {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          </td>
+        </tr>
       )}
-
-      {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    </div>
+    </>
   )
 }
 

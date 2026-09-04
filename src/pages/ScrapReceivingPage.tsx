@@ -6,8 +6,11 @@ import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
+import { SORT_COLORS } from '@/lib/sortColors'
 
 type MasterItem = { id: number; name: string; code?: string }
+type ColorLine = { color: string; qtyKg: number }
+type ColorLot = { batchNumber: string; color: string; qtyKg: number }
 
 type FormValues = {
   inboundForm: 'RAW' | 'CRUSHED'
@@ -28,6 +31,10 @@ async function fetchMaster(path: string) {
   return data.data as MasterItem[]
 }
 
+function colorName(code: string) {
+  return SORT_COLORS.find((c) => c.code === code)?.name || code
+}
+
 export function ScrapReceivingPage() {
   const navigate = useNavigate()
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
@@ -36,7 +43,11 @@ export function ScrapReceivingPage() {
     batchNumber: string
     nextStage: string
     inboundForm: string
+    colorLots: ColorLot[]
   } | null>(null)
+  const [colorLines, setColorLines] = useState<ColorLine[]>([])
+  const [pickColor, setPickColor] = useState('')
+  const [pickKg, setPickKg] = useState('')
 
   const materials = useQuery({
     queryKey: ['materials'],
@@ -75,24 +86,78 @@ export function ScrapReceivingPage() {
   }, [locations.data, setValue, watch])
 
   const inboundForm = watch('inboundForm')
-  const kg = Number(watch('kg') || 0)
+  const isCrushed = inboundForm === 'CRUSHED'
   const price = Number(watch('pricePerKg') || 0)
-  const netKg = useMemo(() => Number(Math.max(kg, 0).toFixed(3)), [kg])
+  const colorTotal = useMemo(
+    () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
+    [colorLines],
+  )
+  const rawKg = Number(watch('kg') || 0)
+  const netKg = isCrushed ? colorTotal : Number(Math.max(rawKg, 0).toFixed(3))
   const purchaseCost = useMemo(
     () => Number((netKg * price).toFixed(2)),
     [netKg, price],
   )
 
+  const availableColors = SORT_COLORS.filter(
+    (c) => !colorLines.some((line) => line.color === c.code),
+  )
+
+  useEffect(() => {
+    setColorLines([])
+    setPickColor('')
+    setPickKg('')
+    setServerErrors([])
+  }, [inboundForm])
+
+  const addColorLine = () => {
+    setServerErrors([])
+    const color = pickColor
+    const qtyKg = Number(pickKg)
+    if (!color) {
+      setServerErrors([{ label: 'Colour', message: 'Select a colour before adding.' }])
+      return
+    }
+    if (!(qtyKg > 0)) {
+      setServerErrors([{ label: 'Kg', message: 'Enter kg greater than zero for this colour.' }])
+      return
+    }
+    if (colorLines.some((line) => line.color === color)) {
+      setServerErrors([
+        {
+          label: 'Colour',
+          message: `${colorName(color)} is already on the list.`,
+        },
+      ])
+      return
+    }
+    setColorLines((prev) => [...prev, { color, qtyKg: +qtyKg.toFixed(3) }])
+    setPickColor('')
+    setPickKg('')
+  }
+
   const submitPayload = async (values: FormValues, confirmUnusualNet = false) => {
     setServerErrors([])
     setWarning(null)
+
+    if (values.inboundForm === 'CRUSHED' && !colorLines.length) {
+      setServerErrors([
+        {
+          label: 'Colours',
+          message: 'Add at least one colour with kg. Each colour gets its own BAT- batch.',
+        },
+      ])
+      return
+    }
+
     try {
       const { data } = await api.post('/receiving/scrap', {
         supplierId: Number(values.supplierId),
         materialId: Number(values.materialId),
         locationId: Number(values.locationId),
         inboundForm: values.inboundForm,
-        kg: Number(values.kg),
+        kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
+        colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
         pricePerKg: Number(values.pricePerKg),
         transportCost: Number(values.transportCost || 0),
         loadingCost: Number(values.loadingCost || 0),
@@ -105,7 +170,9 @@ export function ScrapReceivingPage() {
         batchNumber: data.batchNumber,
         nextStage: data.nextStage || (values.inboundForm === 'CRUSHED' ? 'washing' : 'sorting'),
         inboundForm: data.inboundForm || values.inboundForm,
+        colorLots: Array.isArray(data.colorLots) ? data.colorLots : [],
       })
+      setColorLines([])
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: {
@@ -135,17 +202,45 @@ export function ScrapReceivingPage() {
 
   if (success) {
     const nextLabel = success.nextStage === 'washing' ? 'Washing' : 'Sorting'
+    const crushedLots = success.colorLots.length > 0
     return (
-      <Card className="text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-          {success.inboundForm === 'CRUSHED' ? 'Process lot created' : 'Scrap ticket created'}
-        </p>
-        <p className="mt-3 text-3xl font-semibold tracking-tight">{success.batchNumber}</p>
-        <p className="mt-2 text-sm text-[var(--ink-muted)]">
-          {success.inboundForm === 'CRUSHED'
-            ? 'Already crushed — this BAT- number goes straight to washing.'
-            : 'Raw scrap ticket (SCR-). Sorting will split it into BAT- lots by colour.'}
-        </p>
+      <Card>
+        <div className="text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+            {success.inboundForm === 'CRUSHED' ? 'Crushed colour batches created' : 'Scrap ticket created'}
+          </p>
+          {!crushedLots && (
+            <p className="mt-3 text-3xl font-semibold tracking-tight">{success.batchNumber}</p>
+          )}
+          <p className="mt-2 text-sm text-[var(--ink-muted)]">
+            {success.inboundForm === 'CRUSHED'
+              ? 'Each colour has its own BAT- number and goes to washing.'
+              : 'Raw scrap ticket (SCR-). Sorting will split it into BAT- lots by colour.'}
+          </p>
+        </div>
+
+        {crushedLots && (
+          <ul className="mt-5 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+            {success.colorLots.map((lot) => (
+              <li key={lot.batchNumber} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
+                  <p className="text-sm text-[var(--ink-muted)]">
+                    {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-secondary"
+                  onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+                >
+                  Open
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
           <button
             type="button"
@@ -154,14 +249,20 @@ export function ScrapReceivingPage() {
           >
             Go to {nextLabel}
           </button>
+          {!crushedLots && (
+            <button
+              type="button"
+              className="dgn-btn dgn-btn-secondary"
+              onClick={() => navigate(`/batches/${success.batchNumber}`)}
+            >
+              Open record
+            </button>
+          )}
           <button
             type="button"
             className="dgn-btn dgn-btn-secondary"
-            onClick={() => navigate(`/batches/${success.batchNumber}`)}
+            onClick={() => setSuccess(null)}
           >
-            Open record
-          </button>
-          <button type="button" className="dgn-btn dgn-btn-secondary" onClick={() => setSuccess(null)}>
             New buying
           </button>
         </div>
@@ -172,9 +273,9 @@ export function ScrapReceivingPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Recycling · inbound"
+        eyebrow="Processing · inbound"
         title="Scrap buying"
-        description="Buy raw scrap (SCR- ticket) or already-crushed material (BAT- lot). Raw scrap is split into colour lots at sorting."
+        description="Buy raw scrap (SCR- ticket) or already-crushed material by colour (one BAT- per colour)."
       />
 
       <form
@@ -194,7 +295,7 @@ export function ScrapReceivingPage() {
                 {
                   value: 'CRUSHED' as const,
                   title: 'Already crushed',
-                  desc: 'Skip to Wash → Dry',
+                  desc: 'Enter by colour → Wash → Dry',
                 },
               ] as const
             ).map((opt) => (
@@ -252,7 +353,7 @@ export function ScrapReceivingPage() {
                 ))}
               </select>
             </Field>
-            {inboundForm === 'RAW' && (
+            {!isCrushed && (
               <Field label="Store location">
                 <select className="dgn-input" {...register('locationId', { required: true })}>
                   <option value="">Select location</option>
@@ -267,37 +368,124 @@ export function ScrapReceivingPage() {
           </div>
         </Card>
 
-        <Card>
-          <h2 className="text-lg font-semibold tracking-tight">Quantity & price</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Quantity (kg)">
-              <input
-                inputMode="decimal"
-                className="dgn-input"
-                {...register('kg', { required: true })}
+        {isCrushed ? (
+          <Card>
+            <h2 className="text-lg font-semibold tracking-tight">Colours → batches</h2>
+            <p className="mt-1 text-sm text-[var(--ink-muted)]">
+              Add each colour and its kg. Each colour gets its own BAT- number for washing.
+            </p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Price / kg (₦)">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  {...register('pricePerKg', { required: true })}
+                />
+              </Field>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-[1.2fr_1fr_auto]">
+              <Field label="Colour">
+                <select
+                  className="dgn-input"
+                  value={pickColor}
+                  onChange={(e) => setPickColor(e.target.value)}
+                >
+                  <option value="">Select colour</option>
+                  {availableColors.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Kg">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  value={pickKg}
+                  onChange={(e) => setPickKg(e.target.value)}
+                />
+              </Field>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-secondary w-full"
+                  onClick={addColorLine}
+                >
+                  Add colour
+                </button>
+              </div>
+            </div>
+
+            {colorLines.length > 0 && (
+              <ul className="mt-4 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+                {colorLines.map((line) => (
+                  <li
+                    key={line.color}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
+                    <span className="font-medium">{colorName(line.color)}</span>
+                    <span className="text-[var(--ink-muted)]">{line.qtyKg.toLocaleString()} kg</span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-red-700"
+                      onClick={() =>
+                        setColorLines((prev) => prev.filter((row) => row.color !== line.color))
+                      }
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <StatPill
+                label="Total weight"
+                value={netKg > 0 ? `${netKg.toLocaleString()} kg` : '—'}
+                tone="accent"
               />
-            </Field>
-            <Field label="Price / kg (₦)">
-              <input
-                inputMode="decimal"
-                className="dgn-input"
-                {...register('pricePerKg', { required: true })}
+              <StatPill
+                label="Purchase cost"
+                value={purchaseCost > 0 ? `₦${purchaseCost.toLocaleString()}` : '—'}
+                tone="success"
               />
-            </Field>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <StatPill
-              label="Weight"
-              value={netKg > 0 ? `${netKg.toLocaleString()} kg` : '—'}
-              tone="accent"
-            />
-            <StatPill
-              label="Purchase cost"
-              value={purchaseCost > 0 ? `₦${purchaseCost.toLocaleString()}` : '—'}
-              tone="success"
-            />
-          </div>
-        </Card>
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <h2 className="text-lg font-semibold tracking-tight">Quantity & price</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Quantity (kg)">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  {...register('kg', { required: !isCrushed })}
+                />
+              </Field>
+              <Field label="Price / kg (₦)">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  {...register('pricePerKg', { required: true })}
+                />
+              </Field>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <StatPill
+                label="Weight"
+                value={netKg > 0 ? `${netKg.toLocaleString()} kg` : '—'}
+                tone="accent"
+              />
+              <StatPill
+                label="Purchase cost"
+                value={purchaseCost > 0 ? `₦${purchaseCost.toLocaleString()}` : '—'}
+                tone="success"
+              />
+            </div>
+          </Card>
+        )}
 
         <Card>
           <h2 className="text-lg font-semibold tracking-tight">Other costs & notes</h2>
@@ -341,7 +529,7 @@ export function ScrapReceivingPage() {
 
         <button
           type="submit"
-          disabled={formState.isSubmitting}
+          disabled={formState.isSubmitting || (isCrushed && !colorLines.length)}
           className="dgn-btn dgn-btn-primary w-full sm:w-auto"
         >
           {formState.isSubmitting ? 'Saving…' : 'Save buying'}

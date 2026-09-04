@@ -74,7 +74,8 @@ function App() {
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
-                <Route path="/labour" element={<LabourPage />} />
+                <Route path="/staff" element={<LabourPage />} />
+                <Route path="/labour" element={<Navigate to="/staff" replace />} />
                 <Route path="/payroll" element={<PayrollPage />} />
                 <Route path="/costs/overhead" element={<OverheadPage />} />
                 <Route path="/costs" element={<CostIntelligencePage />} />

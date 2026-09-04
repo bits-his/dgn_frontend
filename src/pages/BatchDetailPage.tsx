@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, PageHeader } from '@/components/ui'
 import { SORT_COLORS } from '@/lib/sortColors'
+import { formatBusinessDate, formatDateTime } from '@/lib/dates'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -197,6 +198,8 @@ export function BatchDetailPage() {
             description: string
             costClass: string
             amount: number
+            businessDate?: string | null
+            createdAt?: string
           }>
           inventoryTransactions?: Array<{
             id: number
@@ -204,6 +207,8 @@ export function BatchDetailPage() {
             reason: string
             qty: number
             uom: string
+            businessDate?: string | null
+            createdAt?: string
           }>
           inputs?: Array<{
             id: number
@@ -378,7 +383,7 @@ export function BatchDetailPage() {
               strong
             />
             <Fact
-              label="Total reject"
+              label="Total waste"
               value={kg(
                 stageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
                   processRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
@@ -431,7 +436,7 @@ export function BatchDetailPage() {
             <Fact label="Product" value={productionRun.product?.name || '—'} />
             <Fact label="Produced" value={String(productionRun.qtyProduced)} />
             <Fact label="Good" value={String(productionRun.qtyGood)} />
-            <Fact label="Reject %" value={`${productionRun.rejectPercent}%`} />
+            <Fact label="Waste %" value={`${productionRun.rejectPercent}%`} />
             <Fact label="OEE" value={`${productionRun.oeePercent}%`} />
             <Fact label="Material used" value={kg(productionRun.materialConsumed)} />
             <Fact label="Operator" value={productionRun.operatorName || '—'} />
@@ -440,102 +445,163 @@ export function BatchDetailPage() {
       )}
 
       {batch.qcChecks && batch.qcChecks.length > 0 && (
-        <Card className="!p-4">
-          <h2 className="text-base font-semibold">Quality checks</h2>
-          <div className="mt-3 space-y-3">
-            {batch.qcChecks.map((check) => (
-              <div key={check.id} className="rounded-lg border border-[var(--line)] p-3">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-sm font-semibold">{check.decision}</span>
-                  <span className="text-xs text-[var(--ink-muted)]">
-                    {check.checkType === 'PRODUCTION' ? 'Product' : 'Material'}
-                    {check.businessDate ? ` · ${check.businessDate}` : ''}
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
-                  <span>Pass {check.qtyAccepted}</span>
-                  <span>Fail {check.qtyRejected}</span>
-                  <span>Rework {check.qtyRework}</span>
-                </div>
-                {(check.defects?.length || check.notes) && (
-                  <p className="mt-2 text-xs text-[var(--ink-muted)]">
-                    {check.defects
-                      ?.map((d) => `${d.defectCode.replace(/_/g, ' ')} ×${d.count}`)
-                      .join(', ')}
-                    {check.notes ? ` · ${check.notes}` : ''}
-                  </p>
-                )}
-                {check.reworkBatch && (
-                  <p className="mt-1 text-sm">
-                    Rework batch:{' '}
-                    <Link
-                      to={`/batches/${check.reworkBatch.batchNumber}`}
-                      className="font-medium text-[var(--accent-strong)] hover:underline"
-                    >
-                      {check.reworkBatch.batchNumber}
-                    </Link>
-                  </p>
-                )}
-              </div>
-            ))}
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold">Quality checks</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-3 py-3 font-semibold">Decision</th>
+                  <th className="px-3 py-3 font-semibold">Type</th>
+                  <th className="px-3 py-3 font-semibold text-right">Pass</th>
+                  <th className="px-3 py-3 font-semibold text-right">Waste</th>
+                  <th className="px-3 py-3 font-semibold text-right">Rework</th>
+                  <th className="px-4 py-3 font-semibold">Inspector</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batch.qcChecks.map((check) => (
+                  <tr key={check.id} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
+                      {formatBusinessDate(check.businessDate)}
+                    </td>
+                    <td className="px-3 py-3 font-semibold">{check.decision}</td>
+                    <td className="px-3 py-3 text-[var(--ink-muted)]">
+                      {check.checkType === 'PRODUCTION' ? 'Product' : 'Material'}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums">{check.qtyAccepted}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{check.qtyRejected}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {check.qtyRework}
+                      {check.reworkBatch?.batchNumber ? (
+                        <Link
+                          to={`/batches/${check.reworkBatch.batchNumber}`}
+                          className="ml-1 text-xs text-[var(--accent-strong)] hover:underline"
+                        >
+                          {check.reworkBatch.batchNumber}
+                        </Link>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--ink-muted)]">
+                      {check.inspectorName || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
 
       <ForwardTracePanel batchNumber={batchNumber} />
 
-      <Card className="!p-4">
-        <h2 className="text-base font-semibold">Each cost on this batch</h2>
-        <ul className="mt-2 divide-y divide-[var(--line)]">
-          {(batch.costEntries || []).map((c) => (
-            <li key={c.id} className="flex justify-between gap-3 py-1.5 text-sm">
-              <span>
-                {c.description}
-                <span className="text-[var(--ink-faint)]">
-                  {' '}
-                  · {COST_CLASS_LABEL[c.costClass] || c.costClass}
-                </span>
-              </span>
-              <span className="shrink-0 font-semibold tabular-nums">{money(c.amount)}</span>
-            </li>
-          ))}
-          {!batch.costEntries?.length && (
-            <li className="py-1.5 text-sm text-[var(--ink-muted)]">No cost lines yet</li>
-          )}
-        </ul>
+      <Card className="!overflow-hidden !p-0">
+        <div className="border-b border-[var(--line)] px-4 py-3">
+          <h2 className="text-base font-semibold">Each cost on this batch</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Description</th>
+                <th className="px-3 py-3 font-semibold">Class</th>
+                <th className="px-4 py-3 font-semibold text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(batch.costEntries || []).map((c) => (
+                <tr key={c.id} className="border-b border-[var(--line)]">
+                  <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
+                    {c.businessDate
+                      ? formatBusinessDate(c.businessDate)
+                      : formatDateTime(c.createdAt)}
+                  </td>
+                  <td className="px-3 py-3">{c.description}</td>
+                  <td className="px-3 py-3 text-[var(--ink-muted)]">
+                    {COST_CLASS_LABEL[c.costClass] || c.costClass}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                    {money(c.amount)}
+                  </td>
+                </tr>
+              ))}
+              {!batch.costEntries?.length && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-6 text-center text-[var(--ink-muted)]">
+                    No cost lines yet
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Card>
 
       {(batch.inventoryTransactions || []).length > 0 && (
-        <Card className="!p-4">
-          <h2 className="text-base font-semibold">Stock moves</h2>
-          <ul className="mt-2 divide-y divide-[var(--line)]">
-            {(batch.inventoryTransactions || []).map((tx) => (
-              <li key={tx.id} className="flex justify-between gap-3 py-1.5 text-sm">
-                <span>
-                  {tx.direction} · {tx.reason}
-                </span>
-                <span className="tabular-nums">
-                  {tx.qty} {tx.uom}
-                </span>
-              </li>
-            ))}
-          </ul>
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold">Stock moves</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-3 py-3 font-semibold">Direction</th>
+                  <th className="px-3 py-3 font-semibold">Reason</th>
+                  <th className="px-4 py-3 font-semibold text-right">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(batch.inventoryTransactions || []).map((tx) => (
+                  <tr key={tx.id} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
+                      {tx.businessDate
+                        ? formatBusinessDate(tx.businessDate)
+                        : formatDateTime(tx.createdAt)}
+                    </td>
+                    <td className="px-3 py-3">{tx.direction}</td>
+                    <td className="px-3 py-3 text-[var(--ink-muted)]">{tx.reason}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {tx.qty} {tx.uom}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
 
       {detail.data.auditLogs.length > 0 && (
-        <Card className="!p-4">
-          <h2 className="text-base font-semibold">Audit log</h2>
-          <ul className="mt-2 divide-y divide-[var(--line)]">
-            {detail.data.auditLogs.map((log) => (
-              <li key={log.id} className="flex justify-between gap-3 py-1.5 text-sm">
-                <span>{log.action}</span>
-                <span className="shrink-0 text-[var(--ink-muted)]">
-                  {new Date(log.createdAt).toLocaleString()}
-                </span>
-              </li>
-            ))}
-          </ul>
+        <Card className="!overflow-hidden !p-0">
+          <div className="border-b border-[var(--line)] px-4 py-3">
+            <h2 className="text-base font-semibold">Audit log</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-4 py-3 font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.data.auditLogs.map((log) => (
+                  <tr key={log.id} className="border-b border-[var(--line)]">
+                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
+                      {formatDateTime(log.createdAt)}
+                    </td>
+                    <td className="px-4 py-3">{log.action}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
       )}
     </div>
@@ -566,14 +632,14 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
         <h3 className="text-sm font-semibold">{stageName}</h3>
         {run && (
           <span className="text-xs text-[var(--ink-muted)]">
-            Yield {run.yieldPercent}% · Reject {run.rejectPercent}%
+            Yield {run.yieldPercent}% · Waste {run.rejectPercent}%
           </span>
         )}
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Fact label="Kg" value={kg(cost.qtyKg)} compact />
-        <Fact label="Reject" value={kg(cost.qtyReject || run?.qtyReject || 0)} compact />
+        <Fact label="Waste" value={kg(cost.qtyReject || run?.qtyReject || 0)} compact />
         <Fact label="Expenses" value={money(cost.amount)} compact />
         <Fact
           label="₦ / kg"
@@ -717,24 +783,42 @@ function ForwardTracePanel({ batchNumber }: { batchNumber: string }) {
       </div>
 
       {t.sales.length > 0 && (
-        <ul className="mt-3 divide-y divide-[var(--line)]">
-          {t.sales.map((sale) => (
-            <li
-              key={`${sale.saleNumber}-${sale.batchNumber}`}
-              className="flex flex-wrap justify-between gap-2 py-1.5 text-sm"
-            >
-              <Link
-                to={`/sales/${sale.saleNumber}`}
-                className="font-medium text-[var(--accent-strong)] hover:underline"
-              >
-                {sale.saleNumber}
-              </Link>
-              <span>
-                {sale.customerName} · {sale.qty} {sale.uom}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[480px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-3 py-2 font-semibold">Date</th>
+                <th className="px-3 py-2 font-semibold">Sale</th>
+                <th className="px-3 py-2 font-semibold">Customer</th>
+                <th className="px-3 py-2 font-semibold text-right">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.sales.map((sale) => (
+                <tr
+                  key={`${sale.saleNumber}-${sale.batchNumber}`}
+                  className="border-b border-[var(--line)]"
+                >
+                  <td className="px-3 py-2 tabular-nums text-[var(--ink-muted)]">
+                    {formatBusinessDate(sale.businessDate)}
+                  </td>
+                  <td className="px-3 py-2">
+                    <Link
+                      to={`/sales/${sale.saleNumber}`}
+                      className="font-medium text-[var(--accent-strong)] hover:underline"
+                    >
+                      {sale.saleNumber}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2">{sale.customerName}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {sale.qty} {sale.uom}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Card>
   )

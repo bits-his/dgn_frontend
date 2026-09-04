@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader } from '@/components/ui'
+import { formatBusinessDate } from '@/lib/dates'
 
 type LedgerRow = {
   id: number
@@ -181,7 +182,9 @@ export function StockLedgerPage() {
               )}
               {ledger.data?.map((row) => (
                 <tr key={row.id} className="border-b border-zinc-100">
-                  <td className="py-3 pr-4 whitespace-nowrap">{row.businessDate || '—'}</td>
+                  <td className="py-3 pr-4 whitespace-nowrap">
+                    {formatBusinessDate(row.businessDate)}
+                  </td>
                   <td className="py-3 pr-4">
                     {row.batchNumber ? (
                       <Link

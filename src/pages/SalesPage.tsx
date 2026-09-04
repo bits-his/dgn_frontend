@@ -5,6 +5,7 @@ import { Plus, Trash2, Truck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
+import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
 
 type SellableBatch = {
@@ -196,6 +197,7 @@ export function SalesPage() {
               <thead>
                 <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-[var(--ink-faint)]">
                   <th className="py-2 pr-4">Sale</th>
+                  <th className="py-2 pr-4">Date</th>
                   <th className="py-2 pr-4">Customer</th>
                   <th className="py-2 pr-4">Batches</th>
                   <th className="py-2 pr-4 text-right">Value</th>
@@ -217,6 +219,9 @@ export function SalesPage() {
                       <p className="text-xs text-[var(--ink-faint)]">
                         {sale.saleType} · {sale.status.replace('_', ' ').toLowerCase()}
                       </p>
+                    </td>
+                    <td className="py-3 pr-4 text-[var(--ink-muted)] tabular-nums">
+                      {formatBusinessDate(sale.businessDate)}
                     </td>
                     <td className="py-3 pr-4">
                       {sale.customerName}

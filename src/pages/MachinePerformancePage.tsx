@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, PageHeader, StatPill } from '@/components/ui'
+import { formatDateTime } from '@/lib/dates'
 
 type MachinePerf = {
   machineId: number
@@ -140,45 +141,68 @@ export function MachinePerformancePage() {
         </div>
       </Card>
 
-      <Card>
-        <h2 className="text-lg font-semibold tracking-tight">Recent production runs</h2>
-        <div className="mt-4 space-y-2">
-          {runs.data?.slice(0, 15).map((run) => (
-            <div
-              key={run.id}
-              className="flex flex-col gap-2 border-b border-zinc-100 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                {run.batch?.batchNumber ? (
-                  <Link
-                    to={`/batches/${run.batch.batchNumber}`}
-                    className="font-semibold text-[var(--accent-strong)] hover:underline"
-                  >
-                    {run.batch.batchNumber}
-                  </Link>
-                ) : (
-                  <span className="font-semibold">Run #{run.id}</span>
-                )}
-                <p className="text-sm text-[var(--ink-muted)]">
-                  {run.machine?.name || '—'} · {run.product?.name || '—'}
-                </p>
-              </div>
-              <div className="flex gap-4 text-sm">
-                <span>
-                  Good <strong>{run.qtyGood}</strong>
-                </span>
-                <span>
-                  Reject <strong>{run.rejectPercent}%</strong>
-                </span>
-                <span>
-                  OEE <strong>{run.oeePercent}%</strong>
-                </span>
-              </div>
-            </div>
-          ))}
-          {!runs.isLoading && !runs.data?.length && (
-            <p className="text-[var(--ink-muted)]">No runs yet.</p>
-          )}
+      <Card className="!p-0 overflow-hidden">
+        <h2 className="px-4 pt-4 text-lg font-semibold tracking-tight sm:px-6 sm:pt-6">
+          Recent production runs
+        </h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[820px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-3 py-3 font-semibold">Batch</th>
+                <th className="px-3 py-3 font-semibold">Machine</th>
+                <th className="px-3 py-3 font-semibold">Product</th>
+                <th className="px-3 py-3 font-semibold text-right">Good</th>
+                <th className="px-3 py-3 font-semibold text-right">Waste %</th>
+                <th className="px-4 py-3 font-semibold text-right">OEE %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.isLoading && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {runs.data?.slice(0, 15).map((run) => (
+                <tr key={run.id} className="border-b border-[var(--line)] hover:bg-zinc-50/80">
+                  <td className="px-4 py-3 text-[var(--ink-muted)] tabular-nums">
+                    {formatDateTime(run.createdAt)}
+                  </td>
+                  <td className="px-3 py-3">
+                    {run.batch?.batchNumber ? (
+                      <Link
+                        to={`/batches/${run.batch.batchNumber}`}
+                        className="font-semibold text-[var(--accent-strong)] hover:underline"
+                      >
+                        {run.batch.batchNumber}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold">Run #{run.id}</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3">{run.machine?.name || '—'}</td>
+                  <td className="px-3 py-3">{run.product?.name || '—'}</td>
+                  <td className="px-3 py-3 text-right font-medium tabular-nums">
+                    {run.qtyGood.toLocaleString()}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums">{run.rejectPercent}%</td>
+                  <td className="px-4 py-3 text-right font-semibold text-[var(--accent-strong)] tabular-nums">
+                    {run.oeePercent}%
+                  </td>
+                </tr>
+              ))}
+              {!runs.isLoading && !runs.data?.length && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
+                    No runs yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
     </div>
