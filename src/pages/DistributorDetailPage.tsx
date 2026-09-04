@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, StatPill, NairaAmountInput } from '@/components/ui'
+import { Card, Field, NairaAmountInput } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { CreditBar, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
@@ -250,35 +250,6 @@ export function DistributorDetailPage() {
           </p>
         </Card>
       )}
-
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatPill
-          label="They owe us"
-          value={money(c.outstanding)}
-          tone={c.outstanding > 0 ? 'danger' : 'success'}
-          hint={`${c.unpaidCount || 0} unpaid invoice${(c.unpaidCount || 0) === 1 ? '' : 's'}`}
-        />
-        <StatPill
-          label="Credit limit"
-          value={money(c.creditLimit)}
-          hint={c.creditLimit > 0 ? `${c.utilizationPercent}% used` : 'Cash only'}
-        />
-        <StatPill
-          label="Credit left"
-          value={money(c.available)}
-          tone={creditClosed ? 'danger' : 'accent'}
-        />
-        <StatPill
-          label="Overdue"
-          value={money(c.overdueAmount || 0)}
-          tone={(c.overdueCount || 0) > 0 ? 'danger' : 'success'}
-          hint={
-            (c.overdueCount || 0) > 0
-              ? `${c.overdueCount} past ${c.paymentTermsDays} day terms`
-              : `${c.paymentTermsDays} day terms`
-          }
-        />
-      </div>
 
       <Card className="mb-6">
       <h1 className="text-xl font-semibold tracking-tight">{d.name}</h1>
