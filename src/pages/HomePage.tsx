@@ -116,7 +116,7 @@ const actions = [
     title: 'Production',
     desc: 'Make finished goods from dried lots',
     icon: Cog,
-    permission: 'production.create',
+    permission: 'batch.view',
     tone: 'from-violet-600 to-violet-800',
   },
   {

@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { LoginPage } from '@/pages/LoginPage'
@@ -13,6 +14,8 @@ import { MastersPage } from '@/pages/MastersPage'
 import { ProcessStagePage } from '@/pages/ProcessStagePage'
 import { CostIntelligencePage } from '@/pages/CostIntelligencePage'
 import { ProductionPage } from '@/pages/ProductionPage'
+import { RecordProductionPage } from '@/pages/RecordProductionPage'
+import { CompleteProductionPage } from '@/pages/CompleteProductionPage'
 import { MachinePerformancePage } from '@/pages/MachinePerformancePage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { StockLedgerPage } from '@/pages/StockLedgerPage'
@@ -42,6 +45,23 @@ const queryClient = new QueryClient({
   },
 })
 
+function ProductionRunRedirect() {
+  const { id } = useParams()
+  const runs = useQuery({
+    queryKey: ['production-runs'],
+    queryFn: async () => {
+      const { data } = await api.get('/production/runs')
+      return (data.data || []) as Array<{ id: number; batch?: { batchNumber: string } }>
+    },
+  })
+  const run = runs.data?.find((r) => String(r.id) === id)
+  if (runs.isLoading) return <p className="p-4 text-xs text-zinc-500">Loading batch details…</p>
+  if (run?.batch?.batchNumber) {
+    return <Navigate to={`/batches/${run.batch.batchNumber}`} replace />
+  }
+  return <Navigate to="/production" replace />
+}
+
 function AuthHydrator({ children }: { children: ReactNode }) {
   const hydrate = useAuthStore((s) => s.hydrate)
   useEffect(() => {
@@ -68,6 +88,9 @@ function App() {
                 <Route path="/receiving" element={<ScrapReceivingPage />} />
                 <Route path="/process/:stage" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
+                <Route path="/production/new" element={<RecordProductionPage />} />
+                <Route path="/production/:id" element={<ProductionRunRedirect />} />
+                <Route path="/production/:id/complete" element={<CompleteProductionPage />} />
                 <Route path="/machines" element={<MachinePerformancePage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/ledger" element={<StockLedgerPage />} />

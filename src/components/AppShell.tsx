@@ -70,7 +70,7 @@ const recyclingGroup: NavGroup = {
 
 const mainNavRest: NavItem[] = [
   { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
-  { to: '/production', label: 'Production', icon: Cog, permission: 'production.create' },
+  { to: '/production', label: 'Production', icon: Cog, permission: 'batch.view' },
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, permission: 'sales.view' },
