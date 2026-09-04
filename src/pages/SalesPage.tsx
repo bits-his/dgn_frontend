@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Truck } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card, Field, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
+import { CreditBar } from '@/pages/DistributorsPage'
 
 type SellableBatch = {
   id: number
@@ -27,10 +28,22 @@ type Customer = {
   address: string | null
 }
 
+type DistributorCreditView = {
+  creditLimit: number
+  outstanding: number
+  available: number
+  utilizationPercent: number
+  atLimit: boolean
+  paymentTermsDays: number
+}
+
 type SaleRow = {
   id: number
   saleNumber: string
+  customerId: number
   customerName: string | null
+  customerCode: string | null
+  customerType: string | null
   saleType: string
   status: string
   businessDate: string | null
@@ -69,7 +82,9 @@ function fmt(n: number) {
 export function SalesPage() {
   const user = useAuthStore((s) => s.user)
   const canSell = hasPermission(user, 'sales.create')
-  const [composing, setComposing] = useState(false)
+  const [searchParams] = useSearchParams()
+  const preselectDistributor = searchParams.get('distributor') || ''
+  const [composing, setComposing] = useState(Boolean(preselectDistributor && canSell))
 
   const sales = useQuery({
     queryKey: ['sales'],
@@ -99,14 +114,26 @@ export function SalesPage() {
         receivables: {
           saleNumber: string
           customerName: string | null
+          customerCode: string | null
+          customerType: string | null
+          saleType: string
+          paymentStatus: string
+          totalAmount: number
+          amountPaid: number
           balanceDue: number
+          businessDate: string | null
         }[]
       }
     },
   })
 
   if (composing) {
-    return <NewSaleForm onDone={() => setComposing(false)} />
+    return (
+      <NewSaleForm
+        onDone={() => setComposing(false)}
+        initialCustomerId={preselectDistributor}
+      />
+    )
   }
 
   const totals = overview.data?.totals
@@ -114,21 +141,8 @@ export function SalesPage() {
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Sales & distribution"
-        title="Sales desk"
-        description="Sell only quality-accepted finished goods. Every sale drops stock, records revenue against the exact batches dispatched, and shows the margin those batches earned."
-        actions={
-          canSell ? (
-            <button className="dgn-btn dgn-btn-primary" onClick={() => setComposing(true)}>
-              <Plus className="h-4 w-4" /> New sale
-            </button>
-          ) : null
-        }
-      />
-
       {totals && (
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatPill label="Net revenue" value={money(totals.revenue)} tone="accent" />
           <StatPill label="Cost of goods sold" value={money(totals.cost)} />
           <StatPill
@@ -137,64 +151,112 @@ export function SalesPage() {
             tone={totals.grossMargin > 0 ? 'success' : 'danger'}
           />
           <StatPill
-            label="Outstanding receivables"
+            label="Money still owed"
             value={money(totals.receivablesTotal)}
             tone={totals.receivablesTotal > 0 ? 'danger' : 'success'}
+            hint={
+              receivables.length
+                ? `${receivables.length} unpaid invoice${receivables.length === 1 ? '' : 's'}`
+                : 'None outstanding'
+            }
           />
         </div>
       )}
 
-      {totals && (
-        <Card className="mb-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <SmallFact label="Discounts given" value={money(totals.discounts)} />
-            <SmallFact label="Margin after discounts" value={money(totals.netMargin)} />
-            <SmallFact label="Net units sold" value={fmt(totals.qtyNet)} />
-            <SmallFact
-              label="Return rate"
-              value={`${totals.returnRatePercent}% (${fmt(totals.qtyReturned)} units back)`}
-            />
-          </div>
-        </Card>
+      {canSell && (
+        <div className="mb-4 flex justify-end">
+          <button type="button" className="dgn-btn dgn-btn-primary" onClick={() => setComposing(true)}>
+            <Plus className="h-4 w-4" /> New sale
+          </button>
+        </div>
       )}
 
       {receivables.length > 0 && (
-        <Card className="mb-6 border-red-200 bg-red-50/40">
+        <Card className="mb-4 !p-4">
           <h2 className="text-base font-semibold">Money still owed</h2>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            These dispatches have left the factory but have not been fully paid for.
+          <p className="text-sm text-zinc-700">
+            {receivables.length} unpaid · {money(totals?.receivablesTotal || 0)}
           </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {receivables.map((r) => (
-              <Link
-                key={r.saleNumber}
-                to={`/sales/${r.saleNumber}`}
-                className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm hover:border-red-400"
-              >
-                <span className="font-mono text-xs">{r.saleNumber}</span>
-                <span className="mx-2 text-[var(--ink-faint)]">·</span>
-                {r.customerName}
-                <span className="ml-2 font-semibold text-red-700">{money(r.balanceDue)}</span>
-              </Link>
-            ))}
+          <div className="mt-4 -mx-4 overflow-x-auto px-4">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
+                  <th className="py-2 pr-4">Sale</th>
+                  <th className="py-2 pr-4">Customer</th>
+                  <th className="py-2 pr-4 text-right">Invoiced</th>
+                  <th className="py-2 pr-4 text-right">Paid</th>
+                  <th className="py-2 pr-4 text-right">Still owed</th>
+                  <th className="py-2 pr-4">Payment</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receivables.map((row) => (
+                  <tr key={row.saleNumber} className="border-b border-[var(--line)] last:border-0">
+                    <td className="py-3 pr-4">
+                      <Link
+                        to={`/sales/${row.saleNumber}`}
+                        className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                      >
+                        {row.saleNumber}
+                      </Link>
+                      <p className="text-xs text-zinc-500">
+                        {(row.saleType || '').toLowerCase()}
+                      </p>
+                    </td>
+                    <td className="py-3 pr-4">
+                      {row.customerType === 'DISTRIBUTOR' && row.customerCode ? (
+                        <Link
+                          to={`/distributors/${row.customerCode}`}
+                          className="font-medium text-[var(--accent-strong)] hover:underline"
+                        >
+                          {row.customerName}
+                        </Link>
+                      ) : (
+                        row.customerName || '—'
+                      )}
+                      {row.customerType && (
+                        <p className="text-xs text-zinc-500">{row.customerType.toLowerCase()}</p>
+                      )}
+                    </td>
+                    <td className="py-3 pr-4 text-right">{money(row.totalAmount || 0)}</td>
+                    <td className="py-3 pr-4 text-right">{money(row.amountPaid || 0)}</td>
+                    <td className="py-3 pr-4 text-right font-semibold text-red-700">
+                      {money(row.balanceDue)}
+                    </td>
+                    <td className="py-3 pr-4">
+                      <span
+                        className={
+                          'rounded-lg px-2 py-1 text-xs font-semibold ' +
+                          (row.paymentStatus === 'PARTIAL'
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent-strong)]'
+                            : 'bg-red-50 text-red-700')
+                        }
+                      >
+                        {row.paymentStatus || 'UNPAID'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
 
-      <Card>
-        <h2 className="text-base font-semibold">Recent sales & dispatches</h2>
-        {sales.isLoading && <p className="mt-3 text-sm text-[var(--ink-muted)]">Loading…</p>}
+      <Card className="!p-4">
+        <h2 className="text-base font-semibold">Sales book</h2>
+        <p className="text-sm text-zinc-700">
+          {sales.data ? `${sales.data.length} shown` : 'Loading…'}
+        </p>
+        {sales.isLoading && <p className="mt-3 text-sm text-zinc-700">Loading sales…</p>}
         {sales.data && sales.data.length === 0 && (
-          <p className="mt-3 text-sm text-[var(--ink-muted)]">
-            No sales recorded yet. Once quality control accepts a production batch it becomes
-            sellable here.
-          </p>
+          <p className="mt-3 text-sm text-zinc-700">No sales recorded yet.</p>
         )}
         {sales.data && sales.data.length > 0 && (
-          <div className="mt-4 -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
+          <div className="mt-4 -mx-4 overflow-x-auto px-4">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead>
-                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-[var(--ink-faint)]">
+                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
                   <th className="py-2 pr-4">Sale</th>
                   <th className="py-2 pr-4">Customer</th>
                   <th className="py-2 pr-4">Batches</th>
@@ -214,14 +276,28 @@ export function SalesPage() {
                       >
                         {sale.saleNumber}
                       </Link>
-                      <p className="text-xs text-[var(--ink-faint)]">
+                      <p className="text-xs text-zinc-500">
                         {sale.saleType} · {sale.status.replace('_', ' ').toLowerCase()}
                       </p>
                     </td>
                     <td className="py-3 pr-4">
-                      {sale.customerName}
+                      {sale.customerType === 'DISTRIBUTOR' && sale.customerCode ? (
+                        <Link
+                          to={`/distributors/${sale.customerCode}`}
+                          className="font-medium text-[var(--accent-strong)] hover:underline"
+                        >
+                          {sale.customerName}
+                        </Link>
+                      ) : (
+                        sale.customerName
+                      )}
+                      {sale.customerType && (
+                        <p className="text-xs text-zinc-500">
+                          {sale.customerType.toLowerCase()}
+                        </p>
+                      )}
                       {sale.destination && (
-                        <p className="text-xs text-[var(--ink-faint)]">{sale.destination}</p>
+                        <p className="text-xs text-zinc-500">{sale.destination}</p>
                       )}
                     </td>
                     <td className="py-3 pr-4">
@@ -250,9 +326,7 @@ export function SalesPage() {
                       >
                         {money(sale.grossMargin)}
                       </span>
-                      <p className="text-xs text-[var(--ink-faint)]">
-                        {sale.grossMarginPercent}%
-                      </p>
+                      <p className="text-xs text-zinc-500">{sale.grossMarginPercent}%</p>
                     </td>
                     <td className="py-3 pr-4">
                       <span
@@ -271,7 +345,7 @@ export function SalesPage() {
                         <p className="mt-1 text-xs text-red-700">{money(sale.balanceDue)} due</p>
                       )}
                     </td>
-                    <td className="py-3 pr-4 text-xs text-[var(--ink-muted)]">
+                    <td className="py-3 pr-4 text-xs text-zinc-700">
                       {sale.vehicleNumber || '—'}
                       {sale.driverName && <p>{sale.driverName}</p>}
                     </td>
@@ -286,20 +360,15 @@ export function SalesPage() {
   )
 }
 
-function SmallFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--ink-faint)]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold">{value}</p>
-    </div>
-  )
-}
-
-function NewSaleForm({ onDone }: { onDone: () => void }) {
+function NewSaleForm({
+  onDone,
+  initialCustomerId = '',
+}: {
+  onDone: () => void
+  initialCustomerId?: string
+}) {
   const queryClient = useQueryClient()
-  const [customerId, setCustomerId] = useState('')
+  const [customerId, setCustomerId] = useState(initialCustomerId)
   const [saleType, setSaleType] = useState('CASH')
   const [lines, setLines] = useState<CartLine[]>([])
   const [discount, setDiscount] = useState('0')
@@ -320,6 +389,33 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
     queryFn: async () => {
       const { data } = await api.get('/masters/customers')
       return data.data as Customer[]
+    },
+  })
+
+  const selectedCustomer = (customers.data ?? []).find((c) => String(c.id) === String(customerId))
+  const selectedIsDistributor = selectedCustomer?.customerType === 'DISTRIBUTOR'
+
+  useEffect(() => {
+    if (!customers.data?.length || !initialCustomerId) return
+    const found = customers.data.find(
+      (c) => String(c.id) === String(initialCustomerId) || c.code === initialCustomerId,
+    )
+    if (found && String(customerId) !== String(found.id)) {
+      setCustomerId(String(found.id))
+    }
+  }, [customers.data, initialCustomerId, customerId])
+
+  useEffect(() => {
+    if (!selectedCustomer) return
+    if (selectedCustomer.address && !destination) setDestination(selectedCustomer.address)
+  }, [selectedCustomer?.id])
+
+  const distributorCredit = useQuery({
+    queryKey: ['distributor-credit', selectedCustomer?.code],
+    enabled: Boolean(selectedIsDistributor && selectedCustomer?.code),
+    queryFn: async () => {
+      const { data } = await api.get(`/distributors/${selectedCustomer!.code}`)
+      return data.data.credit as DistributorCreditView
     },
   })
 
@@ -405,10 +501,14 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
       queryClient.invalidateQueries({ queryKey: ['sales-overview'] })
       queryClient.invalidateQueries({ queryKey: ['sellable-batches'] })
       queryClient.invalidateQueries({ queryKey: ['inventory-overview'] })
+      queryClient.invalidateQueries({ queryKey: ['distributors'] })
+      queryClient.invalidateQueries({ queryKey: ['distributor'] })
     } catch (err: unknown) {
       const res = (err as { response?: { data?: Record<string, unknown> } }).response
       const body = res?.data
-      if (body && body.warning) {
+      if (body && body.code === 'CREDIT_LIMIT_EXCEEDED') {
+        setError(String(body.err || body.message || 'Credit limit reached'))
+      } else if (body && body.warning) {
         setWarning(String(body.message))
       } else if (body && body.errors) {
         setError(Object.values(body.errors as Record<string, string>).join(' · '))
@@ -423,7 +523,9 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
   if (result) {
     return (
       <div>
-        <PageHeader eyebrow="Sales & distribution" title="Sale recorded" />
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Sale recorded</h1>
+        </div>
         <Card>
           <p className="text-sm text-[var(--ink-muted)]">Dispatch note</p>
           <p className="mt-1 font-mono text-2xl font-semibold">{result.saleNumber}</p>
@@ -444,20 +546,25 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
     )
   }
 
-  const canSubmit = customerId && lines.length > 0 && !saving
+  const credit = distributorCredit.data
+  const thisSaleDue = Math.max(0, computed.balance)
+  const projectedOutstanding = (credit?.outstanding || 0) + thisSaleDue
+  const creditBlocked = Boolean(
+    selectedIsDistributor &&
+      credit &&
+      thisSaleDue > 0.001 &&
+      projectedOutstanding > credit.creditLimit + 0.001,
+  )
+  const canSubmit = Boolean(customerId && lines.length > 0 && !saving && !creditBlocked)
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Sales & distribution"
-        title="New sale & dispatch"
-        description="Pick the customer, then add the accepted batches leaving the factory. Cost per unit comes from that batch's real production lineage, so the margin is what the factory actually earned."
-        actions={
-          <button className="dgn-btn dgn-btn-ghost" onClick={onDone}>
-            Cancel
-          </button>
-        }
-      />
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">New sale</h1>
+        <button type="button" className="dgn-btn dgn-btn-ghost" onClick={onDone}>
+          Cancel
+        </button>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div className="space-y-6">
@@ -496,6 +603,44 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
                 </select>
               </Field>
             </div>
+            {selectedIsDistributor && credit && (
+              <div
+                className={`mt-4 rounded-2xl p-4 ${
+                  creditBlocked ? 'bg-red-50' : credit.atLimit ? 'bg-amber-50' : 'bg-zinc-50'
+                }`}
+              >
+                <div className="mb-2 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="font-semibold">
+                    Distributor credit
+                    {selectedCustomer?.code && (
+                      <Link
+                        className="ml-2 text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                        to={`/distributors/${selectedCustomer.code}`}
+                      >
+                        Open ledger
+                      </Link>
+                    )}
+                  </span>
+                  <span className={creditBlocked ? 'font-semibold text-red-700' : 'text-teal-700'}>
+                    {money(credit.available)} left
+                  </span>
+                </div>
+                <CreditBar percent={credit.utilizationPercent} atLimit={credit.atLimit} />
+                <p className="mt-2 text-xs text-[var(--ink-muted)]">
+                  They owe {money(credit.outstanding)} of a {money(credit.creditLimit)} limit
+                  {thisSaleDue > 0
+                    ? ` · this dispatch would add ${money(thisSaleDue)} unpaid`
+                    : ' · this dispatch is fully paid'}
+                  .
+                </p>
+                {creditBlocked && (
+                  <p className="mt-2 text-sm font-semibold text-red-700">
+                    Credit limit reached. Collect payment first, or reduce the unpaid amount on this
+                    sale. Goods will not leave on credit.
+                  </p>
+                )}
+              </div>
+            )}
           </Card>
 
           <Card>
@@ -726,13 +871,24 @@ function NewSaleForm({ onDone }: { onDone: () => void }) {
               </div>
             )}
 
+            {creditBlocked && (
+              <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+                This distributor is at their credit limit. Record a payment on their ledger, or
+                collect the full amount now.
+              </p>
+            )}
+
             <button
               className="dgn-btn dgn-btn-primary mt-5 w-full"
               disabled={!canSubmit}
               onClick={() => submit(false)}
             >
               <Truck className="h-4 w-4" />
-              {saving ? 'Recording…' : 'Record sale & dispatch'}
+              {saving
+                ? 'Recording…'
+                : creditBlocked
+                  ? 'Credit limit reached'
+                  : 'Record sale & dispatch'}
             </button>
           </Card>
         </div>

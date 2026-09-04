@@ -135,6 +135,12 @@ export function MastersPage() {
                 <option value="COMPANY">Company</option>
                 <option value="OTHER">Other</option>
               </select>
+            ) : tab === 'customers' ? (
+              <select className="dgn-input" value={extra} onChange={(e) => setExtra(e.target.value)}>
+                <option value="WHOLESALE">Wholesale</option>
+                <option value="RETAIL">Retail</option>
+                <option value="DISTRIBUTOR">Distributor</option>
+              </select>
             ) : (
               <input
                 className="dgn-input"
