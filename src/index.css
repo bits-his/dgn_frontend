@@ -138,3 +138,21 @@ h3 {
   color: #1f2933;
   letter-spacing: 0.02em;
 }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  html,
+  body,
+  #root {
+    background: #fff !important;
+    min-height: auto;
+  }
+
+  .dgn-print-hide {
+    display: none !important;
+  }
+}

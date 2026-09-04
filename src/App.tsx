@@ -20,6 +20,7 @@ import { QcPage } from '@/pages/QcPage'
 import { QcTrendsPage } from '@/pages/QcTrendsPage'
 import { SalesPage } from '@/pages/SalesPage'
 import { SaleDetailPage } from '@/pages/SaleDetailPage'
+import { SaleInvoicePage, SaleReceiptPage } from '@/pages/SaleDocumentPage'
 import { DistributorsPage } from '@/pages/DistributorsPage'
 import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
@@ -57,6 +58,8 @@ function App() {
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>
+              <Route path="/sales/:saleNumber/invoice" element={<SaleInvoicePage />} />
+              <Route path="/sales/:saleNumber/receipt" element={<SaleReceiptPage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />

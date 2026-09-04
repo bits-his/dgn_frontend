@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Truck } from 'lucide-react'
+import { Plus, Printer, Trash2, Truck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, StatPill } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
@@ -381,7 +381,7 @@ function NewSaleForm({
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
-  const [result, setResult] = useState<{ saleNumber: string } | null>(null)
+  const [result, setResult] = useState<{ saleNumber: string; amountPaid: number } | null>(null)
   const [saving, setSaving] = useState(false)
 
   const customers = useQuery({
@@ -496,7 +496,7 @@ function NewSaleForm({
         notes,
         confirmLowMargin,
       })
-      setResult({ saleNumber: data.saleNumber })
+      setResult({ saleNumber: data.saleNumber, amountPaid: Number(amountPaid) || 0 })
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['sales-overview'] })
       queryClient.invalidateQueries({ queryKey: ['sellable-batches'] })
@@ -534,10 +534,18 @@ function NewSaleForm({
             against them.
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
-            <Link className="dgn-btn dgn-btn-primary" to={`/sales/${result.saleNumber}`}>
-              Open dispatch note
+            <Link className="dgn-btn dgn-btn-primary" to={`/sales/${result.saleNumber}/invoice`}>
+              <Printer className="h-4 w-4" /> Print invoice
             </Link>
-            <button className="dgn-btn dgn-btn-secondary" onClick={onDone}>
+            {result.amountPaid > 0.001 && (
+              <Link className="dgn-btn dgn-btn-secondary" to={`/sales/${result.saleNumber}/receipt`}>
+                <Printer className="h-4 w-4" /> Print receipt
+              </Link>
+            )}
+            <Link className="dgn-btn dgn-btn-secondary" to={`/sales/${result.saleNumber}`}>
+              Open sale
+            </Link>
+            <button className="dgn-btn dgn-btn-ghost" onClick={onDone}>
               Back to sales
             </button>
           </div>

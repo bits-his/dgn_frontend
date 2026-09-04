@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Printer } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field } from '@/components/ui'
 import { hasPermission } from '@/lib/auth'
@@ -199,23 +199,43 @@ export function SaleDetailPage() {
       </div>
 
       <Card className="mb-6">
-        <h1 className="text-xl font-semibold tracking-tight">{s.saleNumber}</h1>
-        <p className="mt-1 text-sm text-zinc-700">
-          {customerIsDistributor ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">{s.saleNumber}</h1>
+            <p className="mt-1 text-sm text-zinc-700">
+              {customerIsDistributor ? (
+                <Link
+                  to={`/distributors/${s.customer!.code}`}
+                  className="font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  {s.customer?.name}
+                </Link>
+              ) : (
+                s.customer?.name || 'Unknown customer'
+              )}
+              <span className="text-zinc-500">
+                {' '}
+                · {s.saleType.toLowerCase()} · {s.status.replace('_', ' ').toLowerCase()}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
             <Link
-              to={`/distributors/${s.customer!.code}`}
-              className="font-medium text-[var(--accent-strong)] hover:underline"
+              className="dgn-btn dgn-btn-secondary !px-3 !py-1.5 text-sm"
+              to={`/sales/${s.saleNumber}/invoice`}
             >
-              {s.customer?.name}
+              <Printer className="h-4 w-4" /> Invoice
             </Link>
-          ) : (
-            s.customer?.name || 'Unknown customer'
-          )}
-          <span className="text-zinc-500">
-            {' '}
-            · {s.saleType.toLowerCase()} · {s.status.replace('_', ' ').toLowerCase()}
-          </span>
-        </p>
+            {s.amountPaid > 0.001 && (
+              <Link
+                className="dgn-btn dgn-btn-secondary !px-3 !py-1.5 text-sm"
+                to={`/sales/${s.saleNumber}/receipt`}
+              >
+                <Printer className="h-4 w-4" /> Receipt
+              </Link>
+            )}
+          </div>
+        </div>
         <div className="mt-4 space-y-2 text-sm">
           <Row label="Goods value" value={money(s.subtotal)} />
           <Row label="Discount" value={`− ${money(s.discount)}`} />
@@ -283,15 +303,17 @@ export function SaleDetailPage() {
                 : `${money(s.amountPaid)} collected`}
             </p>
           </div>
-          {canSell && unpaid && (
-            <button
-              type="button"
-              className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
-              onClick={() => setPayOpen(true)}
-            >
-              Record payment
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {canSell && unpaid && (
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
+                onClick={() => setPayOpen(true)}
+              >
+                Record payment
+              </button>
+            )}
+          </div>
         </div>
         {payments.length > 0 ? (
           <div className="mt-4 -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
@@ -302,7 +324,8 @@ export function SaleDetailPage() {
                   <th className="py-2 pr-4">How</th>
                   <th className="py-2 pr-4 text-right">Amount</th>
                   <th className="py-2 pr-4">Reference</th>
-                  <th className="py-2">Note</th>
+                  <th className="py-2 pr-4">Note</th>
+                  <th className="py-2 text-right"> </th>
                 </tr>
               </thead>
               <tbody>
@@ -314,7 +337,15 @@ export function SaleDetailPage() {
                     <td className="py-3 pr-4">{methodLabel(row.paymentMethod)}</td>
                     <td className="py-3 pr-4 text-right font-semibold">{money(row.amount)}</td>
                     <td className="py-3 pr-4 font-mono text-xs">{row.reference || '—'}</td>
-                    <td className="py-3 text-zinc-700">{row.note || '—'}</td>
+                    <td className="py-3 pr-4 text-zinc-700">{row.note || '—'}</td>
+                    <td className="py-3 text-right">
+                      <Link
+                        to={`/sales/${s.saleNumber}/receipt?p=${encodeURIComponent(String(row.id))}`}
+                        className="text-sm font-semibold text-[var(--accent-strong)]"
+                      >
+                        Receipt
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
