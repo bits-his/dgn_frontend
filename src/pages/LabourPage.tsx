@@ -150,7 +150,6 @@ export function LabourPage() {
       <PageHeader
         eyebrow="People"
         title="Staff"
-        description="Staff directory with shifts and login access, plus attendance taken per shift."
       />
 
       <Card className="mb-4">

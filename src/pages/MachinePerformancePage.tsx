@@ -176,7 +176,6 @@ export function MachinePerformancePage() {
       <PageHeader
         eyebrow="Machine intelligence"
         title="Machines & insights"
-        description="OEE, downtime, operators, and what each machine produces."
       />
 
       <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

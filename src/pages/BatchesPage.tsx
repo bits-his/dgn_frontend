@@ -92,7 +92,6 @@ export function BatchesPage() {
       <PageHeader
         eyebrow="Traceability"
         title="Batches"
-        description="All factory batches. See stage, weight, and date — open one for full detail."
       />
 
       <Card className="mb-4 !p-4">

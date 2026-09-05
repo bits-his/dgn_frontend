@@ -107,7 +107,6 @@ export function QcTrendsPage() {
       <PageHeader
         eyebrow="Quality control"
         title="Defect trends"
-        description="Where quality problems come from, broken down by defect type, product, machine and shift."
         actions={
           <Link to="/qc" className="dgn-btn dgn-btn-secondary">
             <ArrowLeft className="size-4" />

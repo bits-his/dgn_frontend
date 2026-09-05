@@ -81,7 +81,6 @@ export function MastersPage() {
       <PageHeader
         eyebrow="Configuration"
         title="Masters"
-        description="Materials, suppliers, products, machines and customers used across receiving, recycling, production and sales. Reorder levels here drive the inventory alerts."
       />
 
       <Card className="mb-4">

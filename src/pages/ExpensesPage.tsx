@@ -96,7 +96,6 @@ export function ExpensesPage() {
       <PageHeader
         eyebrow="Finance"
         title="Factory expenses"
-        description="Rent, diesel, electricity, repairs and everything else it takes to run the factory. Nothing changes the cost of goods until someone approves it."
         actions={
           canCreate ? (
             <button className="dgn-btn dgn-btn-primary" onClick={() => setComposing(true)}>
@@ -445,7 +444,6 @@ function NewExpenseForm({ onDone }: { onDone: () => void }) {
       <PageHeader
         eyebrow="Finance"
         title="Record an expense"
-        description="Factory-wide costs get shared across everything produced that month. Costs caused by one batch can be charged to that batch instead."
         actions={
           <button className="dgn-btn dgn-btn-ghost" onClick={onDone}>
             Cancel

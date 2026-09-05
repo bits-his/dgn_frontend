@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Card, PageHeader } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
 
@@ -373,29 +373,17 @@ export function BatchDetailPage() {
 
   return (
     <div className="space-y-3">
-      <PageHeader
-        eyebrow="Batch"
-        title={batch.batchNumber}
-        description={[
-          typeLabel,
-          batch.product?.name || (batch.sortColor ? colorLabel(batch.sortColor) : null),
-          batch.material?.name || null,
-          productionRun?.machine?.name ? `Machine: ${productionRun.machine.name}` : null,
-          productionRun?.operatorName ? `Operator: ${productionRun.operatorName}` : null,
-        ]
-          .filter(Boolean)
-          .join(' · ')}
-        actions={
-          isNotCompleted && productionRun ? (
-            <Link
-              to={`/production/${productionRun.id}/complete`}
-              className="dgn-btn dgn-btn-primary !px-3.5 !py-2 text-sm font-semibold inline-flex items-center gap-1.5 shadow-sm"
-            >
-              Complete Run →
-            </Link>
-          ) : null
-        }
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-lg font-semibold tracking-tight">{batch.batchNumber}</p>
+        {isNotCompleted && productionRun ? (
+          <Link
+            to={`/production/${productionRun.id}/complete`}
+            className="dgn-btn dgn-btn-primary inline-flex items-center gap-1.5 !px-3.5 !py-2 text-sm font-semibold shadow-sm"
+          >
+            Complete Run →
+          </Link>
+        ) : null}
+      </div>
 
       {isNotCompleted && (
         <Card className="!p-3.5 border-l-4 !border-l-amber-500">

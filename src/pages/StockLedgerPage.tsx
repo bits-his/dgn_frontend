@@ -79,7 +79,6 @@ export function StockLedgerPage() {
       <PageHeader
         eyebrow="Inventory"
         title="Movement ledger"
-        description="Every stock movement ever recorded, with the person and reference behind it. Entries are never edited or deleted."
         actions={
           <Link to="/inventory" className="dgn-btn dgn-btn-secondary">
             <ArrowLeft className="size-4" />

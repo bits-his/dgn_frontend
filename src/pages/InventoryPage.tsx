@@ -154,7 +154,6 @@ export function InventoryPage() {
       <PageHeader
         eyebrow="Inventory"
         title="Stock visibility"
-        description="Live balances across raw material, work in progress and finished goods. Stock is never edited directly — every change is a recorded movement."
         actions={
           <Link to="/inventory/ledger" className="dgn-btn dgn-btn-secondary">
             <ClipboardList className="size-4" />

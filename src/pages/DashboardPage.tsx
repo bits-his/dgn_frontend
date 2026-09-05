@@ -335,9 +335,8 @@ export function DashboardPage() {
 
   if (!canExec) {
     return (
-      <div className="py-12 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">Command centre</h1>
-        <p className="mt-2 text-sm text-[var(--ink-muted)]">No access on this account.</p>
+      <div className="py-12 text-center text-sm text-[var(--ink-muted)]">
+        No access on this account.
       </div>
     )
   }
@@ -347,17 +346,10 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5 pb-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-            DGN Factory
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Command centre</h1>
-          {d ? (
-            <p className="mt-0.5 text-sm tabular-nums text-[var(--ink-muted)]">{d.range.label}</p>
-          ) : null}
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {d ? (
+          <span className="mr-auto text-sm tabular-nums text-[var(--ink-muted)]">{d.range.label}</span>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <select
             className="dgn-input !py-2 w-36"

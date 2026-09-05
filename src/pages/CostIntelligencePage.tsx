@@ -77,7 +77,6 @@ export function CostIntelligencePage() {
       <PageHeader
         eyebrow="Finance intelligence"
         title="Cost intelligence"
-        description="True recycled material cost/kg rolls up purchase, logistics, labour and processing across the full batch lineage."
       />
 
       {ov && (

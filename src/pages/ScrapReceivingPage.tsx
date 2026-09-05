@@ -299,7 +299,6 @@ export function ScrapReceivingPage() {
       <PageHeader
         eyebrow="Processing · inbound"
         title="Scrap buying"
-        description="Buy raw scrap (SCR- ticket) or already-crushed material by colour (one BAT- per colour)."
       />
 
       <form

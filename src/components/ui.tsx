@@ -1,32 +1,20 @@
 import type { ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
+/** Page toolbar — sidebar already names the page, so no title block. */
 export function PageHeader({
-  eyebrow,
-  title,
-  description,
   actions,
+  className,
 }: {
   eyebrow?: string
-  title: string
+  title?: string
   description?: string
   actions?: ReactNode
+  className?: string
 }) {
+  if (!actions) return null
   return (
-    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        {eyebrow && (
-          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
-        {description && (
-          <p className="mt-1 max-w-2xl text-sm text-[var(--ink-muted)] sm:text-base">
-            {description}
-          </p>
-        )}
-      </div>
+    <div className={cn('mb-5 flex flex-wrap items-center justify-end gap-2', className)}>
       {actions}
     </div>
   )

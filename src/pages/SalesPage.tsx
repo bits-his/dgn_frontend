@@ -520,16 +520,8 @@ function NewSaleForm({
   if (result) {
     return (
       <div>
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Sale recorded</h1>
-        </div>
         <Card>
-          <p className="text-sm text-[var(--ink-muted)]">Sale</p>
-          <p className="mt-1 font-mono text-2xl font-semibold">{result.saleNumber}</p>
-          <p className="mt-3 text-sm text-[var(--ink-muted)]">
-            Stock has been reduced on the batches sold and the revenue is now recorded
-            against them.
-          </p>
+          <p className="font-mono text-2xl font-semibold">{result.saleNumber}</p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Link className="dgn-btn dgn-btn-primary" to={`/sales/${result.saleNumber}/invoice`}>
               <Printer className="h-4 w-4" /> Print invoice
@@ -572,8 +564,7 @@ function NewSaleForm({
 
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">New sale</h1>
+      <div className="mb-6 flex flex-wrap items-start justify-end gap-3">
         <button type="button" className="dgn-btn dgn-btn-ghost" onClick={onDone}>
           Cancel
         </button>

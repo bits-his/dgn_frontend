@@ -13,7 +13,6 @@ const STAGE_META: Record<
   {
     title: string
     eyebrow: string
-    description: string
     queueTitle: string
     emptyHint: string
     showWashFields?: boolean
@@ -29,8 +28,6 @@ const STAGE_META: Record<
   sorting: {
     title: 'Sorting',
     eyebrow: 'Recycling stage',
-    description:
-      'Choose a scrap ticket from the queue, then split it by colour into BAT- lots. Sorting is done by teams.',
     queueTitle: 'Scrap tickets waiting to sort',
     emptyHint: 'No scrap tickets waiting. Buy raw scrap first.',
     showTeam: true,
@@ -42,8 +39,6 @@ const STAGE_META: Record<
   crushing: {
     title: 'Crushing',
     eyebrow: 'Recycling stage',
-    description:
-      'Choose a sorted colour lot, crush it, then weigh and record the measured kg after crushing.',
     queueTitle: 'Sorted lots waiting to crush',
     emptyHint: 'No sorted lots waiting. Finish sorting first.',
     showMachine: true,
@@ -56,8 +51,6 @@ const STAGE_META: Record<
   washing: {
     title: 'Washing',
     eyebrow: 'Recycling stage',
-    description:
-      'Choose a crushed lot from the queue (from crushing, or bought already crushed).',
     queueTitle: 'Crushed lots waiting to wash',
     emptyHint: 'No crushed lots waiting. Crush a sorted lot, or buy already crushed.',
     showWashFields: true,
@@ -71,8 +64,6 @@ const STAGE_META: Record<
   drying: {
     title: 'Drying',
     eyebrow: 'Recycling stage',
-    description:
-      'Choose a washed lot, sun-dry it, then weigh and record the measured kg. Ready for production.',
     queueTitle: 'Washed lots waiting to dry',
     emptyHint: 'No washed lots waiting. Finish washing first.',
     showDryFields: true,
@@ -548,7 +539,7 @@ export function ProcessStageForm({
     const next = nextMap[stage]
     return (
       <div>
-        <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+        <PageHeader eyebrow={meta.eyebrow} title={meta.title} />
         <Card className="text-center !p-4">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
             {isSorting ? 'Colour lots issued' : `${meta.title} saved`}
@@ -617,7 +608,7 @@ export function ProcessStageForm({
   if (!activeBatch) {
     return (
       <div>
-        <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+        <PageHeader eyebrow={meta.eyebrow} title={meta.title} />
 
         <Card className="mb-4 !p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -730,7 +721,7 @@ export function ProcessStageForm({
   // ——— Form: process the chosen batch ———
   return (
     <div>
-      <PageHeader eyebrow={meta.eyebrow} title={meta.title} description={meta.description} />
+      <PageHeader eyebrow={meta.eyebrow} title={meta.title} />
 
       <button
         type="button"

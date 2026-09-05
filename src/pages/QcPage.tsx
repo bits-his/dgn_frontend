@@ -122,7 +122,6 @@ export function QcPage() {
       <PageHeader
         eyebrow="Quality control"
         title="Inspection queue"
-        description="Inspect finished production and dried recycled material. A decision here controls whether a batch can be used, sold, or must go back for rework."
         actions={
           <Link to="/qc/trends" className="dgn-btn dgn-btn-secondary">
             <ShieldCheck className="size-4" />
@@ -503,16 +502,12 @@ function InspectionForm({ batch, onBack }: { batch: QueueBatch; onBack: () => vo
 
   return (
     <div>
-      <PageHeader
-        eyebrow={`Inspecting ${batch.checkType === 'PRODUCTION' ? 'finished product' : 'recycled material'}`}
-        title={batch.batchNumber}
-        description={`${batch.productName || batch.materialName || batch.batchType} · ${fmt(batch.qtyRemaining)} ${batch.uom} on hand${batch.machineName ? ` · ${batch.machineName}` : ''}`}
-        actions={
-          <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onBack}>
-            Back to queue
-          </button>
-        }
-      />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-lg font-semibold tracking-tight">{batch.batchNumber}</p>
+        <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onBack}>
+          Back to queue
+        </button>
+      </div>
 
       <div className="space-y-4">
         <Card>
