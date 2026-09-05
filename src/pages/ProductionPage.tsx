@@ -15,6 +15,12 @@ import { api } from '@/lib/api'
 import { Card, Field } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
+import { SORT_COLORS } from '@/lib/sortColors'
+
+function colorName(code?: string | null) {
+  if (!code) return '—'
+  return SORT_COLORS.find((c) => c.code === code)?.name || code
+}
 
 type MasterItem = {
   id: number
@@ -31,6 +37,7 @@ type InputBatch = {
   batchType: string
   qtyRemaining: number | string
   uom: string
+  sortColor?: string | null
   material?: { name: string }
 }
 
@@ -680,8 +687,13 @@ export function ProductionPage() {
                             </span>
                             {Number(run.qtyReject || 0) > 0 && (
                               <span className="ml-1 text-[11px] text-red-600 font-medium">
-                                ({fmt(run.qtyReject)} rej)
+                                ({fmt(run.qtyReject)} waste)
                               </span>
+                            )}
+                            {Number(run.qtyGood || 0) >= 12 && (
+                              <p className="text-[10px] text-zinc-400 font-medium">
+                                {Math.floor(Number(run.qtyGood) / 12)} dz{Number(run.qtyGood) % 12 > 0 ? ` ${Number(run.qtyGood) % 12} pcs` : ''}
+                              </p>
                             )}
                           </div>
                         )}
@@ -845,19 +857,12 @@ export function ProductionPage() {
                   </select>
                 </Field>
 
-                <Field
-                  label="Dried Material Batch (Input)"
-                  hint={
-                    selectedInputBatch
-                      ? `${selectedInputBatch.qtyRemaining} kg available`
-                      : undefined
-                  }
-                >
+                <Field label="Raw Material Batch">
                   <select
                     className="dgn-input text-xs font-medium"
                     {...issueForm.register('inputBatchNumber', { required: true })}
                   >
-                    <option value="">Choose dried batch</option>
+                    <option value="">Select raw material batch</option>
                     {inputs.data?.map((b) => (
                       <option key={b.id} value={b.batchNumber}>
                         {b.batchNumber} · {b.material?.name || b.batchType} ({fmt(b.qtyRemaining, 1)} {b.uom})
@@ -877,6 +882,32 @@ export function ProductionPage() {
                   />
                 </Field>
               </div>
+
+              {selectedInputBatch && (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                      Selected Material
+                    </span>
+                    <p className="text-sm font-black text-emerald-950">
+                      {selectedInputBatch.material?.name || selectedInputBatch.batchType || 'Raw Material'}
+                      {selectedInputBatch.sortColor ? ` · ${colorName(selectedInputBatch.sortColor)}` : ''}
+                    </p>
+                    <p className="text-xs font-semibold text-emerald-700">
+                      Batch #{selectedInputBatch.batchNumber}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                      Available in Store
+                    </span>
+                    <p className="text-xl font-black text-emerald-900 tabular-nums">
+                      {fmt(selectedInputBatch.qtyRemaining, 1)}{' '}
+                      <span className="text-xs font-extrabold uppercase">{selectedInputBatch.uom || 'kg'}</span>
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <Field label="Notes / Setup Instructions">
                 <textarea

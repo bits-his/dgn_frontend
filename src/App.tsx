@@ -14,6 +14,7 @@ import { MastersPage } from '@/pages/MastersPage'
 import { ProcessStagePage } from '@/pages/ProcessStagePage'
 import { CostIntelligencePage } from '@/pages/CostIntelligencePage'
 import { ProductionPage } from '@/pages/ProductionPage'
+import { ProductionStorePage } from '@/pages/ProductionStorePage'
 import { RecordProductionPage } from '@/pages/RecordProductionPage'
 import { CompleteProductionPage } from '@/pages/CompleteProductionPage'
 import { MachinePerformancePage } from '@/pages/MachinePerformancePage'
@@ -88,6 +89,7 @@ function App() {
                 <Route path="/receiving" element={<ScrapReceivingPage />} />
                 <Route path="/process/:stage" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
+                <Route path="/production/store" element={<ProductionStorePage />} />
                 <Route path="/production/new" element={<RecordProductionPage />} />
                 <Route path="/production/:id" element={<ProductionRunRedirect />} />
                 <Route path="/production/:id/complete" element={<CompleteProductionPage />} />

@@ -59,6 +59,10 @@ type CompleteFormValues = {
   endTime: string
   runtimeMinutes: string
   scheduledMinutes: string
+  goodDozen: string
+  goodPcs: string
+  wasteDozen: string
+  wastePcs: string
   qtyGood: string
   qtyReject: string
   qtyProduced: string
@@ -90,6 +94,15 @@ function fmt(value: string | number | null | undefined, digits = 0) {
   return Number.isFinite(n)
     ? n.toLocaleString(undefined, { maximumFractionDigits: digits })
     : String(value)
+}
+
+function fmtDozensPcs(totalPcs: number) {
+  if (!totalPcs || totalPcs <= 0) return '0 pcs'
+  const dz = Math.floor(totalPcs / 12)
+  const pcs = Math.round(totalPcs % 12)
+  if (dz > 0 && pcs > 0) return `${dz} dz ${pcs} pcs`
+  if (dz > 0) return `${dz} dz`
+  return `${pcs} pcs`
 }
 
 function formatDateTime(raw?: string | null) {
@@ -130,7 +143,11 @@ export function CompleteProductionPage() {
       endTime: '14:00',
       runtimeMinutes: '480',
       scheduledMinutes: '480',
-      qtyGood: '',
+      goodDozen: '',
+      goodPcs: '',
+      wasteDozen: '',
+      wastePcs: '',
+      qtyGood: '0',
       qtyReject: '0',
       qtyProduced: '0',
       labourRate: '10',
@@ -142,15 +159,9 @@ export function CompleteProductionPage() {
     },
   })
 
-  // When run data arrives, initialize times and labor
+  // When run data arrives, initialize times
   useEffect(() => {
     if (run) {
-      const consumed = Number(run.materialConsumed || 0)
-      const rate = 10
-      const calculated = (rate * 10 * consumed).toFixed(2)
-      form.setValue('labourRate', '10')
-      form.setValue('labourCost', calculated)
-
       if (run.shift?.startTime && run.shift?.endTime) {
         form.setValue('startTime', run.shift.startTime)
         form.setValue('endTime', run.shift.endTime)
@@ -161,7 +172,22 @@ export function CompleteProductionPage() {
     }
   }, [run, form])
 
-  const consumedKg = Number(run?.materialConsumed || 0)
+  // Watch dozen & pcs for good units and waste units
+  const watchGoodDozen = form.watch('goodDozen')
+  const watchGoodPcs = form.watch('goodPcs')
+  const watchWasteDozen = form.watch('wasteDozen')
+  const watchWastePcs = form.watch('wastePcs')
+
+  useEffect(() => {
+    const totalGood = Math.round(Number(watchGoodDozen || 0) * 12) + Number(watchGoodPcs || 0)
+    form.setValue('qtyGood', String(totalGood))
+  }, [watchGoodDozen, watchGoodPcs, form])
+
+  useEffect(() => {
+    const totalWaste = Math.round(Number(watchWasteDozen || 0) * 12) + Number(watchWastePcs || 0)
+    form.setValue('qtyReject', String(totalWaste))
+  }, [watchWasteDozen, watchWastePcs, form])
+
   const watchGood = Number(form.watch('qtyGood') || 0)
   const watchReject = Number(form.watch('qtyReject') || 0)
   const totalProduced = watchGood + watchReject
@@ -180,14 +206,6 @@ export function CompleteProductionPage() {
 
   const runtimeMins = Number(form.watch('runtimeMinutes') || 0)
   const scheduledMins = Number(form.watch('scheduledMinutes') || 0) || runtimeMins
-  const labourRate = Number(form.watch('labourRate') || 0)
-
-  // Recalculate labor whenever rate changes
-  const handleRateChange = (newRate: string) => {
-    const r = Number(newRate) || 0
-    const calculated = +(r * 10 * consumedKg).toFixed(2)
-    form.setValue('labourCost', String(calculated))
-  }
 
   // Live metrics preview
   const liveMetrics = useMemo(() => {
@@ -214,6 +232,11 @@ export function CompleteProductionPage() {
     const reject = Number(values.qtyReject || 0)
     const produced = good + reject
 
+    if (produced <= 0) {
+      setServerError('Please enter finished units produced (dozen and/or pieces)')
+      return
+    }
+
     try {
       await api.post(`/production/runs/${id}/complete`, {
         qtyProduced: produced,
@@ -221,9 +244,9 @@ export function CompleteProductionPage() {
         qtyReject: reject,
         runtimeMinutes: Number(values.runtimeMinutes || 0),
         scheduledMinutes: Number(values.scheduledMinutes || 0),
-        labourCost: Number(values.labourCost || 0),
-        energyCost: Number(values.energyCost || 0),
-        otherCost: Number(values.otherCost || 0),
+        labourCost: 0,
+        energyCost: 0,
+        otherCost: 0,
         autoRelease: values.autoRelease !== false,
         notes: values.notes || null,
         confirmUnusualRun,
@@ -396,116 +419,88 @@ export function CompleteProductionPage() {
             </div>
           </div>
 
-          {/* Section 2: Output Pieces */}
+          {/* Section 2: Output Pieces (Dozen & Pieces for Good & Waste) */}
           <div>
             <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
               <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">2. Finished Units Breakdown</h2>
               <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                Total: {totalProduced.toLocaleString()} pcs
+                Total: {totalProduced.toLocaleString()} pcs {totalProduced > 0 ? `(${fmtDozensPcs(totalProduced)})` : ''}
               </span>
             </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-3">
-              <Field label="Good Units (pcs)">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  placeholder="e.g. 480"
-                  className="dgn-input font-bold text-emerald-700 text-base"
-                  {...form.register('qtyGood', { required: true })}
-                />
-              </Field>
-
-              <Field label="Reject Units (pcs)">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  placeholder="0"
-                  className="dgn-input font-semibold text-red-600"
-                  {...form.register('qtyReject')}
-                />
-              </Field>
-
-              <Field
-                label="Total Produced (pcs)"
-                hint="Good + Reject units (Auto)"
-              >
-                <input
-                  readOnly
-                  type="number"
-                  value={totalProduced}
-                  className="dgn-input font-bold bg-zinc-100 text-zinc-900 cursor-not-allowed text-base"
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Section 3: Labor Calculation */}
-          <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3">
-            <div className="flex items-center justify-between pb-1.5 border-b border-amber-200/60">
-              <div>
-                <h2 className="text-xs font-bold uppercase tracking-wider text-amber-950">
-                  3. Labor Calculation (Rate × 10 × kg used)
-                </h2>
-                <p className="mt-0.5 text-[11px] text-amber-800">
-                  Formula: Rate ₦{labourRate} × 10 × {fmt(consumedKg, 1)} kg = ₦
-                  {fmt(labourRate * 10 * consumedKg, 2)}
-                </p>
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+              {/* Good Units: 2 inputs (Dozen & Pcs) */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-emerald-500" />
+                    Good Units
+                  </span>
+                  <span className="text-xs font-black text-emerald-800 tabular-nums">
+                    = {watchGood.toLocaleString()} pcs
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Field label="Dozen (dz)">
+                    <input
+                      inputMode="decimal"
+                      type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
+                      className="dgn-input font-bold text-emerald-800 bg-white"
+                      {...form.register('goodDozen')}
+                    />
+                  </Field>
+                  <Field label="Pieces (pcs)">
+                    <input
+                      inputMode="numeric"
+                      type="number"
+                      step="1"
+                      min="0"
+                      placeholder="0"
+                      className="dgn-input font-bold text-emerald-800 bg-white"
+                      {...form.register('goodPcs')}
+                    />
+                  </Field>
+                </div>
               </div>
-              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">
-                ₦{fmt(labourRate * 10 * consumedKg, 2)}
-              </span>
-            </div>
 
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-              <Field label="Labor Rate (₦)">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  className="dgn-input bg-white"
-                  placeholder="e.g. 10"
-                  {...form.register('labourRate', {
-                    onChange: (e) => handleRateChange(e.target.value),
-                  })}
-                />
-              </Field>
-
-              <Field label="Calculated Labour Cost ₦ (Editable)">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  className="dgn-input font-bold text-amber-950 bg-white"
-                  {...form.register('labourCost')}
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Section 4: Other Costs */}
-          <div>
-            <div className="border-b border-zinc-100 pb-1.5">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">4. Energy & Other Costs</h2>
-            </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-              <Field label="Energy ₦">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  className="dgn-input"
-                  {...form.register('energyCost')}
-                />
-              </Field>
-              <Field label="Other Cost ₦">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  className="dgn-input"
-                  {...form.register('otherCost')}
-                />
-              </Field>
+              {/* Waste Units: 2 inputs (Dozen & Pcs) */}
+              <div className="rounded-xl border border-red-200 bg-red-50/40 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-red-950 flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-red-500" />
+                    Waste Units
+                  </span>
+                  <span className="text-xs font-black text-red-700 tabular-nums">
+                    = {watchReject.toLocaleString()} pcs
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <Field label="Dozen (dz)">
+                    <input
+                      inputMode="decimal"
+                      type="number"
+                      step="any"
+                      min="0"
+                      placeholder="0"
+                      className="dgn-input font-semibold text-red-700 bg-white"
+                      {...form.register('wasteDozen')}
+                    />
+                  </Field>
+                  <Field label="Pieces (pcs)">
+                    <input
+                      inputMode="numeric"
+                      type="number"
+                      step="1"
+                      min="0"
+                      placeholder="0"
+                      className="dgn-input font-semibold text-red-700 bg-white"
+                      {...form.register('wastePcs')}
+                    />
+                  </Field>
+                </div>
+              </div>
             </div>
           </div>
 

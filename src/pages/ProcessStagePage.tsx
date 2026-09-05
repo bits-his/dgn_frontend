@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, Warehouse, Flame, X, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
 import { SORT_COLORS } from '@/lib/sortColors'
@@ -216,6 +216,37 @@ export function ProcessStageForm({
       return data.data as InputBatch[]
     },
   })
+
+  // When on drying stage, fetch completed dry batches waiting in Drying Area
+  const dryingCompletedQuery = useQuery({
+    queryKey: ['drying-completed-lots'],
+    queryFn: async () => {
+      const { data } = await api.get('/production/store/pending')
+      return (data.data || []) as InputBatch[]
+    },
+    enabled: stage === 'drying',
+  })
+
+  const [transferringBatch, setTransferringBatch] = useState<string | null>(null)
+  const [handoverFeedback, setHandoverFeedback] = useState<string | null>(null)
+
+  const handleTransferBatch = async (batchNumber: string) => {
+    setTransferringBatch(batchNumber)
+    setHandoverFeedback(null)
+    try {
+      await api.post('/production/store/transfer', { batchNumber })
+      await queryClient.invalidateQueries({ queryKey: ['drying-completed-lots'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store-pending'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
+      setHandoverFeedback(`Batch ${batchNumber} transferred to Production Store!`)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; message?: string } } }
+      alert(axiosErr.response?.data?.err || axiosErr.response?.data?.message || 'Failed to transfer batch to Production Store')
+    } finally {
+      setTransferringBatch(null)
+    }
+  }
 
   const { register, handleSubmit, watch, setValue, formState, reset } = useForm<FormValues>({
     defaultValues: emptyForm(activeBatch || ''),
@@ -531,6 +562,25 @@ export function ProcessStageForm({
                 Next: {STAGE_META[next]?.title}
               </button>
             )}
+            {stage === 'drying' && successBatch && (
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-primary flex items-center justify-center gap-1.5"
+                onClick={async () => {
+                  try {
+                    await api.post('/production/store/transfer', { batchNumber: successBatch })
+                    await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+                    await queryClient.invalidateQueries({ queryKey: ['production-store-pending'] })
+                    navigate('/production/store')
+                  } catch (e) {
+                    console.error(e)
+                  }
+                }}
+              >
+                <Warehouse className="size-4" />
+                Transfer to Production Store Now
+              </button>
+            )}
             {!isSorting && (
               <button
                 type="button"
@@ -659,6 +709,102 @@ export function ProcessStageForm({
             </table>
           </div>
         </Card>
+
+        {/* If drying stage: show completed dry batches in Drying Area waiting for handover */}
+        {stage === 'drying' && (
+          <Card className="mt-4 !p-0 overflow-hidden">
+            <div className="p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <Flame className="size-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-xs font-bold text-amber-950">
+                    Completed Dried Batches in Drying Area (Waiting for Handover)
+                  </h3>
+                  <p className="text-[11px] text-amber-800">
+                    These materials stay in the Drying Area until transferred to the Production Store. Click <strong>Transfer to Production</strong> to hand over.
+                  </p>
+                </div>
+              </div>
+              <Link
+                to="/production/store"
+                className="text-xs font-semibold text-[var(--accent-strong)] hover:underline shrink-0 flex items-center gap-1"
+              >
+                <Warehouse className="size-3.5" />
+                Production Store →
+              </Link>
+            </div>
+
+            {handoverFeedback && (
+              <div className="p-2.5 bg-emerald-50 text-xs font-medium text-emerald-800 border-b border-emerald-200 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="size-3.5 text-emerald-600" />
+                  <span>{handoverFeedback}</span>
+                </div>
+                <button type="button" onClick={() => setHandoverFeedback(null)}>
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-semibold uppercase tracking-wider text-[11px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Batch Number</th>
+                    <th className="py-2.5 px-3">Colour</th>
+                    <th className="py-2.5 px-3">Material</th>
+                    <th className="py-2.5 px-3 text-right">Available</th>
+                    <th className="py-2.5 px-3">Location</th>
+                    <th className="py-2.5 px-3 text-right">Handover Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {dryingCompletedQuery.isLoading && (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-zinc-500">
+                        Checking drying area for completed batches…
+                      </td>
+                    </tr>
+                  )}
+                  {!dryingCompletedQuery.isLoading && (dryingCompletedQuery.data || []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-zinc-500">
+                        No dried batches currently waiting in Drying Area. All batches have been handed over to Production Store.
+                      </td>
+                    </tr>
+                  )}
+                  {!dryingCompletedQuery.isLoading &&
+                    (dryingCompletedQuery.data || []).map((b) => (
+                      <tr key={b.id} className="hover:bg-zinc-50/70 transition-colors">
+                        <td className="py-2 px-3 font-semibold text-zinc-900">
+                          <Link to={`/batches/${b.batchNumber}`} className="text-[var(--accent-strong)] hover:underline">
+                            {b.batchNumber}
+                          </Link>
+                        </td>
+                        <td className="py-2 px-3 text-zinc-700">{colorName(b.sortColor)}</td>
+                        <td className="py-2 px-3 text-zinc-700">{b.material?.name || '—'}</td>
+                        <td className="py-2 px-3 text-right font-bold text-amber-900">
+                          {qtyLabel(b.qtyRemaining, b.uom)}
+                        </td>
+                        <td className="py-2 px-3 text-zinc-500">{b.location?.name || 'Drying Area'}</td>
+                        <td className="py-2 px-3 text-right">
+                          <button
+                            type="button"
+                            disabled={transferringBatch === b.batchNumber}
+                            className="dgn-btn dgn-btn-primary text-[11px] py-1 px-2.5 inline-flex items-center gap-1"
+                            onClick={() => handleTransferBatch(b.batchNumber)}
+                          >
+                            <ArrowRightLeft className="size-3" />
+                            {transferringBatch === b.batchNumber ? 'Transferring…' : 'Transfer to Production'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
       </div>
     )
   }

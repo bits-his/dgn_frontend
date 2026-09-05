@@ -29,6 +29,8 @@ import {
   Flame,
   Contact,
   Store,
+  Warehouse,
+  Play,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
@@ -68,9 +70,18 @@ const recyclingGroup: NavGroup = {
   ],
 }
 
+const productionGroup: NavGroup = {
+  id: 'production',
+  label: 'Production',
+  icon: Cog,
+  items: [
+    { to: '/production', label: 'Production runs', icon: Play, end: true, permission: 'batch.view' },
+    { to: '/production/store', label: 'Production store', icon: Warehouse, permission: 'batch.view' },
+  ],
+}
+
 const mainNavRest: NavItem[] = [
   { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
-  { to: '/production', label: 'Production', icon: Cog, permission: 'batch.view' },
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, permission: 'sales.view' },
@@ -264,6 +275,11 @@ export function AppShell() {
           <NavList items={mainNavTop} user={user} onNavigate={() => setMobileOpen(false)} />
           <CollapsibleNavGroup
             group={recyclingGroup}
+            user={user}
+            onNavigate={() => setMobileOpen(false)}
+          />
+          <CollapsibleNavGroup
+            group={productionGroup}
             user={user}
             onNavigate={() => setMobileOpen(false)}
           />
