@@ -1,104 +1,176 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, Bell, RefreshCw } from 'lucide-react'
+import { Bell, RefreshCw, X } from 'lucide-react'
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
+import { formatDateTime } from '@/lib/dates'
+import { cn } from '@/lib/utils'
 
 type AlertTop = {
   id: number
-  ruleCode: string
-  category: string
   severity: string
   title: string
   message: string
   linkPath: string | null
 }
 
-type PriceRow = {
-  productId: number
-  productName: string
-  avgSellingPrice: number | null
-  loadedUnitCost: number | null
-  marginPerUnit: number | null
-  marginPercent: number | null
-  unitsSold: number
-  stockOnHand: number
-  overheadIncluded: boolean
+type KpiCard = {
+  id: string
+  label: string
+  value: number | null
+  unit: string
+  tone: string
+  href: string
+  formula: string
+  permission?: string
+}
+
+type MachineRow = {
+  machineId: number
+  machineName: string
+  produced: number
+  good: number
+  rejectPercent: number
+  downtimeMinutes: number
+  oeePercent: number | null
+  lastProduct: string | null
+  lastOperator: string | null
 }
 
 type Dashboard = {
-  periodKey: string
   periodLabel: string
-  today: {
-    scrapInKg: number
-    driedKg: number
-    unitsProduced: number
-    unitsReject: number
-    rejectPercent: number
-    salesValue: number
-  }
+  range: { preset: string; from: string; to: string; label: string }
   production: {
-    scrapInKg: number
-    driedKg: number
     unitsProduced: number
+    unitsGood: number
+    unitsReject: number
     rejectPercent: number
     avgOeePercent: number | null
     processYieldPercent: number
+    downtimeMinutes: number
+    outputPerHour: number | null
     byStage: { stage: string; yieldPercent: number; inputKg: number; usableKg: number }[]
   }
-  sales: { saleCount: number }
-  spend: {
-    approvedExpenses: number
-    pendingExpenses: number
-    pendingExpenseCount: number
-    wageBill: number
-    wagesPaid: number
-    wagesOutstanding: number
-    byCategory: { label: string; amount: number }[]
-  }
-  money: {
-    cashIn: number
-    cashOut: number
-    netCash: number
-    receivables: number
-  }
+  sales: { saleCount: number; revenue: number }
+  spend: { approvedExpenses: number; wagesOutstanding: number }
+  money: { cashIn: number; cashOut: number; netCash: number; receivables: number }
   costTruth: {
     overheadAllocated: boolean
-    allocationNumber: string | null
-    overheadPerKg: number | null
     marginRestatement: {
-      revenue: number
-      recordedCost: number
-      loadedCost: number
       restatedMargin: number
-      recordedMarginPercent: number
       restatedMarginPercent: number
-      marginOverstatement: number
-      affectedLineCount: number
+      recordedMarginPercent: number
     }
   }
-  priceVsCost: PriceRow[]
+  priceVsCost: Array<{
+    productId: number
+    productName: string
+    marginPerUnit: number | null
+  }>
   receivables: {
     rows: { saleNumber: string; customerName: string | null; balanceDue: number; ageDays: number }[]
   }
-  inventory: { rawKg: number; wipKg: number; fgUnits: number }
-  trend: {
+  inventory: { rawKg: number; wipKg: number; fgUnits: number; lowStockCount: number }
+  trend: Array<{
     periodKey: string
-    label: string
     shortLabel: string
     revenue: number
-    driedKg: number
+    unitsProduced: number
     closed: boolean
-  }[]
+  }>
   alerts: {
     total: number
     unacknowledged: number
     bySeverity: Record<string, number>
     top: AlertTop[]
   }
+  kpis: KpiCard[]
+  machines: MachineRow[]
+  materialFlow: {
+    receivedKg: number
+    sortedKg: number | null
+    crushedKg: number | null
+    washedKg: number | null
+    driedKg: number
+    producedUnits: number
+  }
+  quality: { openHolds: number; checksInRange: number; passRatePercent: number | null }
+  series: Array<{
+    businessDate: string
+    unitsProduced: number
+    unitsGood: number
+    unitsReject: number
+    driedKg: number
+  }>
+  activity: Array<{ at: string; title: string; linkPath: string }>
+  operators: Array<{
+    operatorName: string
+    downtimeMinutes: number
+    events: number
+    good: number
+    rejectPercent: number
+  }>
+  compare: Record<
+    string,
+    { delta: number | null; improved: boolean | null }
+  > | null
+}
+
+type DrillPayload = {
+  formula?: string
+  message?: string
+  linkPath?: string
+  rows: Array<Record<string, unknown>>
+  byProduct?: Array<{ name: string; value: number }>
+  byMachine?: Array<{ name: string; value: number }>
+}
+
+const RANGE_OPTIONS = [
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'this_week', label: 'This week' },
+  { id: 'last_week', label: 'Last week' },
+  { id: 'this_month', label: 'This month' },
+  { id: 'last_month', label: 'Last month' },
+  { id: 'this_quarter', label: 'This quarter' },
+  { id: 'this_year', label: 'This year' },
+]
+
+const CHART = {
+  ink: '#14191f',
+  muted: '#64748b',
+  grid: '#e8edf2',
+  accent: '#d97706',
+  teal: '#0f766e',
+  red: '#b91c1c',
+  slate: '#475569',
+}
+
+const COMPARE_KEYS: Record<string, string> = {
+  scrap_in: 'scrapInKg',
+  dried: 'driedKg',
+  units_good: 'unitsGood',
+  reject_rate: 'rejectPercent',
+  avg_oee: 'avgOeePercent',
+  downtime: 'downtimeMinutes',
+  process_yield: 'processYieldPercent',
 }
 
 function money(n: number | null | undefined) {
@@ -106,41 +178,80 @@ function money(n: number | null | undefined) {
   return `₦${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
 }
 
-function money2(n: number | null | undefined) {
+function fmt(n: number | null | undefined, digits = 1) {
   if (n == null) return '—'
-  return `₦${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-function fmt(n: number | null | undefined) {
-  if (n == null) return '—'
-  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })
+function formatMinutes(min: number) {
+  if (!min) return '0m'
+  if (min < 60) return `${min}m`
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? `${h}h ${m}m` : `${h}h`
 }
 
-const SEV: Record<string, string> = {
-  CRITICAL: 'bg-red-600 text-white',
-  WARNING: 'bg-amber-500 text-[#1a1205]',
-  INFO: 'bg-slate-600 text-white',
+function formatKpiValue(kpi: KpiCard) {
+  if (kpi.value == null) return '—'
+  if (kpi.unit === 'NGN') return money(kpi.value)
+  if (kpi.unit === '%') return `${fmt(kpi.value, 1)}%`
+  if (kpi.unit === 'min') return formatMinutes(Number(kpi.value))
+  if (kpi.unit === 'kg') return `${fmt(kpi.value)} kg`
+  if (kpi.unit === 'units') return fmt(kpi.value, 0)
+  return fmt(kpi.value)
+}
+
+function toneDot(tone: string) {
+  if (tone === 'good') return 'bg-teal-600'
+  if (tone === 'watch') return 'bg-amber-500'
+  if (tone === 'critical') return 'bg-red-600'
+  return 'bg-slate-300'
+}
+
+function shortDate(yyMMdd: string) {
+  if (!/^\d{6}$/.test(yyMMdd)) return yyMMdd
+  return `${yyMMdd.slice(4, 6)}/${yyMMdd.slice(2, 4)}`
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ name: string; value: number; color: string }>
+  label?: string
+}) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs shadow-lg">
+      {label ? <p className="mb-1 font-semibold text-[var(--ink)]">{label}</p> : null}
+      {payload.map((p) => (
+        <p key={p.name} className="tabular-nums text-[var(--ink-muted)]">
+          <span style={{ color: p.color }}>●</span> {p.name}: {fmt(p.value, 0)}
+        </p>
+      ))}
+    </div>
+  )
 }
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const canExec = hasPermission(user, 'dashboard.executive')
-  const [periodKey, setPeriodKey] = useState('')
+  const canSales = hasPermission(user, 'sales.view')
+  const canExpense = hasPermission(user, 'expense.view')
+  const canCosts = hasPermission(user, 'costs.view')
 
-  const periods = useQuery({
-    queryKey: ['dashboard-periods'],
-    queryFn: async () => {
-      const { data } = await api.get('/dashboard/periods')
-      return data.data as { periodKey: string; label: string }[]
-    },
-    enabled: canExec,
-  })
+  const [rangePreset, setRangePreset] = useState('this_month')
+  const [compare, setCompare] = useState(false)
+  const [floorTab, setFloorTab] = useState<'activity' | 'operators' | 'receivables'>('activity')
+  const [drillKpi, setDrillKpi] = useState<string | null>(null)
 
   const dash = useQuery({
-    queryKey: ['executive-dashboard', periodKey],
+    queryKey: ['executive-dashboard', rangePreset, compare],
     queryFn: async () => {
       const { data } = await api.get('/dashboard/executive', {
-        params: periodKey ? { periodKey } : {},
+        params: { rangePreset, compare: compare ? '1' : undefined },
       })
       return data.data as Dashboard
     },
@@ -148,440 +259,741 @@ export function DashboardPage() {
     refetchInterval: 60_000,
   })
 
+  const drill = useQuery({
+    queryKey: ['dashboard-drill', drillKpi, rangePreset],
+    queryFn: async () => {
+      const { data } = await api.get('/dashboard/drill', {
+        params: { kpi: drillKpi, rangePreset },
+      })
+      return data.data as DrillPayload
+    },
+    enabled: canExec && !!drillKpi,
+  })
+
+  const kpis = useMemo(() => {
+    return (dash.data?.kpis || []).filter((k) => {
+      if (k.permission === 'sales.view' && !canSales) return false
+      if (k.permission === 'expense.view' && !canExpense && !canCosts) return false
+      return true
+    })
+  }, [dash.data?.kpis, canSales, canExpense, canCosts])
+
+  const d = dash.data
+
+  const seriesData = useMemo(
+    () =>
+      (d?.series || []).map((s) => ({
+        label: shortDate(s.businessDate),
+        Good: s.unitsGood,
+        Reject: s.unitsReject,
+        Dried: s.driedKg,
+      })),
+    [d?.series],
+  )
+
+  const qualityPie = useMemo(() => {
+    if (!d) return []
+    const good = d.production.unitsGood || 0
+    const reject = d.production.unitsReject || 0
+    if (good + reject <= 0) return []
+    return [
+      { name: 'Good', value: good },
+      { name: 'Reject', value: reject },
+    ]
+  }, [d])
+
+  const machineChart = useMemo(
+    () =>
+      (d?.machines || []).slice(0, 6).map((m) => ({
+        name: m.machineName.replace(/ machine$/i, ''),
+        OEE: m.oeePercent ?? 0,
+        Downtime: m.downtimeMinutes,
+      })),
+    [d?.machines],
+  )
+
+  const flowChart = useMemo(() => {
+    if (!d) return []
+    return [
+      { name: 'In', kg: d.materialFlow.receivedKg || 0 },
+      { name: 'Sort', kg: d.materialFlow.sortedKg || 0 },
+      { name: 'Crush', kg: d.materialFlow.crushedKg || 0 },
+      { name: 'Wash', kg: d.materialFlow.washedKg || 0 },
+      { name: 'Dry', kg: d.materialFlow.driedKg || 0 },
+    ]
+  }, [d])
+
+  const trendChart = useMemo(
+    () =>
+      (d?.trend || []).map((t) => ({
+        name: t.shortLabel,
+        Revenue: t.revenue,
+        Units: t.unitsProduced,
+      })),
+    [d?.trend],
+  )
+
   if (!canExec) {
     return (
-      <div>
-        <PageHeader
-          eyebrow="Factory"
-          title="Management dashboard"
-          description="This screen is for the people who have to decide. Your account can still work the floor from Overview."
-        />
+      <div className="py-12 text-center text-sm text-[var(--ink-muted)]">
+        No access on this account.
       </div>
     )
   }
 
-  const d = dash.data
   const restated = d?.costTruth.marginRestatement
-  const losingMoney = restated != null && restated.restatedMargin < 0
+  const critical = d?.alerts.bySeverity?.CRITICAL || 0
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="This morning"
-        title="Factory pulse"
-        description={
-          d
-            ? `${d.periodLabel}. Every number here is from the same moment. Tap any of them to see the batches behind it.`
-            : 'Pulling the factory together…'
-        }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-44">
-              <Field label="">
-                <select
-                  className="dgn-input"
-                  value={periodKey}
-                  onChange={(e) => setPeriodKey(e.target.value)}
-                >
-                  <option value="">This month</option>
-                  {(periods.data ?? []).map((p) => (
-                    <option key={p.periodKey} value={p.periodKey}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-            <button className="dgn-btn dgn-btn-ghost" onClick={() => dash.refetch()}>
-              <RefreshCw className="h-4 w-4" /> Refresh
-            </button>
-          </div>
-        }
-      />
+    <div className="space-y-5 pb-8">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {d ? (
+          <span className="mr-auto text-sm tabular-nums text-[var(--ink-muted)]">{d.range.label}</span>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="dgn-input !py-2 w-36"
+            value={rangePreset}
+            onChange={(e) => setRangePreset(e.target.value)}
+          >
+            {RANGE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setCompare((v) => !v)}
+            className={cn(
+              'rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
+              compare
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]'
+                : 'border-[var(--line)] bg-white text-[var(--ink-muted)]',
+            )}
+          >
+            Compare
+          </button>
+          <Link to="/alerts" className="dgn-btn dgn-btn-ghost !py-2 relative">
+            <Bell className="h-4 w-4" />
+            {(d?.alerts.unacknowledged || 0) > 0 ? (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                {d!.alerts.unacknowledged}
+              </span>
+            ) : null}
+          </Link>
+          <button type="button" className="dgn-btn dgn-btn-ghost !py-2" onClick={() => dash.refetch()}>
+            <RefreshCw className={cn('h-4 w-4', dash.isFetching && 'animate-spin')} />
+          </button>
+        </div>
+      </div>
+
+      {dash.isError && (
+        <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">Could not load dashboard.</p>
+      )}
+
+      {dash.isLoading && !d && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-white/80" />
+          ))}
+        </div>
+      )}
 
       {d && (
         <>
+          {/* Alerts — compact */}
           {d.alerts.total > 0 && (
-            <Card
-              className={
-                'mb-6 ' +
-                (d.alerts.bySeverity.CRITICAL > 0
-                  ? 'border-red-200 bg-red-50/50'
-                  : 'border-amber-200 bg-amber-50/50')
-              }
+            <div
+              className={cn(
+                'flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3',
+                critical > 0 ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/50',
+              )}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-semibold">
-                    {d.alerts.bySeverity.CRITICAL > 0
-                      ? `${d.alerts.bySeverity.CRITICAL} thing${d.alerts.bySeverity.CRITICAL === 1 ? '' : 's'} that cannot wait`
-                      : `${d.alerts.total} thing${d.alerts.total === 1 ? '' : 's'} that need a look`}
-                  </p>
-                  <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                    {d.alerts.unacknowledged} not yet acknowledged
-                  </p>
-                </div>
-                <Link to="/alerts" className="dgn-btn dgn-btn-secondary">
-                  <Bell className="h-4 w-4" /> All alerts
-                </Link>
-              </div>
-              <div className="mt-4 space-y-2">
-                {d.alerts.top.slice(0, 4).map((alert) => (
+              <span
+                className={cn(
+                  'rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white',
+                  critical > 0 ? 'bg-red-600' : 'bg-amber-500 text-[#1a1205]',
+                )}
+              >
+                {critical > 0 ? `${critical} critical` : `${d.alerts.total} alerts`}
+              </span>
+              <div className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1 text-sm">
+                {d.alerts.top.slice(0, 3).map((a) => (
                   <Link
-                    key={alert.id}
-                    to={alert.linkPath || '/alerts'}
-                    className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-white p-3 hover:border-[var(--accent)]"
+                    key={a.id}
+                    to={a.linkPath || '/alerts'}
+                    className="truncate font-medium hover:text-[var(--accent-strong)]"
                   >
-                    <span
-                      className={`mt-0.5 shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-bold ${SEV[alert.severity]}`}
-                    >
-                      {alert.severity}
-                    </span>
-                    <span className="min-w-0 text-sm">
-                      <span className="font-medium">{alert.title}</span>
-                      <span className="mt-0.5 block text-[var(--ink-muted)]">{alert.message}</span>
-                    </span>
+                    {a.title}
                   </Link>
                 ))}
               </div>
-            </Card>
+              <Link to="/alerts" className="shrink-0 text-xs font-semibold text-[var(--accent-strong)]">
+                All →
+              </Link>
+            </div>
           )}
 
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-            Today
-          </h2>
-          <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatPill label="Scrap received" value={`${fmt(d.today.scrapInKg)} kg`} />
-            <StatPill label="Dried material" value={`${fmt(d.today.driedKg)} kg`} tone="accent" />
-            <StatPill
-              label="Units moulded"
-              value={fmt(d.today.unitsProduced)}
-              hint={
-                d.today.unitsReject > 0
-                  ? `${fmt(d.today.unitsReject)} waste (${d.today.rejectPercent}%)`
-                  : 'no waste recorded'
-              }
-            />
-            <StatPill label="Sales taken" value={money(d.today.salesValue)} tone="success" />
-          </div>
-
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-            {d.periodLabel}
-          </h2>
-          <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatPill
-              label="Cash in"
-              value={money(d.money.cashIn)}
-              tone="success"
-              hint={`${d.sales.saleCount} sale${d.sales.saleCount === 1 ? '' : 's'}`}
-            />
-            <StatPill
-              label="Cash out"
-              value={money(d.money.cashOut)}
-              hint={`expenses ${money(d.spend.approvedExpenses)} · wages paid ${money(d.spend.wagesPaid)}`}
-            />
-            <StatPill
-              label="Net cash this month"
-              value={money(d.money.netCash)}
-              tone={d.money.netCash >= 0 ? 'success' : 'danger'}
-            />
-            <StatPill
-              label="Still owed to us"
-              value={money(d.money.receivables)}
-              tone={d.money.receivables > 0 ? 'danger' : 'default'}
-            />
-          </div>
-
-          <div className="mb-6 grid gap-6 lg:grid-cols-2">
-            <Card
-              className={
-                losingMoney
-                  ? 'border-red-200 bg-red-50/40'
-                  : d.costTruth.overheadAllocated
-                    ? 'border-teal-200 bg-teal-50/30'
-                    : 'border-amber-200 bg-amber-50/40'
-              }
-            >
-              <h2 className="text-base font-semibold">
-                {losingMoney ? 'Selling at a loss' : 'Are we making money?'}
-              </h2>
-              {restated && (
-                <>
-                  <p className="mt-3 text-3xl font-semibold tracking-tight">
-                    {money2(restated.restatedMargin)}
-                    <span className="ml-2 text-base font-medium text-[var(--ink-muted)]">
-                      {restated.restatedMarginPercent}%
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+            {kpis.map((kpi) => {
+              const c = d.compare?.[COMPARE_KEYS[kpi.id]]
+              return (
+                <button
+                  key={kpi.id}
+                  type="button"
+                  onClick={() => setDrillKpi(kpi.id)}
+                  className="group rounded-2xl border border-[var(--line)] bg-white p-3.5 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={cn('size-1.5 rounded-full', toneDot(kpi.tone))} />
+                    <span className="truncate text-[11px] font-medium text-[var(--ink-faint)]">
+                      {kpi.label}
                     </span>
-                  </p>
-                  <p className="mt-2 text-sm text-[var(--ink-muted)]">
-                    True margin on {money(restated.revenue)} of sales, using today's fully loaded
-                    cost. The books originally showed {restated.recordedMarginPercent}% because{' '}
-                    {restated.affectedLineCount} sale
-                    {restated.affectedLineCount === 1 ? '' : 's'} froze their cost before overhead
-                    was allocated
-                    {restated.marginOverstatement > 0
-                      ? ` — those figures were ${money(restated.marginOverstatement)} too optimistic`
-                      : ''}
-                    .
-                  </p>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <p className="text-xs text-[var(--ink-faint)]">Recorded cost</p>
-                      <p className="font-semibold">{money2(restated.recordedCost)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-[var(--ink-faint)]">True cost now</p>
-                      <p className="font-semibold">{money2(restated.loadedCost)}</p>
-                    </div>
                   </div>
-                </>
-              )}
-              {!d.costTruth.overheadAllocated && (
-                <p className="mt-4 rounded-xl bg-amber-100/70 p-3 text-sm text-amber-900">
-                  {d.periodLabel} has not been closed yet, so overhead is missing from these
-                  figures.{' '}
-                  <Link to="/costs/overhead" className="font-semibold underline">
-                    Close the month
-                  </Link>{' '}
-                  before trusting the profit.
-                </p>
-              )}
-              {d.costTruth.overheadAllocated && (
-                <p className="mt-4 text-xs text-[var(--ink-faint)]">
-                  Overhead {money2(d.costTruth.overheadPerKg)}/kg allocated as{' '}
-                  {d.costTruth.allocationNumber}.
-                </p>
-              )}
-            </Card>
+                  <p className="mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
+                    {formatKpiValue(kpi)}
+                  </p>
+                  {compare && c?.delta != null ? (
+                    <p
+                      className={cn(
+                        'mt-1 text-[11px] font-medium tabular-nums',
+                        c.improved === true
+                          ? 'text-teal-700'
+                          : c.improved === false
+                            ? 'text-red-700'
+                            : 'text-[var(--ink-faint)]',
+                      )}
+                    >
+                      {c.delta > 0 ? '+' : ''}
+                      {fmt(c.delta)}
+                    </p>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
 
-            <Card>
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Price versus true cost</h2>
-                <Link
-                  to="/sales/margins"
-                  className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                >
-                  Margins
+          {/* Charts row */}
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Card className="xl:col-span-2 !p-4 sm:!p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold tracking-tight">Output</h2>
+                <Link to="/production" className="text-xs font-medium text-[var(--accent-strong)]">
+                  Production →
                 </Link>
               </div>
-              <p className="mt-1 text-sm text-[var(--ink-muted)]">
-                What we sell each product for, against what it now costs to make one.
-              </p>
-              <div className="mt-4 space-y-3">
-                {d.priceVsCost.length === 0 && (
-                  <p className="text-sm text-[var(--ink-muted)]">No sold products yet.</p>
+              <div className="mb-4 flex flex-wrap gap-4 text-sm">
+                <Metric label="Good" value={fmt(d.production.unitsGood, 0)} />
+                <Metric label="Reject" value={`${d.production.rejectPercent}%`} danger={d.production.rejectPercent > 5} />
+                <Metric
+                  label="OEE"
+                  value={d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
+                />
+                <Metric label="Yield" value={`${d.production.processYieldPercent}%`} />
+                <Metric label="Downtime" value={formatMinutes(d.production.downtimeMinutes || 0)} />
+              </div>
+              <div className="h-56">
+                {seriesData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={seriesData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="goodFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={CHART.teal} stopOpacity={0.35} />
+                          <stop offset="100%" stopColor={CHART.teal} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke={CHART.grid} vertical={false} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: CHART.muted, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Area
+                        type="monotone"
+                        dataKey="Good"
+                        stroke={CHART.teal}
+                        fill="url(#goodFill)"
+                        strokeWidth={2}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="Reject"
+                        stroke={CHART.red}
+                        fill="transparent"
+                        strokeWidth={2}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart />
                 )}
-                {d.priceVsCost.map((row) => {
-                  const loss = (row.marginPerUnit ?? 0) < 0
-                  return (
-                    <div key={row.productId} className="rounded-xl border border-[var(--line)] p-3">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="font-medium">{row.productName}</p>
-                        <p className={`font-semibold ${loss ? 'text-red-700' : 'text-teal-700'}`}>
-                          {row.marginPerUnit == null
-                            ? '—'
-                            : `${loss ? '' : '+'}${money2(row.marginPerUnit)} / unit`}
-                        </p>
-                      </div>
-                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                        Sell {money2(row.avgSellingPrice)} · cost {money2(row.loadedUnitCost)}
-                        {row.marginPercent != null ? ` · ${row.marginPercent}%` : ''}
-                        {row.overheadIncluded ? '' : ' · overhead not in this cost'}
-                        {` · ${fmt(row.stockOnHand)} left`}
-                      </p>
-                    </div>
-                  )
-                })}
+              </div>
+            </Card>
+
+            <Card className="!p-4 sm:!p-5">
+              <h2 className="mb-3 text-sm font-semibold tracking-tight">Good vs reject</h2>
+              <div className="h-56">
+                {qualityPie.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={qualityPie}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={58}
+                        outerRadius={82}
+                        paddingAngle={3}
+                        strokeWidth={0}
+                      >
+                        <Cell fill={CHART.teal} />
+                        <Cell fill={CHART.red} />
+                      </Pie>
+                      <Tooltip content={<ChartTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart />
+                )}
+              </div>
+              <div className="mt-1 flex justify-center gap-4 text-xs">
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-teal-700" /> Good
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-red-700" /> Reject
+                </span>
               </div>
             </Card>
           </div>
 
-          <div className="mb-6 grid gap-6 lg:grid-cols-3">
-            <Card>
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Production</h2>
-                <Link
-                  to="/production"
-                  className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                >
-                  Floor
+          {/* Machines + material */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="!p-4 sm:!p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold tracking-tight">Machine OEE</h2>
+                <Link to="/machines" className="text-xs font-medium text-[var(--accent-strong)]">
+                  All →
                 </Link>
               </div>
-              <div className="mt-4 space-y-2 text-sm">
-                <Fact label="Scrap in" value={`${fmt(d.production.scrapInKg)} kg`} />
-                <Fact label="Dried out" value={`${fmt(d.production.driedKg)} kg`} />
-                <Fact
-                  label="Process yield"
-                  value={`${d.production.processYieldPercent}%`}
-                  tone={d.production.processYieldPercent < 80 ? 'bad' : 'good'}
+              <div className="h-52">
+                {machineChart.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={machineChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <CartesianGrid stroke={CHART.grid} vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fill: CHART.muted, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fill: CHART.muted, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Bar dataKey="OEE" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart />
+                )}
+              </div>
+              {d.machines.length > 0 && (
+                <ul className="mt-3 divide-y divide-[var(--line)]">
+                  {d.machines.slice(0, 4).map((m) => (
+                    <li key={m.machineId} className="flex items-center justify-between py-2 text-sm">
+                      <span className="truncate font-medium">{m.machineName}</span>
+                      <span className="tabular-nums text-[var(--ink-muted)]">
+                        {m.oeePercent != null ? `${m.oeePercent}%` : '—'}
+                        {m.downtimeMinutes > 0 ? ` · ${formatMinutes(m.downtimeMinutes)}` : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card className="!p-4 sm:!p-5">
+              <h2 className="mb-3 text-sm font-semibold tracking-tight">Material flow (kg)</h2>
+              <div className="h-52">
+                {flowChart.some((x) => x.kg > 0) ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={flowChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <CartesianGrid stroke={CHART.grid} vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fill: CHART.muted, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Bar dataKey="kg" name="kg" fill={CHART.slate} radius={[6, 6, 0, 0]} maxBarSize={36} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart />
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs sm:grid-cols-3">
+                <div className="rounded-xl bg-zinc-50 py-2">
+                  <p className="text-[var(--ink-faint)]">FG</p>
+                  <p className="font-semibold tabular-nums">{fmt(d.inventory.fgUnits, 0)}</p>
+                </div>
+                <div className="rounded-xl bg-zinc-50 py-2">
+                  <p className="text-[var(--ink-faint)]">WIP</p>
+                  <p className="font-semibold tabular-nums">{fmt(d.inventory.wipKg)} kg</p>
+                </div>
+                <div className="rounded-xl bg-zinc-50 py-2">
+                  <p className="text-[var(--ink-faint)]">Low stock</p>
+                  <p
+                    className={cn(
+                      'font-semibold tabular-nums',
+                      (d.inventory.lowStockCount || 0) > 0 ? 'text-red-700' : '',
+                    )}
+                  >
+                    {d.inventory.lowStockCount || 0}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Quality + money + trend */}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Card className="!p-4 sm:!p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold tracking-tight">Quality</h2>
+                <Link to="/qc" className="text-xs font-medium text-[var(--accent-strong)]">
+                  QC →
+                </Link>
+              </div>
+              <div className="space-y-3">
+                <BigStat
+                  label="Holds"
+                  value={String(d.quality.openHolds)}
+                  danger={d.quality.openHolds > 0}
                 />
-                <Fact label="Units moulded" value={fmt(d.production.unitsProduced)} />
-                <Fact
-                  label="Waste rate"
-                  value={`${d.production.rejectPercent}%`}
-                  tone={d.production.rejectPercent > 5 ? 'bad' : undefined}
-                />
-                <Fact
-                  label="Average OEE"
+                <BigStat
+                  label="Pass rate"
                   value={
-                    d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'
+                    d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'
                   }
                 />
+                <BigStat label="Checks" value={String(d.quality.checksInRange)} />
               </div>
-              {d.production.byStage.length > 0 && (
-                <div className="mt-4 border-t border-[var(--line)] pt-3">
-                  {d.production.byStage.map((s) => (
-                    <div key={s.stage} className="flex justify-between text-xs">
-                      <span className="text-[var(--ink-muted)]">{s.stage.toLowerCase()}</span>
-                      <span>
-                        {s.yieldPercent}% · {fmt(s.usableKg)}/{fmt(s.inputKg)} kg
+            </Card>
+
+            {(canCosts || canSales || canExpense) && (
+              <Card className="!p-4 sm:!p-5">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold tracking-tight">{d.periodLabel}</h2>
+                  {canCosts ? (
+                    <Link to="/costs" className="text-xs font-medium text-[var(--accent-strong)]">
+                      Costs →
+                    </Link>
+                  ) : null}
+                </div>
+                <div className="space-y-3">
+                  {canCosts && restated ? (
+                    <BigStat
+                      label="True margin"
+                      value={`${money(restated.restatedMargin)} · ${restated.restatedMarginPercent}%`}
+                      danger={restated.restatedMargin < 0}
+                    />
+                  ) : null}
+                  {canSales ? <BigStat label="Cash in" value={money(d.money.cashIn)} /> : null}
+                  {(canSales || canExpense) && (
+                    <BigStat
+                      label="Net cash"
+                      value={money(d.money.netCash)}
+                      danger={d.money.netCash < 0}
+                    />
+                  )}
+                  {canSales ? (
+                    <BigStat
+                      label="Receivables"
+                      value={money(d.money.receivables)}
+                      danger={d.money.receivables > 0}
+                    />
+                  ) : null}
+                  {!d.costTruth.overheadAllocated && canCosts ? (
+                    <Link
+                      to="/costs/overhead"
+                      className="block rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"
+                    >
+                      Close month →
+                    </Link>
+                  ) : null}
+                </div>
+              </Card>
+            )}
+
+            <Card className="!p-4 sm:!p-5 lg:col-span-1">
+              <h2 className="mb-3 text-sm font-semibold tracking-tight">6-month revenue</h2>
+              <div className="h-44">
+                {trendChart.some((t) => t.Revenue > 0) ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={trendChart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <CartesianGrid stroke={CHART.grid} vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fill: CHART.muted, fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis hide />
+                      <Tooltip
+                        formatter={(v) => money(Number(v))}
+                        contentStyle={{
+                          borderRadius: 8,
+                          border: '1px solid #d7dee6',
+                          fontSize: 12,
+                        }}
+                      />
+                      <Bar dataKey="Revenue" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyChart />
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* Floor */}
+          <Card className="!p-0 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-5">
+              <h2 className="text-sm font-semibold tracking-tight">Floor</h2>
+              <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
+                {(
+                  [
+                    ['activity', 'Activity'],
+                    ['operators', 'Operators'],
+                    ...(canSales ? ([['receivables', 'Owed']] as const) : []),
+                  ] as Array<['activity' | 'operators' | 'receivables', string]>
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setFloorTab(id)}
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-xs font-semibold transition',
+                      floorTab === id ? 'bg-white shadow-sm' : 'text-[var(--ink-muted)]',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto px-4 sm:px-5">
+              {floorTab === 'activity' &&
+                (d.activity?.length ? (
+                  d.activity.map((row, i) => (
+                    <Link
+                      key={`${row.at}-${i}`}
+                      to={row.linkPath}
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0 hover:text-[var(--accent-strong)]"
+                    >
+                      <span className="min-w-0 truncate font-medium">{row.title}</span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-[var(--ink-faint)]">
+                        {formatDateTime(row.at)}
                       </span>
+                    </Link>
+                  ))
+                ) : (
+                  <p className="py-8 text-sm text-[var(--ink-muted)]">No activity yet.</p>
+                ))}
+
+              {floorTab === 'operators' &&
+                (d.operators?.length ? (
+                  d.operators.map((op) => (
+                    <div
+                      key={op.operatorName}
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium">{op.operatorName}</p>
+                        <p className="text-[11px] text-[var(--ink-faint)]">
+                          {fmt(op.good, 0)} good
+                          {op.events ? ` · ${op.events} stops` : ''}
+                        </p>
+                      </div>
+                      <p
+                        className={cn(
+                          'tabular-nums',
+                          op.downtimeMinutes > 0 ? 'font-semibold text-red-700' : 'text-[var(--ink-muted)]',
+                        )}
+                      >
+                        {formatMinutes(op.downtimeMinutes)}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </Card>
+                  ))
+                ) : (
+                  <p className="py-8 text-sm text-[var(--ink-muted)]">No operator data.</p>
+                ))}
 
-            <Card>
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Where the money went</h2>
-                <Link
-                  to="/expenses"
-                  className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                >
-                  Expenses
-                </Link>
-              </div>
-              <div className="mt-4 space-y-2 text-sm">
-                <Fact label="Approved expenses" value={money(d.spend.approvedExpenses)} />
-                <Fact
-                  label="Waiting for approval"
-                  value={money(d.spend.pendingExpenses)}
-                  tone={d.spend.pendingExpenseCount > 0 ? 'bad' : undefined}
-                />
-                <Fact label="Wage bill" value={money(d.spend.wageBill)} />
-                <Fact
-                  label="Wages still unpaid"
-                  value={money(d.spend.wagesOutstanding)}
-                  tone={d.spend.wagesOutstanding > 0 ? 'bad' : undefined}
-                />
-              </div>
-              {d.spend.byCategory.slice(0, 4).map((row) => (
-                <div key={row.label} className="mt-2 flex justify-between text-xs">
-                  <span className="text-[var(--ink-muted)]">{row.label}</span>
-                  <span>{money(row.amount)}</span>
-                </div>
-              ))}
-            </Card>
-
-            <Card>
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Stock on the floor</h2>
-                <Link
-                  to="/inventory"
-                  className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                >
-                  Store
-                </Link>
-              </div>
-              <div className="mt-4 space-y-2 text-sm">
-                <Fact label="Raw material" value={`${fmt(d.inventory.rawKg)} kg`} />
-                <Fact label="Work in progress" value={`${fmt(d.inventory.wipKg)} kg`} />
-                <Fact label="Finished goods" value={`${fmt(d.inventory.fgUnits)} pcs`} />
-              </div>
-              {d.receivables.rows.length > 0 && (
-                <div className="mt-4 border-t border-[var(--line)] pt-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
-                    Oldest debts
-                  </p>
-                  {d.receivables.rows.slice(0, 3).map((row) => (
+              {floorTab === 'receivables' &&
+                canSales &&
+                (d.receivables.rows?.length ? (
+                  d.receivables.rows.slice(0, 12).map((row) => (
                     <Link
                       key={row.saleNumber}
                       to={`/sales/${row.saleNumber}`}
-                      className="flex items-baseline justify-between py-1 text-xs hover:underline"
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0 hover:underline"
                     >
                       <span>
-                        {row.customerName} · {row.ageDays}d
+                        {row.customerName || row.saleNumber}
+                        <span className="ml-2 text-[11px] text-[var(--ink-faint)]">{row.ageDays}d</span>
                       </span>
-                      <span className="font-semibold">{money(row.balanceDue)}</span>
+                      <span className="font-semibold tabular-nums">{money(row.balanceDue)}</span>
                     </Link>
-                  ))}
-                </div>
-              )}
-            </Card>
-          </div>
-
-          {d.trend.some((t) => t.revenue > 0 || t.driedKg > 0) && (
-            <Card>
-              <h2 className="text-base font-semibold">Six months</h2>
-              <div className="mt-4 grid grid-cols-6 gap-2">
-                {d.trend.map((t) => {
-                  const max = Math.max(...d.trend.map((x) => x.revenue || x.driedKg || 1), 1)
-                  const h = Math.max(8, ((t.revenue || t.driedKg) / max) * 96)
-                  return (
-                    <div key={t.periodKey} className="text-center">
-                      <div className="flex h-24 items-end justify-center">
-                        <div
-                          className={`w-7 rounded-t-md ${t.closed ? 'bg-[var(--accent)]' : 'bg-zinc-300'}`}
-                          style={{ height: `${h}px` }}
-                          title={`${t.label}: ${money(t.revenue)}`}
-                        />
-                      </div>
-                      <p className="mt-2 text-[11px] font-semibold">{t.shortLabel}</p>
-                      <p className="text-[10px] text-[var(--ink-faint)]">{money(t.revenue)}</p>
-                    </div>
-                  )
-                })}
-              </div>
-              <p className="mt-3 text-xs text-[var(--ink-faint)]">
-                Gold bars are months that have been closed. Grey means overhead is still missing.
-              </p>
-            </Card>
-          )}
-
-          <div className="mt-6 flex flex-wrap gap-2">
-            <Link to="/costs" className="dgn-btn dgn-btn-secondary">
-              Cost intelligence <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link to="/sales/margins" className="dgn-btn dgn-btn-secondary">
-              Sales margin <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link to="/costs/overhead" className="dgn-btn dgn-btn-secondary">
-              Close the month <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
+                  ))
+                ) : (
+                  <p className="py-8 text-sm text-[var(--ink-muted)]">Nothing outstanding.</p>
+                ))}
+            </div>
+          </Card>
         </>
       )}
 
-      {dash.isError && (
-        <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">
-          Could not load the dashboard.
-        </p>
+      {/* Drill sheet */}
+      {drillKpi && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-6"
+          onClick={() => setDrillKpi(null)}
+        >
+          <div
+            className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold tracking-tight">
+                {kpis.find((k) => k.id === drillKpi)?.label || drillKpi}
+              </h2>
+              <button type="button" className="rounded-lg p-1 hover:bg-zinc-100" onClick={() => setDrillKpi(null)}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {drill.isLoading && <p className="mt-6 text-sm text-[var(--ink-muted)]">Loading…</p>}
+
+            {drill.data?.byProduct?.length ? (
+              <div className="mt-5 h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={drill.data.byProduct.slice(0, 6)}
+                    layout="vertical"
+                    margin={{ left: 4, right: 8 }}
+                  >
+                    <XAxis type="number" hide />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={88}
+                      tick={{ fontSize: 11, fill: CHART.muted }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip content={<ChartTooltip />} />
+                    <Bar dataKey="value" name="Good" fill={CHART.teal} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : null}
+
+            {(drill.data?.rows || []).slice(0, 15).map((row, i) => {
+              const link = String(row.linkPath || '')
+              const title = String(row.batchNumber || row.productName || row.machineName || `#${i + 1}`)
+              const sub = [
+                row.productName && row.batchNumber ? String(row.productName) : null,
+                row.machineName ? String(row.machineName) : null,
+                row.qtyGood != null ? `${fmt(Number(row.qtyGood), 0)} good` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')
+              const inner = (
+                <>
+                  <p className="text-sm font-medium">{title}</p>
+                  {sub ? <p className="text-xs text-[var(--ink-muted)]">{sub}</p> : null}
+                </>
+              )
+              return (
+                <div key={i} className="border-b border-[var(--line)] py-3">
+                  {link ? (
+                    <Link to={link} onClick={() => setDrillKpi(null)} className="block hover:text-[var(--accent-strong)]">
+                      {inner}
+                    </Link>
+                  ) : (
+                    inner
+                  )}
+                </div>
+              )
+            })}
+
+            {drill.data?.message && !(drill.data.rows || []).length && (
+              <p className="mt-4 text-sm text-[var(--ink-muted)]">{drill.data.message}</p>
+            )}
+
+            <Link
+              to={drill.data?.linkPath || kpis.find((k) => k.id === drillKpi)?.href || '/'}
+              className="dgn-btn dgn-btn-secondary mt-5 w-full justify-center"
+              onClick={() => setDrillKpi(null)}
+            >
+              Open page
+            </Link>
+          </div>
+        </div>
       )}
     </div>
   )
 }
 
-function Fact({
+function Metric({
   label,
   value,
-  tone,
+  danger,
 }: {
   label: string
   value: string
-  tone?: 'good' | 'bad'
+  danger?: boolean
+}) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-faint)]">{label}</p>
+      <p className={cn('text-sm font-semibold tabular-nums', danger && 'text-red-700')}>{value}</p>
+    </div>
+  )
+}
+
+function BigStat({
+  label,
+  value,
+  danger,
+}: {
+  label: string
+  value: string
+  danger?: boolean
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[var(--ink-muted)]">{label}</span>
-      <span
-        className={
-          'font-medium ' +
-          (tone === 'good' ? 'text-teal-700' : tone === 'bad' ? 'text-red-700' : '')
-        }
-      >
-        {value}
-      </span>
+      <span className="text-sm text-[var(--ink-muted)]">{label}</span>
+      <span className={cn('text-sm font-semibold tabular-nums', danger && 'text-red-700')}>{value}</span>
     </div>
+  )
+}
+
+function EmptyChart() {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-[var(--ink-faint)]">No data</div>
   )
 }

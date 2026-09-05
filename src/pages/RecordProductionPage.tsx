@@ -311,27 +311,14 @@ export function RecordProductionPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-3">
       <Card className="p-4 sm:p-5">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-100 gap-2">
-          <div>
-            <div className="flex items-center gap-2">
-              <Link
-                to="/production"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 hover:text-zinc-900 transition-colors"
-              >
-                <ArrowLeft className="size-3.5" />
-                Back
-              </Link>
-              <span className="text-zinc-300">/</span>
-              <span className="text-xs font-semibold text-[var(--accent-strong)]">Production</span>
-            </div>
-            <h1 className="mt-1 text-base font-bold text-zinc-900">
-              Record Production Run (1-Step Completed)
-            </h1>
-            <p className="text-xs text-zinc-500">
-              Directly record a finished run with material input, shift times, good/reject units, and costs.
-            </p>
-          </div>
+        <div className="flex flex-col gap-2 pb-3 border-b border-zinc-100 sm:flex-row sm:items-center sm:justify-between">
+          <Link
+            to="/production"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-900"
+          >
+            <ArrowLeft className="size-3.5" />
+            Back
+          </Link>
         </div>
 
         {serverError && (

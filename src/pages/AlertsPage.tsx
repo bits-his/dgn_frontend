@@ -100,7 +100,6 @@ export function AlertsPage() {
       <PageHeader
         eyebrow="Intelligence"
         title="Alerts"
-        description="Problems the factory already knows about. Acknowledging one says you have seen it. It only leaves this list when the underlying condition actually clears."
         actions={
           <div className="flex flex-wrap gap-2">
             {canManage && (

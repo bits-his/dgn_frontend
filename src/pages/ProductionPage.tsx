@@ -417,23 +417,14 @@ export function ProductionPage() {
 
   return (
     <div className="space-y-4">
-      {/* 1. Ultra-Compact Page Header */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-zinc-900 sm:text-2xl">
-              Production
-            </h1>
-            {metricsSummary.inProgressCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
-                <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                {metricsSummary.inProgressCount} active on floor
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-zinc-500">
-            Issue material to operators, track live machine runs, and close finished batches.
-          </p>
+        <div className="flex items-center gap-2">
+          {metricsSummary.inProgressCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+              <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+              {metricsSummary.inProgressCount} active on floor
+            </span>
+          )}
         </div>
 
         {/* Action Button: Issue Material (Modal) + link for 1-step */}

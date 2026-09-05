@@ -70,7 +70,6 @@ export function SalesMarginPage() {
       <PageHeader
         eyebrow="Management analytics"
         title="Sales margin"
-        description="Revenue against the real cost of the batches that were sold, net of anything customers sent back. This is where you see which products and customers actually make the factory money."
       />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

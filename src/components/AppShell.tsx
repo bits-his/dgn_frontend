@@ -97,7 +97,8 @@ const financeNav: NavItem[] = [
 ]
 
 const intelligenceNav: NavItem[] = [
-  { to: '/machines', label: 'Machines & OEE', icon: Gauge, permission: 'batch.view' },
+  { to: '/dashboard', label: 'Command centre', icon: LayoutDashboard, permission: 'dashboard.executive' },
+  { to: '/machines', label: 'Machines & insights', icon: Gauge, permission: 'batch.view' },
   { to: '/sales/margins', label: 'Sales margin', icon: TrendingUp, permission: 'sales.view' },
   { to: '/costs', label: 'Cost intelligence', icon: Calculator, end: true, permission: 'costs.view' },
   { to: '/costs/overhead', label: 'Factory overhead', icon: Layers, permission: 'costs.view' },

@@ -132,7 +132,6 @@ export function OverheadPage() {
       <PageHeader
         eyebrow="Cost intelligence"
         title="Factory overhead"
-        description="Rent, diesel, electricity and wages are not caused by any single batch. This spreads them across everything the factory produced in the month, so the cost per kilogram is the real one."
       />
 
       <Card className="mb-6">

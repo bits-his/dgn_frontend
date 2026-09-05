@@ -125,7 +125,6 @@ export function PayrollPage() {
       <PageHeader
         eyebrow="People"
         title="Payroll"
-        description="Wages worked out from the attendance sheet, on each worker's own pay basis. Once approved, the wage bill becomes part of the factory's cost per kilogram."
       />
 
       {canRun && <PayrollPreview onCreated={() => runs.refetch()} />}
@@ -433,12 +432,9 @@ function RunDetailView({
 
   return (
     <div>
-      <PageHeader
-        eyebrow="Payroll"
-        title={r.runNumber}
-        description={`${r.periodLabel} · ${r.employeeCount} workers · ${r.status.toLowerCase()}`}
-        actions={
-          <div className="flex flex-wrap gap-2">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-lg font-semibold tracking-tight">{r.runNumber}</p>
+        <div className="flex flex-wrap gap-2">
             <button className="dgn-btn dgn-btn-ghost" onClick={onBack}>
               All runs
             </button>
@@ -470,9 +466,8 @@ function RunDetailView({
                 Discard draft
               </button>
             )}
-          </div>
-        }
-      />
+        </div>
+      </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatPill label="Gross" value={money(r.totalGross)} />

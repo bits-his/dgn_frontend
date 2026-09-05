@@ -150,7 +150,6 @@ export function SuppliersPage() {
       <PageHeader
         eyebrow="Masters"
         title="Suppliers"
-        description="Add scrap suppliers, see the full list, and edit their details."
       />
 
       <Card className="mb-4 !p-4">
