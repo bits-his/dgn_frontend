@@ -3,10 +3,14 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Ban, ShieldCheck } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card, Field, StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
+import type { ColumnDef } from '@tanstack/react-table'
+import CustomTable1 from '@/components/CustomTable1'
 
 type QueueBatch = {
   id: number
@@ -113,22 +117,238 @@ export function QcPage() {
     },
   })
 
+  const queueColumns = useMemo<ColumnDef<QueueBatch>[]>(
+    () => [
+      {
+        id: 'batchNumber',
+        header: 'Batch',
+        cell: ({ row }) => {
+          const batch = row.original
+          return (
+            <div>
+              <Link
+                to={`/batches/${batch.batchNumber}`}
+                className="font-mono text-xs font-semibold text-zinc-900 hover:underline"
+              >
+                {batch.batchNumber}
+              </Link>
+              {batch.status === 'QC_HOLD' && (
+                <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                  On hold
+                </span>
+              )}
+            </div>
+          )
+        },
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-600 tabular-nums">
+            {formatBusinessDate(row.original.businessDate)}
+          </span>
+        ),
+      },
+      {
+        id: 'type',
+        header: 'Type',
+        cell: ({ row }) => (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 text-zinc-700">
+            {row.original.batchType}
+          </span>
+        ),
+      },
+      {
+        id: 'item',
+        header: 'Item',
+        cell: ({ row }) => (
+          <span className="text-xs font-medium text-zinc-800">
+            {row.original.productName || row.original.materialName || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'qty',
+        header: 'Quantity',
+        cell: ({ row }) => (
+          <span className="text-xs font-semibold tabular-nums text-zinc-900">
+            {fmt(row.original.qtyRemaining)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'location',
+        header: 'Location / Machine',
+        cell: ({ row }) => {
+          const b = row.original
+          return (
+            <div>
+              <span className="text-xs text-zinc-800">{b.locationName || b.machineName || '—'}</span>
+              {b.locationName && b.machineName && (
+                <p className="text-[11px] text-zinc-400">{b.machineName}</p>
+              )}
+              {b.shiftName && (
+                <p className="text-[11px] text-zinc-400">{b.shiftName}</p>
+              )}
+            </div>
+          )
+        },
+      },
+      {
+        id: 'inspections',
+        header: 'Inspections',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-600">
+            {row.original.checkCount}
+          </span>
+        ),
+      },
+      {
+        id: 'actions',
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            {canInspect ? (
+              <Button
+                size="sm"
+                className="h-8 px-3 text-xs font-semibold gap-1 whitespace-nowrap inline-flex items-center"
+                onClick={() => setSelected(row.original)}
+              >
+                <span>Inspect</span>
+              </Button>
+            ) : (
+              <span className="text-xs text-zinc-400">—</span>
+            )}
+          </div>
+        ),
+      },
+    ],
+    [canInspect]
+  )
+
+  const checksColumns = useMemo<ColumnDef<QcCheckRow>[]>(
+    () => [
+      {
+        id: 'batchNumber',
+        header: 'Batch',
+        cell: ({ row }) => (
+          row.original.batchNumber ? (
+            <Link
+              to={`/batches/${row.original.batchNumber}`}
+              className="font-mono text-xs font-semibold text-zinc-900 hover:underline"
+            >
+              {row.original.batchNumber}
+            </Link>
+          ) : (
+            <span className="text-xs text-zinc-400">—</span>
+          )
+        ),
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-600 tabular-nums">
+            {formatBusinessDate(row.original.businessDate)}
+          </span>
+        ),
+      },
+      {
+        id: 'decision',
+        header: 'Decision',
+        cell: ({ row }) => {
+          const d = row.original.decision
+          const badgeClass =
+            d === 'PASS'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : d === 'FAIL'
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-amber-50 text-amber-700 border-amber-200'
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badgeClass}`}
+            >
+              {d}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'accepted',
+        header: 'Accepted',
+        cell: ({ row }) => (
+          <span className="text-xs font-medium tabular-nums text-emerald-700">
+            {fmt(row.original.qtyAccepted)}
+          </span>
+        ),
+      },
+      {
+        id: 'waste',
+        header: 'Waste',
+        cell: ({ row }) => (
+          <span className="text-xs font-medium tabular-nums text-red-700">
+            {fmt(row.original.qtyRejected)}
+          </span>
+        ),
+      },
+      {
+        id: 'rework',
+        header: 'Rework',
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5 text-xs tabular-nums text-zinc-700">
+            <span>{fmt(row.original.qtyRework)}</span>
+            {row.original.reworkBatchNumber && (
+              <Link
+                to={`/batches/${row.original.reworkBatchNumber}`}
+                className="font-mono text-[11px] text-[var(--accent-strong)] hover:underline"
+              >
+                ({row.original.reworkBatchNumber})
+              </Link>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'defectRate',
+        header: 'Defect Rate',
+        cell: ({ row }) => (
+          <span className={`text-xs font-semibold tabular-nums ${row.original.defectRatePercent > 0 ? 'text-amber-700' : 'text-zinc-600'}`}>
+            {row.original.defectRatePercent}%
+          </span>
+        ),
+      },
+      {
+        id: 'inspector',
+        header: 'Inspector',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-700">
+            {row.original.inspectorName || '—'}
+          </span>
+        ),
+      },
+    ],
+    []
+  )
+
   if (selected) {
     return <InspectionForm batch={selected} onBack={() => setSelected(null)} />
   }
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Quality control"
-        title="Inspection queue"
-        actions={
-          <Link to="/qc/trends" className="dgn-btn dgn-btn-secondary">
-            <ShieldCheck className="size-4" />
+    <PageLayout
+      title="Inspection queue"
+      description="Quality control · Inspect finished production and drying batches"
+      actions={
+        <Button variant="outline" size="sm" className="h-8 text-xs font-semibold gap-1.5" asChild>
+          <Link to="/qc/trends">
+            <ShieldCheck className="size-3.5" />
             Defect trends
           </Link>
-        }
-      />
+        </Button>
+      }
+    >
+      <div className="space-y-6">
 
       {!canInspect && (
         <Card className="mb-4 border-amber-200 bg-amber-50 text-amber-950">
@@ -137,96 +357,21 @@ export function QcPage() {
         </Card>
       )}
 
-      <Card className="mb-4 !p-0 overflow-hidden">
-        <h2 className="px-4 pt-4 text-lg font-semibold tracking-tight sm:px-6 sm:pt-6">
-          Awaiting inspection
-        </h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Batch</th>
-                <th className="px-3 py-3 font-semibold">Date</th>
-                <th className="px-3 py-3 font-semibold">Type</th>
-                <th className="px-3 py-3 font-semibold">Item</th>
-                <th className="px-3 py-3 font-semibold text-right">Qty</th>
-                <th className="px-3 py-3 font-semibold">Location / machine</th>
-                <th className="px-3 py-3 font-semibold text-right">Inspections</th>
-                <th className="px-4 py-3 font-semibold text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queue.isLoading && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {queue.data?.map((batch) => (
-                <tr
-                  key={batch.id}
-                  className="border-b border-[var(--line)] hover:bg-zinc-50/80"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/batches/${batch.batchNumber}`}
-                      className="font-semibold text-[var(--accent-strong)] hover:underline"
-                    >
-                      {batch.batchNumber}
-                    </Link>
-                    {batch.status === 'QC_HOLD' && (
-                      <p className="mt-0.5 text-xs font-semibold text-[var(--accent-strong)]">
-                        On hold
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-[var(--ink-muted)] tabular-nums">
-                    {formatBusinessDate(batch.businessDate)}
-                  </td>
-                  <td className="px-3 py-3">{batch.batchType}</td>
-                  <td className="px-3 py-3">
-                    {batch.productName || batch.materialName || '—'}
-                  </td>
-                  <td className="px-3 py-3 text-right font-medium tabular-nums">
-                    {fmt(batch.qtyRemaining)} {batch.uom}
-                  </td>
-                  <td className="px-3 py-3">
-                    {batch.locationName || batch.machineName || '—'}
-                    {batch.locationName && batch.machineName && (
-                      <p className="text-xs text-[var(--ink-faint)]">{batch.machineName}</p>
-                    )}
-                    {batch.shiftName && (
-                      <p className="text-xs text-[var(--ink-faint)]">{batch.shiftName}</p>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums">{batch.checkCount}</td>
-                  <td className="px-4 py-3 text-right">
-                    {canInspect ? (
-                      <button
-                        type="button"
-                        className="dgn-btn dgn-btn-primary"
-                        onClick={() => setSelected(batch)}
-                      >
-                        Inspect
-                      </button>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {!queue.isLoading && !queue.data?.length && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Nothing waiting. Finished production and drying batches appear here.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight text-zinc-900">
+            Awaiting inspection
+          </h2>
+          <span className="text-xs text-zinc-500">
+            {queue.data?.length ?? 0} batches waiting
+          </span>
         </div>
-      </Card>
+        <CustomTable1
+          data={queue.data || []}
+          columns={queueColumns}
+          loading={queue.isLoading}
+        />
+      </div>
 
       {blocked.data && blocked.data.length > 0 && (
         <Card className="mb-4 border-red-200 bg-red-50">
@@ -254,82 +399,23 @@ export function QcPage() {
         </Card>
       )}
 
-      <Card>
-        <h2 className="text-lg font-semibold tracking-tight">Recent inspections</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[860px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] text-[var(--ink-muted)]">
-                <th className="py-3 pr-4 font-semibold">Batch</th>
-                <th className="py-3 pr-4 font-semibold">Date</th>
-                <th className="py-3 pr-4 font-semibold">Decision</th>
-                <th className="py-3 pr-4 font-semibold">Accepted</th>
-                <th className="py-3 pr-4 font-semibold">Waste</th>
-                <th className="py-3 pr-4 font-semibold">Rework</th>
-                <th className="py-3 pr-4 font-semibold">Defect rate</th>
-                <th className="py-3 font-semibold">Inspector</th>
-              </tr>
-            </thead>
-            <tbody>
-              {checks.data?.map((check) => (
-                <tr key={check.id} className="border-b border-zinc-100">
-                  <td className="py-3 pr-4">
-                    {check.batchNumber ? (
-                      <Link
-                        to={`/batches/${check.batchNumber}`}
-                        className="font-semibold text-[var(--accent-strong)] hover:underline"
-                      >
-                        {check.batchNumber}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="py-3 pr-4 text-[var(--ink-muted)] tabular-nums">
-                    {formatBusinessDate(check.businessDate)}
-                  </td>
-                  <td className="py-3 pr-4">
-                    <span
-                      className={
-                        check.decision === 'PASS'
-                          ? 'font-semibold text-teal-700'
-                          : check.decision === 'FAIL'
-                            ? 'font-semibold text-red-600'
-                            : 'font-semibold text-[var(--accent-strong)]'
-                      }
-                    >
-                      {check.decision}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4">{fmt(check.qtyAccepted)}</td>
-                  <td className="py-3 pr-4">{fmt(check.qtyRejected)}</td>
-                  <td className="py-3 pr-4">
-                    {fmt(check.qtyRework)}
-                    {check.reworkBatchNumber && (
-                      <Link
-                        to={`/batches/${check.reworkBatchNumber}`}
-                        className="ml-2 text-xs text-[var(--accent-strong)] hover:underline"
-                      >
-                        {check.reworkBatchNumber}
-                      </Link>
-                    )}
-                  </td>
-                  <td className="py-3 pr-4">{check.defectRatePercent}%</td>
-                  <td className="py-3">{check.inspectorName || '—'}</td>
-                </tr>
-              ))}
-              {!checks.isLoading && !checks.data?.length && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-[var(--ink-muted)]">
-                    No inspections recorded yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight text-zinc-900">
+            Recent inspections
+          </h2>
+          <span className="text-xs text-zinc-500">
+            {checks.data?.length ?? 0} inspections recorded
+          </span>
         </div>
-      </Card>
-    </div>
+        <CustomTable1
+          data={checks.data || []}
+          columns={checksColumns}
+          loading={checks.isLoading}
+        />
+      </div>
+      </div>
+    </PageLayout>
   )
 }
 
@@ -462,53 +548,60 @@ function InspectionForm({ batch, onBack }: { batch: QueueBatch; onBack: () => vo
 
   if (result) {
     return (
-      <Card className="text-center">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-          Inspection recorded
-        </p>
-        <p className="mt-3 text-3xl font-semibold tracking-tight">{batch.batchNumber}</p>
-        <div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-3">
-          <StatPill label="New status" value={result.batchStatus} tone={statusTone(result.batchStatus)} />
-          <StatPill label="Accepted" value={`${fmt(result.qtyAccepted)} ${batch.uom}`} tone="success" />
-          <StatPill label="Defect rate" value={`${result.defectRatePercent}%`} tone="accent" />
-        </div>
-        {result.reworkBatchNumber && (
-          <p className="mt-4 text-sm text-[var(--ink-muted)]">
-            Rework regrind created as{' '}
-            <Link
-              to={`/batches/${result.reworkBatchNumber}`}
-              className="font-semibold text-[var(--accent-strong)] hover:underline"
-            >
-              {result.reworkBatchNumber}
-            </Link>
-            , ready to re-enter crushing.
+      <PageLayout
+        title={`Inspect Batch: ${batch.batchNumber}`}
+        description="Inspection recorded successfully"
+        back={true}
+        backLabel="Back to queue"
+        onBack={onBack}
+      >
+        <Card className="text-center !p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+            Inspection recorded
           </p>
-        )}
-        <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-primary"
-            onClick={() => navigate(`/batches/${batch.batchNumber}`)}
-          >
-            Open Batch 360°
-          </button>
-          <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onBack}>
-            Back to queue
-          </button>
-        </div>
-      </Card>
+          <p className="mt-3 text-3xl font-semibold tracking-tight">{batch.batchNumber}</p>
+          <div className="mx-auto mt-5 grid max-w-xl gap-3 sm:grid-cols-3">
+            <StatPill label="New status" value={result.batchStatus} tone={statusTone(result.batchStatus)} />
+            <StatPill label="Accepted" value={`${fmt(result.qtyAccepted)} ${batch.uom}`} tone="success" />
+            <StatPill label="Defect rate" value={`${result.defectRatePercent}%`} tone="accent" />
+          </div>
+          {result.reworkBatchNumber && (
+            <p className="mt-4 text-sm text-[var(--ink-muted)]">
+              Rework regrind created as{' '}
+              <Link
+                to={`/batches/${result.reworkBatchNumber}`}
+                className="font-semibold text-[var(--accent-strong)] hover:underline"
+              >
+                {result.reworkBatchNumber}
+              </Link>
+              , ready to re-enter crushing.
+            </p>
+          )}
+          <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+            <button
+              type="button"
+              className="dgn-btn dgn-btn-primary"
+              onClick={() => navigate(`/batches/${batch.batchNumber}`)}
+            >
+              Open Batch 360°
+            </button>
+            <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onBack}>
+              Back to queue
+            </button>
+          </div>
+        </Card>
+      </PageLayout>
     )
   }
 
   return (
-    <div>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-lg font-semibold tracking-tight">{batch.batchNumber}</p>
-        <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onBack}>
-          Back to queue
-        </button>
-      </div>
-
+    <PageLayout
+      title={`Inspect Batch: ${batch.batchNumber}`}
+      description={`${batch.productName || batch.materialName || batch.batchType} · ${fmt(batch.qtyRemaining)} ${batch.uom} awaiting inspection`}
+      back={true}
+      backLabel="Back to queue"
+      onBack={onBack}
+    >
       <div className="space-y-4">
         <Card>
           <h2 className="text-lg font-semibold tracking-tight">Decision</h2>
@@ -740,6 +833,7 @@ function InspectionForm({ batch, onBack }: { batch: QueueBatch; onBack: () => vo
           {saving ? 'Saving…' : `Record ${DECISION_COPY[decision].label.toLowerCase()} decision`}
         </button>
       </div>
-    </div>
+      
+    </PageLayout>
   )
 }

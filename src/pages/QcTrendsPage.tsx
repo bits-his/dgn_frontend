@@ -1,8 +1,7 @@
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, PageHeader, StatPill } from '@/components/ui'
+import { Card, StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
 
 type Grouped = {
   key: string
@@ -103,17 +102,14 @@ export function QcTrendsPage() {
   const totals = trends.data?.totals
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Quality control"
-        title="Defect trends"
-        actions={
-          <Link to="/qc" className="dgn-btn dgn-btn-secondary">
-            <ArrowLeft className="size-4" />
-            Back to queue
-          </Link>
-        }
-      />
+    <PageLayout
+      title="Defect trends"
+      description="Quality control · Analysis of defects across products, machines, and shifts"
+      back={true}
+      backTo="/qc"
+      backLabel="Back to queue"
+    >
+      <div className="space-y-6">
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatPill label="Inspections" value={String(totals?.checks ?? 0)} />
@@ -159,6 +155,7 @@ export function QcTrendsPage() {
         <GroupTable title="By machine" rows={trends.data?.byMachine ?? []} />
         <GroupTable title="By shift" rows={trends.data?.byShift ?? []} />
       </div>
-    </div>
+      </div>
+    </PageLayout>
   )
 }

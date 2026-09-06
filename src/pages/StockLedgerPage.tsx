@@ -1,9 +1,20 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
+import { ArrowDownLeft, ArrowUpRight, Filter, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import CustomTable1 from '@/components/CustomTable1'
 import { formatBusinessDate } from '@/lib/dates'
 
 type LedgerRow = {
@@ -38,6 +49,10 @@ const REASONS = [
   'RETURN',
 ]
 
+function fmt(n: number) {
+  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
+}
+
 export function StockLedgerPage() {
   const [direction, setDirection] = useState('')
   const [reason, setReason] = useState('')
@@ -45,6 +60,7 @@ export function StockLedgerPage() {
   const [batchNumber, setBatchNumber] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
 
   const locations = useQuery({
     queryKey: ['locations'],
@@ -69,170 +85,302 @@ export function StockLedgerPage() {
     },
   })
 
-  const totalIn =
-    ledger.data?.filter((r) => r.direction === 'IN').reduce((s, r) => s + Number(r.qty), 0) ?? 0
-  const totalOut =
-    ledger.data?.filter((r) => r.direction === 'OUT').reduce((s, r) => s + Number(r.qty), 0) ?? 0
+  const totalIn = useMemo(
+    () => ledger.data?.filter((r) => r.direction === 'IN').reduce((s, r) => s + Number(r.qty), 0) ?? 0,
+    [ledger.data]
+  )
+  const totalOut = useMemo(
+    () => ledger.data?.filter((r) => r.direction === 'OUT').reduce((s, r) => s + Number(r.qty), 0) ?? 0,
+    [ledger.data]
+  )
+
+  const resetFilters = () => {
+    setDirection('')
+    setReason('')
+    setLocationId('')
+    setBatchNumber('')
+    setDateFrom('')
+    setDateTo('')
+  }
+
+  const hasActiveFilters = Boolean(direction || reason || locationId || batchNumber || dateFrom || dateTo)
+
+  const columns = useMemo<ColumnDef<LedgerRow>[]>(
+    () => [
+      {
+        id: 'businessDate',
+        header: 'Date',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-600 tabular-nums">
+            {formatBusinessDate(row.original.businessDate)}
+          </span>
+        ),
+      },
+      {
+        id: 'batchNumber',
+        header: 'Batch',
+        cell: ({ row }) => {
+          const bn = row.original.batchNumber
+          return bn ? (
+            <Link
+              to={`/batches/${bn}`}
+              className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1"
+            >
+              {bn}
+            </Link>
+          ) : (
+            <span className="text-zinc-400 text-xs">—</span>
+          )
+        },
+      },
+      {
+        id: 'item',
+        header: 'Item',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-900">
+            {row.original.productName || row.original.materialName || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'location',
+        header: 'Location',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-600">
+            {row.original.locationName || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'direction',
+        header: 'Flow',
+        cell: ({ row }) => {
+          const isIn = row.original.direction === 'IN'
+          return (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                isIn
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
+                  : 'bg-rose-50 text-rose-700 border border-rose-200/80'
+              }`}
+            >
+              {isIn ? <ArrowDownLeft className="size-3 shrink-0" /> : <ArrowUpRight className="size-3 shrink-0" />}
+              <span>{row.original.direction}</span>
+            </span>
+          )
+        },
+      },
+      {
+        id: 'qty',
+        header: 'Quantity',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs tabular-nums text-zinc-900">
+            {fmt(row.original.qty)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'reason',
+        header: 'Reason / Notes',
+        cell: ({ row }) => (
+          <div>
+            <span className="text-xs font-medium text-zinc-800 capitalize">
+              {row.original.reason.toLowerCase().replace(/_/g, ' ')}
+            </span>
+            {row.original.notes && (
+              <p className="text-[11px] text-zinc-400 line-clamp-1">{row.original.notes}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'createdBy',
+        header: 'User',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-500">
+            {row.original.createdBy || '—'}
+          </span>
+        ),
+      },
+    ],
+    []
+  )
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Inventory"
-        title="Movement ledger"
-        actions={
-          <Link to="/inventory" className="dgn-btn dgn-btn-secondary">
-            <ArrowLeft className="size-4" />
-            Back to stock
-          </Link>
-        }
-      />
-
-      <Card className="mb-4">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Direction">
-            <select
-              className="dgn-input"
-              value={direction}
-              onChange={(e) => setDirection(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="IN">In</option>
-              <option value="OUT">Out</option>
-            </select>
-          </Field>
-          <Field label="Reason">
-            <select className="dgn-input" value={reason} onChange={(e) => setReason(e.target.value)}>
-              <option value="">All reasons</option>
-              {REASONS.map((r) => (
-                <option key={r} value={r}>
-                  {r.charAt(0) + r.slice(1).toLowerCase().replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Location">
-            <select
-              className="dgn-input"
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-            >
-              <option value="">All locations</option>
-              {locations.data?.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Batch number">
-            <input
-              className="dgn-input"
-              placeholder="e.g. PRD-260903"
-              value={batchNumber}
-              onChange={(e) => setBatchNumber(e.target.value)}
-            />
-          </Field>
-          <Field label="From date" hint="Business date, YYYY-MM-DD">
-            <input
-              type="date"
-              className="dgn-input"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-          </Field>
-          <Field label="To date">
-            <input
-              type="date"
-              className="dgn-input"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
-          </Field>
+    <PageLayout
+      title="Movement ledger"
+      description="Audit trail of all inventory receipts, transfers, usages, and adjustments"
+      back={true}
+      backLabel="Back to stock"
+      onBack={() => window.history.back()}
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 px-2.5 text-xs font-semibold sm:hidden gap-1.5"
+          onClick={() => setShowFilters(!showFilters)}
+        >
+          <Filter className="size-3.5" />
+          <span>{showFilters ? 'Hide filters' : 'Filters'}</span>
+          {hasActiveFilters && (
+            <span className="size-1.5 rounded-full bg-amber-500" />
+          )}
+        </Button>
+      }
+    >
+      <div className="space-y-4">
+        {/* Metric summary banner */}
+        <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
+          <div className="rounded-xl border border-zinc-200/80 bg-white p-3 shadow-xs">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Total Movements
+            </span>
+            <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 mt-0.5">
+              {ledger.data?.length ?? 0}
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-200/80 bg-white p-3 shadow-xs">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-emerald-600">
+              Total Receipts (IN)
+            </span>
+            <div className="text-base sm:text-xl font-bold tracking-tight text-emerald-700 mt-0.5 tabular-nums">
+              {fmt(totalIn)}
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-200/80 bg-white p-3 shadow-xs">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-rose-600">
+              Total Outflow (OUT)
+            </span>
+            <div className="text-base sm:text-xl font-bold tracking-tight text-rose-700 mt-0.5 tabular-nums">
+              {fmt(totalOut)}
+            </div>
+          </div>
         </div>
-        <p className="mt-4 text-sm text-[var(--ink-muted)]">
-          Showing {ledger.data?.length ?? 0} movements · total in{' '}
-          {totalIn.toLocaleString(undefined, { maximumFractionDigits: 3 })} · total out{' '}
-          {totalOut.toLocaleString(undefined, { maximumFractionDigits: 3 })}
-        </p>
-      </Card>
 
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] text-[var(--ink-muted)]">
-                <th className="py-3 pr-4 font-semibold">Date</th>
-                <th className="py-3 pr-4 font-semibold">Batch</th>
-                <th className="py-3 pr-4 font-semibold">Item</th>
-                <th className="py-3 pr-4 font-semibold">Location</th>
-                <th className="py-3 pr-4 font-semibold">Direction</th>
-                <th className="py-3 pr-4 font-semibold">Qty</th>
-                <th className="py-3 pr-4 font-semibold">Reason</th>
-                <th className="py-3 font-semibold">By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {ledger.isLoading && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {ledger.data?.map((row) => (
-                <tr key={row.id} className="border-b border-zinc-100">
-                  <td className="py-3 pr-4 whitespace-nowrap">
-                    {formatBusinessDate(row.businessDate)}
-                  </td>
-                  <td className="py-3 pr-4">
-                    {row.batchNumber ? (
-                      <Link
-                        to={`/batches/${row.batchNumber}`}
-                        className="font-semibold text-[var(--accent-strong)] hover:underline"
-                      >
-                        {row.batchNumber}
-                      </Link>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="py-3 pr-4">{row.productName || row.materialName || '—'}</td>
-                  <td className="py-3 pr-4">{row.locationName || '—'}</td>
-                  <td className="py-3 pr-4">
-                    <span
-                      className={
-                        row.direction === 'IN'
-                          ? 'font-semibold text-teal-700'
-                          : 'font-semibold text-red-600'
-                      }
+        {/* Filters Bar */}
+        <div className={`space-y-3 ${showFilters ? 'block' : 'hidden sm:block'}`}>
+          <div className="rounded-xl border border-zinc-200/80 bg-white p-3.5 shadow-xs">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
+              {/* Direction Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Direction
+                </label>
+                <Select value={direction || 'ALL'} onValueChange={(v) => setDirection(v === 'ALL' ? '' : v)}>
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue placeholder="All directions" />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    <SelectItem value="ALL">All directions</SelectItem>
+                    <SelectItem value="IN">Inbound (IN)</SelectItem>
+                    <SelectItem value="OUT">Outbound (OUT)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Reason Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Reason
+                </label>
+                <Select value={reason || 'ALL'} onValueChange={(v) => setReason(v === 'ALL' ? '' : v)}>
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue placeholder="All reasons" />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    <SelectItem value="ALL">All reasons</SelectItem>
+                    {REASONS.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r.charAt(0) + r.slice(1).toLowerCase().replace(/_/g, ' ')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Location Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Location
+                </label>
+                <Select value={locationId || 'ALL'} onValueChange={(v) => setLocationId(v === 'ALL' ? '' : v)}>
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue placeholder="All locations" />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    <SelectItem value="ALL">All locations</SelectItem>
+                    {locations.data?.map((loc) => (
+                      <SelectItem key={loc.id} value={String(loc.id)}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Batch Filter */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  Batch #
+                </label>
+                <Input
+                  className="h-8 text-xs w-full"
+                  placeholder="e.g. PRD-..."
+                  value={batchNumber}
+                  onChange={(e) => setBatchNumber(e.target.value)}
+                />
+              </div>
+
+              {/* From Date */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  From Date
+                </label>
+                <Input
+                  type="date"
+                  className="h-8 text-xs w-full"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                />
+              </div>
+
+              {/* To Date */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
+                  To Date
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="date"
+                    className="h-8 text-xs w-full"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                  {hasActiveFilters && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs text-zinc-500 hover:text-zinc-900 shrink-0"
+                      onClick={resetFilters}
+                      title="Reset filters"
                     >
-                      {row.direction}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 font-semibold">
-                    {Number(row.qty).toLocaleString(undefined, { maximumFractionDigits: 3 })}{' '}
-                    {row.uom}
-                  </td>
-                  <td className="py-3 pr-4">
-                    {row.reason}
-                    {row.notes && (
-                      <span className="block text-xs text-[var(--ink-faint)]">{row.notes}</span>
-                    )}
-                  </td>
-                  <td className="py-3">{row.createdBy || '—'}</td>
-                </tr>
-              ))}
-              {!ledger.isLoading && !ledger.data?.length && (
-                <tr>
-                  <td colSpan={8} className="py-6 text-[var(--ink-muted)]">
-                    No movements match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                      <RotateCcw className="size-3.5" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </Card>
-    </div>
+
+        {/* Custom Table with No Outer Card Wrapper */}
+        <CustomTable1
+          data={ledger.data || []}
+          columns={columns}
+          loading={ledger.isLoading}
+        />
+      </div>
+    </PageLayout>
   )
 }

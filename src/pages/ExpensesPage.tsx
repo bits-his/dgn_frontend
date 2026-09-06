@@ -1,9 +1,28 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, Receipt, X } from 'lucide-react'
+import { Check, Plus, X, Search, CheckCircle2, Clock, Building2, Layers } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
@@ -55,17 +74,23 @@ function money(n: number) {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  APPROVED: 'bg-teal-50 text-teal-800',
-  PENDING: 'bg-[var(--accent-soft)] text-[var(--accent-strong)]',
-  REJECTED: 'bg-red-50 text-red-700',
+  APPROVED: 'bg-teal-50 text-teal-800 border border-teal-200',
+  PENDING: 'bg-amber-50 text-amber-800 border border-amber-200',
+  REJECTED: 'bg-red-50 text-red-700 border border-red-200',
 }
 
 export function ExpensesPage() {
   const user = useAuthStore((s) => s.user)
   const canCreate = hasPermission(user, 'expense.create')
   const canApprove = hasPermission(user, 'expense.approve')
+  const queryClient = useQueryClient()
   const [composing, setComposing] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [search, setSearch] = useState('')
+  const [rejectingExpense, setRejectingExpense] = useState<ExpenseRow | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectBusy, setRejectBusy] = useState(false)
+  const [rejectError, setRejectError] = useState<string | null>(null)
 
   const summary = useQuery({
     queryKey: ['expense-summary'],
@@ -76,289 +101,415 @@ export function ExpensesPage() {
   })
 
   const expenses = useQuery({
-    queryKey: ['expenses', statusFilter],
+    queryKey: ['expenses', statusFilter === 'ALL' ? '' : statusFilter],
     queryFn: async () => {
       const { data } = await api.get('/expenses', {
-        params: statusFilter ? { status: statusFilter } : {},
+        params: statusFilter !== 'ALL' ? { status: statusFilter } : {},
       })
       return data.data as ExpenseRow[]
     },
   })
 
-  if (composing) {
-    return <NewExpenseForm onDone={() => setComposing(false)} />
+  const handleApprove = async (id: number) => {
+    try {
+      await api.post(`/expenses/${id}/approve`)
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+    } catch {
+      // handled by global handler
+    }
   }
+
+  const handleConfirmReject = async () => {
+    if (!rejectingExpense) return
+    setRejectError(null)
+    setRejectBusy(true)
+    try {
+      await api.post(`/expenses/${rejectingExpense.id}/reject`, { reason: rejectReason })
+      setRejectingExpense(null)
+      setRejectReason('')
+      queryClient.invalidateQueries({ queryKey: ['expenses'] })
+      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+    } catch (err: unknown) {
+      const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
+      setRejectError(String((body && body.err) || 'Could not reject expense'))
+    } finally {
+      setRejectBusy(false)
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const list = expenses.data ?? []
+    if (!search.trim()) return list
+    const q = search.trim().toLowerCase()
+    return list.filter(
+      (e) =>
+        e.expenseNumber.toLowerCase().includes(q) ||
+        e.description.toLowerCase().includes(q) ||
+        (e.vendorName && e.vendorName.toLowerCase().includes(q)) ||
+        (e.categoryName && e.categoryName.toLowerCase().includes(q)) ||
+        (e.batchNumber && e.batchNumber.toLowerCase().includes(q))
+    )
+  }, [expenses.data, search])
+
+  const columns = useMemo<ColumnDef<ExpenseRow>[]>(
+    () => [
+      {
+        accessorKey: 'businessDate',
+        header: 'Date & Ref',
+        cell: ({ row }) => (
+          <div>
+            <p className="text-xs text-zinc-900 font-medium">
+              {formatBusinessDate(row.original.businessDate)}
+            </p>
+            <p className="font-mono text-[11px] text-zinc-400 mt-0.5">{row.original.expenseNumber}</p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'description',
+        header: 'Description',
+        cell: ({ row }) => (
+          <div>
+            <p className="font-semibold text-xs text-zinc-900">{row.original.description}</p>
+            <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
+              {row.original.vendorName && <span>{row.original.vendorName}</span>}
+              <span>· {row.original.paymentMethod}</span>
+              {row.original.receiptRef && <span>· receipt #{row.original.receiptRef}</span>}
+            </div>
+            {row.original.decisionReason && (
+              <p className="mt-1 text-[11px] text-red-600">Reason: {row.original.decisionReason}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'categoryName',
+        header: 'Category',
+        cell: ({ row }) => (
+          <div>
+            <p className="text-xs text-zinc-800">{row.original.categoryName || '—'}</p>
+            <p className="text-[11px] capitalize text-zinc-400">{row.original.costClass.toLowerCase()}</p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'amount',
+        header: 'Amount',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs tabular-nums text-zinc-900">
+            {money(row.original.amount)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <div>
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                STATUS_STYLES[row.original.status] ?? 'bg-zinc-100 text-zinc-600'
+              }`}
+            >
+              {row.original.status}
+            </span>
+            {row.original.approvedBy && (
+              <p className="text-[10px] text-zinc-400 mt-0.5">by {row.original.approvedBy}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'scope',
+        header: 'Scope / Batch',
+        cell: ({ row }) => (
+          <div>
+            {row.original.allocationScope === 'BATCH' ? (
+              row.original.batchNumber ? (
+                <Link
+                  to={`/batches/${row.original.batchNumber}`}
+                  className="font-mono text-xs font-semibold text-zinc-900 hover:underline"
+                >
+                  {row.original.batchNumber}
+                </Link>
+              ) : (
+                <span className="text-xs text-zinc-700">Batch</span>
+              )
+            ) : (
+              <span className="text-xs text-zinc-600">Factory overhead</span>
+            )}
+            {row.original.recordedBy && (
+              <p className="text-[10px] text-zinc-400 mt-0.5">by {row.original.recordedBy}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => {
+          if (canApprove && row.original.status === 'PENDING') {
+            return (
+              <div className="flex items-center justify-end gap-1.5">
+                <Button
+                  size="sm"
+                  className="h-7 px-2.5 text-xs font-semibold gap-1"
+                  onClick={() => handleApprove(row.original.id)}
+                >
+                  <Check className="size-3" /> Approve
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs font-semibold gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => setRejectingExpense(row.original)}
+                >
+                  <X className="size-3" /> Reject
+                </Button>
+              </div>
+            )
+          }
+          return null
+        },
+      },
+    ],
+    [canApprove]
+  )
 
   const s = summary.data
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Finance"
-        title="Factory expenses"
-        actions={
-          canCreate ? (
-            <button className="dgn-btn dgn-btn-primary" onClick={() => setComposing(true)}>
-              <Plus className="h-4 w-4" /> Record expense
-            </button>
-          ) : null
-        }
-      />
-
-      {s && (
-        <>
-          <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StatPill label={`Approved · ${s.periodLabel}`} value={money(s.approvedTotal)} tone="accent" />
-            <StatPill
-              label={`Waiting for approval (${s.pendingCount})`}
-              value={money(s.pendingTotal)}
-              tone={s.pendingCount > 0 ? 'danger' : 'success'}
-            />
-            <StatPill label="In the overhead pool" value={money(s.factoryPoolTotal)} />
-            <StatPill label="Charged straight to batches" value={money(s.batchChargedTotal)} />
-          </div>
-
-          {s.periodAllocated && (
-            <Card className="mb-6 border-amber-200 bg-amber-50/50">
-              <p className="text-sm text-amber-900">
-                <span className="font-semibold">{s.periodLabel} is closed.</span> Overhead was
-                allocated as{' '}
-                <Link
-                  to="/costs/overhead"
-                  className="font-mono font-semibold underline"
-                >
-                  {s.allocationNumber}
-                </Link>
-                , so new expenses cannot be added to that month until the allocation is reversed.
-              </p>
-            </Card>
-          )}
-
-          {s.byCategory.length > 0 && (
-            <Card className="mb-6">
-              <h2 className="text-base font-semibold">Where the money went in {s.periodLabel}</h2>
-              <div className="mt-4 space-y-3">
-                {s.byCategory.map((row) => {
-                  const biggest = s.byCategory[0].amount || 1
-                  return (
-                    <div key={row.label}>
-                      <div className="flex items-baseline justify-between text-sm">
-                        <span className="font-medium">{row.label}</span>
-                        <span>{money(row.amount)}</span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-zinc-100">
-                        <div
-                          className="h-full rounded-full bg-[var(--accent)]"
-                          style={{ width: `${(row.amount / biggest) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
-          )}
-        </>
-      )}
-
-      <Card className="!p-0 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <h2 className="text-base font-semibold">Expense records</h2>
-          <div className="flex flex-wrap gap-2">
-            {['', 'PENDING', 'APPROVED', 'REJECTED'].map((value) => (
-              <button
-                key={value || 'ALL'}
-                onClick={() => setStatusFilter(value)}
-                className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                  statusFilter === value ? 'bg-[var(--bg-sidebar)] text-white' : 'bg-zinc-100'
-                }`}
-              >
-                {value || 'All'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Date</th>
-                <th className="px-3 py-3 font-semibold">Expense #</th>
-                <th className="px-3 py-3 font-semibold">Description</th>
-                <th className="px-3 py-3 font-semibold">Category</th>
-                <th className="px-3 py-3 text-right font-semibold">Amount</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-3 py-3 font-semibold">Scope / batch</th>
-                <th className="px-4 py-3 text-right font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expenses.isLoading && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {!expenses.isLoading &&
-                (expenses.data ?? []).map((row) => (
-                  <ExpenseTableRows key={row.id} row={row} canApprove={canApprove} />
-                ))}
-              {!expenses.isLoading && expenses.data?.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Nothing recorded yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-function ExpenseTableRows({ row, canApprove }: { row: ExpenseRow; canApprove: boolean }) {
-  const queryClient = useQueryClient()
-  const [rejecting, setRejecting] = useState(false)
-  const [reason, setReason] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const decide = async (decision: 'APPROVE' | 'REJECT') => {
-    setError(null)
-    setBusy(true)
-    try {
-      await api.post(`/expenses/${row.expenseNumber}/decision`, { decision, reason })
-      queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['overhead-preview'] })
-      setRejecting(false)
-    } catch (err: unknown) {
-      const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
-      if (body && body.errors) {
-        setError(Object.values(body.errors as Record<string, string>).join(' · '))
-      } else {
-        setError(String((body && body.err) || 'Could not save the decision'))
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <>
-      <tr className="border-b border-[var(--line)] align-top hover:bg-zinc-50/80">
-        <td className="whitespace-nowrap px-4 py-3 text-[var(--ink-muted)] tabular-nums">
-          {formatBusinessDate(row.businessDate)}
-        </td>
-        <td className="px-3 py-3 font-mono text-xs font-semibold">{row.expenseNumber}</td>
-        <td className="max-w-xs px-3 py-3">
-          <p className="font-medium">{row.description}</p>
-          <p className="mt-1 text-xs text-[var(--ink-faint)]">
-            {row.paymentMethod.toLowerCase()}
-            {row.vendorName ? ` · ${row.vendorName}` : ''}
-            {row.receiptRef ? ` · receipt ${row.receiptRef}` : ''}
-          </p>
-          {row.decisionReason && (
-            <p className="mt-2 text-xs text-red-700">{row.decisionReason}</p>
-          )}
-        </td>
-        <td className="px-3 py-3">
-          <p>{row.categoryName || '—'}</p>
-          <p className="mt-0.5 text-xs capitalize text-[var(--ink-faint)]">
-            {row.costClass.toLowerCase()}
-          </p>
-        </td>
-        <td className="whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums">
-          {money(row.amount)}
-        </td>
-        <td className="px-3 py-3">
-          <span
-            className={`inline-flex rounded-lg px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[row.status] ?? 'bg-zinc-100'}`}
+    <PageLayout
+      title="Factory Expenses"
+      description="Operating expenses, direct batch costs, and overhead allocation pool"
+      actions={
+        canCreate ? (
+          <Button
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold gap-1.5"
+            onClick={() => setComposing(true)}
           >
-            {row.status}
-          </span>
-          {row.approvedBy && (
-            <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.approvedBy}</p>
-          )}
-        </td>
-        <td className="px-3 py-3">
-          {row.allocationScope === 'BATCH' ? (
-            row.batchNumber ? (
-              <Link
-                to={`/batches/${row.batchNumber}`}
-                className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-              >
-                {row.batchNumber}
-              </Link>
-            ) : (
-              'Batch'
-            )
-          ) : (
-            <span>Factory overhead</span>
-          )}
-          {row.recordedBy && (
-            <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.recordedBy}</p>
-          )}
-        </td>
-        <td className="px-4 py-3">
-          {canApprove && row.status === 'PENDING' ? (
-            <div className="flex justify-end gap-2">
-              <button
-                className="dgn-btn dgn-btn-primary"
-                disabled={busy}
-                onClick={() => decide('APPROVE')}
-              >
-                <Check className="h-4 w-4" /> Approve
-              </button>
-              <button
-                className="dgn-btn dgn-btn-secondary"
-                disabled={busy}
-                onClick={() => setRejecting((v) => !v)}
-              >
-                <X className="h-4 w-4" /> Reject
-              </button>
-            </div>
-          ) : (
-            <span className="block text-right text-[var(--ink-faint)]">—</span>
-          )}
-        </td>
-      </tr>
-
-      {(rejecting || error) && (
-        <tr className="border-b border-[var(--line)] bg-zinc-50">
-          <td colSpan={8} className="px-4 py-3">
-            {rejecting && (
-              <div className="ml-auto max-w-xl">
-                <Field label="Why is it rejected?" hint="Required — at least 5 characters">
-                  <input
-                    className="dgn-input"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                  />
-                </Field>
-                <button
-                  className="dgn-btn dgn-btn-secondary mt-3"
-                  disabled={busy || reason.trim().length < 5}
-                  onClick={() => decide('REJECT')}
-                >
-                  Confirm rejection
-                </button>
+            <Plus className="size-3.5" /> Record expense
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-4">
+        {s && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+            {/* Approved in Period */}
+            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                    Approved · {s.periodLabel}
+                  </span>
+                  <div className="size-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="size-3" />
+                  </div>
+                </div>
+                <div className="mt-1">
+                  <span className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums tracking-tight truncate block">
+                    {money(s.approvedTotal)}
+                  </span>
+                </div>
               </div>
-            )}
-            {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          </td>
-        </tr>
-      )}
-    </>
+              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+                Disbursements finalized
+              </p>
+            </div>
+
+            {/* Waiting Approval */}
+            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                    Pending Approval
+                  </span>
+                  <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${s.pendingCount > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}`}>
+                    <Clock className="size-3" />
+                  </div>
+                </div>
+                <div className="mt-1 flex items-baseline gap-1">
+                  <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate ${s.pendingCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
+                    {money(s.pendingTotal)}
+                  </span>
+                  {s.pendingCount > 0 && (
+                    <span className="text-[10px] text-amber-700 dark:text-amber-300 font-medium truncate">
+                      ({s.pendingCount} req)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+                {s.pendingCount > 0 ? `${s.pendingCount} voucher${s.pendingCount === 1 ? '' : 's'} waiting signoff` : 'All caught up'}
+              </p>
+            </div>
+
+            {/* Overhead Pool */}
+            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                    Overhead Pool
+                  </span>
+                  <div className="size-5 rounded-md bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-400 flex items-center justify-center shrink-0">
+                    <Building2 className="size-3" />
+                  </div>
+                </div>
+                <div className="mt-1">
+                  <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                    {money(s.factoryPoolTotal)}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+                Plant-wide shared spend
+              </p>
+            </div>
+
+            {/* Direct Batch Cost */}
+            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                    Direct Batch Cost
+                  </span>
+                  <div className="size-5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0">
+                    <Layers className="size-3" />
+                  </div>
+                </div>
+                <div className="mt-1">
+                  <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                    {money(s.batchChargedTotal)}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+                Charged straight to lots
+              </p>
+            </div>
+          </div>
+        )}
+
+        {s?.periodAllocated && (
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
+            <span className="font-semibold">{s.periodLabel} is closed.</span> Overhead was allocated as{' '}
+            <Link to="/costs/overhead" className="font-mono font-semibold underline">
+              {s.allocationNumber}
+            </Link>
+            . New expenses cannot be posted to that month until the allocation is reversed.
+          </div>
+        )}
+
+        {/* Filter & search controls */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            <div className="w-full sm:w-48">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="h-8 text-xs font-semibold">
+                  <SelectValue placeholder="All expenses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All expenses</SelectItem>
+                  <SelectItem value="PENDING">Pending approval</SelectItem>
+                  <SelectItem value="APPROVED">Approved</SelectItem>
+                  <SelectItem value="REJECTED">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
+              <Input
+                className="pl-8 h-8 text-xs w-full"
+                placeholder="Search description, vendor, ref…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="text-xs text-zinc-500 self-end sm:self-center">
+            {filtered.length} expense record{filtered.length === 1 ? '' : 's'}
+          </div>
+        </div>
+
+        {/* CustomTable1 with card removed around it */}
+        <CustomTable1
+          columns={columns}
+          data={filtered}
+          loading={expenses.isLoading}
+        />
+
+        {/* Record Expense Modal Dialog */}
+        <Dialog open={composing} onOpenChange={setComposing}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Record Factory Expense</DialogTitle>
+              <DialogDescription>
+                Log a disbursement, assign its cost category, and decide if charged to a batch or the overhead pool.
+              </DialogDescription>
+            </DialogHeader>
+
+            <NewExpenseModalForm
+              onDone={() => {
+                setComposing(false)
+                queryClient.invalidateQueries({ queryKey: ['expenses'] })
+                queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+
+        {/* Reject Confirmation Dialog */}
+        {rejectingExpense && (
+          <Dialog open={Boolean(rejectingExpense)} onOpenChange={(open) => !open && setRejectingExpense(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Reject Expense</DialogTitle>
+                <DialogDescription>
+                  Explain why {rejectingExpense.expenseNumber} ({money(rejectingExpense.amount)}) is being rejected.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3 mt-2">
+                <div>
+                  <Label className="text-xs mb-1 block">Rejection reason (min 5 characters)</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    placeholder="e.g. Incorrect receipt, unauthorized item"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                  />
+                </div>
+
+                {rejectError && <p className="text-xs text-red-600 font-medium">{rejectError}</p>}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setRejectingExpense(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white"
+                    disabled={rejectBusy || rejectReason.trim().length < 5}
+                    onClick={handleConfirmReject}
+                  >
+                    {rejectBusy ? 'Rejecting…' : 'Confirm rejection'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    </PageLayout>
   )
 }
 
-function NewExpenseForm({ onDone }: { onDone: () => void }) {
-  const queryClient = useQueryClient()
+function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
   const [costCategoryId, setCostCategoryId] = useState('')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
@@ -370,7 +521,6 @@ function NewExpenseForm({ onDone }: { onDone: () => void }) {
   const [incurredAt, setIncurredAt] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<{ expenseNumber: string; message: string } | null>(null)
   const [saving, setSaving] = useState(false)
 
   const categories = useQuery({
@@ -393,11 +543,12 @@ function NewExpenseForm({ onDone }: { onDone: () => void }) {
     return Array.from(map.entries())
   }, [categories.data])
 
-  const submit = async () => {
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
     setError(null)
     setSaving(true)
     try {
-      const { data } = await api.post('/expenses', {
+      await api.post('/expenses', {
         costCategoryId: Number(costCategoryId),
         description,
         amount: Number(amount),
@@ -409,9 +560,7 @@ function NewExpenseForm({ onDone }: { onDone: () => void }) {
         incurredAt: incurredAt || undefined,
         notes,
       })
-      setResult({ expenseNumber: data.expenseNumber, message: data.message })
-      queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+      onDone()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
       if (body && body.errors) {
@@ -424,197 +573,168 @@ function NewExpenseForm({ onDone }: { onDone: () => void }) {
     }
   }
 
-  if (result) {
-    return (
-      <div>
-        <PageHeader eyebrow="Finance" title="Expense recorded" />
-        <Card>
-          <p className="font-mono text-2xl font-semibold">{result.expenseNumber}</p>
-          <p className="mt-3 text-sm text-[var(--ink-muted)]">{result.message}</p>
-          <button className="dgn-btn dgn-btn-primary mt-5" onClick={onDone}>
-            Back to expenses
-          </button>
-        </Card>
-      </div>
-    )
-  }
-
   return (
-    <div>
-      <PageHeader
-        eyebrow="Finance"
-        title="Record an expense"
-        actions={
-          <button className="dgn-btn dgn-btn-ghost" onClick={onDone}>
-            Cancel
-          </button>
-        }
-      />
+    <form onSubmit={submit} className="space-y-3 mt-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <Label className="text-xs mb-1 block">Description</Label>
+          <Input
+            className="h-8 text-xs"
+            required
+            placeholder="Diesel delivery, machine grease, packaging sacks…"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <Card>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="What was it for?">
-              <select
-                className="dgn-input"
-                value={costCategoryId}
-                onChange={(e) => setCostCategoryId(e.target.value)}
-              >
-                <option value="">Select a category</option>
-                {grouped.map(([costClass, items]) => (
-                  <optgroup key={costClass} label={costClass}>
-                    {items.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </Field>
-            <Field label="Amount (₦)">
-              <input
-                className="dgn-input"
-                type="number"
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Description">
-                <input
-                  className="dgn-input"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Generator diesel, 500 litres"
-                />
-              </Field>
-            </div>
-            <Field label="Paid to">
-              <input
-                className="dgn-input"
-                value={vendorName}
-                onChange={(e) => setVendorName(e.target.value)}
-              />
-            </Field>
-            <Field label="How was it paid?">
-              <select
-                className="dgn-input"
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-              >
-                {(categories.data?.paymentMethods ?? ['CASH']).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Receipt / invoice number">
-              <input
-                className="dgn-input"
-                value={receiptRef}
-                onChange={(e) => setReceiptRef(e.target.value)}
-              />
-            </Field>
-            <Field label="Date of the expense" hint="Leave blank for today">
-              <input
-                className="dgn-input"
-                type="date"
-                value={incurredAt}
-                onChange={(e) => setIncurredAt(e.target.value)}
-              />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Notes">
-                <textarea
-                  className="dgn-input"
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </Field>
-            </div>
-          </div>
-        </Card>
+        <div>
+          <Label className="text-xs mb-1 block">Cost category</Label>
+          <Select value={costCategoryId} onValueChange={setCostCategoryId}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Choose category" />
+            </SelectTrigger>
+            <SelectContent>
+              {grouped.map(([group, list]) =>
+                list.map((cat) => (
+                  <SelectItem key={cat.id} value={String(cat.id)}>
+                    {group} · {cat.name}
+                  </SelectItem>
+                ))
+              )}
+            </SelectContent>
+          </Select>
+        </div>
 
-        <div className="space-y-6">
-          <Card>
-            <h2 className="text-base font-semibold">Who carries this cost?</h2>
-            <div className="mt-4 space-y-3">
-              <ScopeOption
-                selected={allocationScope === 'FACTORY'}
-                onSelect={() => setAllocationScope('FACTORY')}
-                title="The whole factory"
-                desc="Shared across every kilogram produced this month. Use this for rent, diesel, electricity, security and general repairs."
-              />
-              <ScopeOption
-                selected={allocationScope === 'BATCH'}
-                onSelect={() => setAllocationScope('BATCH')}
-                title="One specific batch"
-                desc="Charged straight onto that batch's cost. Use this when the spend was caused by one job, like a breakdown during a run."
-              />
-            </div>
+        <div>
+          <Label className="text-xs mb-1 block">Amount (₦)</Label>
+          <Input
+            type="number"
+            inputMode="decimal"
+            className="h-8 text-xs font-semibold"
+            required
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </div>
 
-            {allocationScope === 'BATCH' && (
-              <div className="mt-4">
-                <Field label="Batch number">
-                  <input
-                    className="dgn-input font-mono"
-                    value={batchNumber}
-                    onChange={(e) => setBatchNumber(e.target.value.toUpperCase())}
-                    placeholder="CRH-260903-001"
-                  />
-                </Field>
-              </div>
-            )}
+        <div>
+          <Label className="text-xs mb-1 block">Vendor / supplier</Label>
+          <Input
+            className="h-8 text-xs"
+            placeholder="TotalEnergies, Oando, Hardware store"
+            value={vendorName}
+            onChange={(e) => setVendorName(e.target.value)}
+          />
+        </div>
 
-            {error && (
-              <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>
-            )}
+        <div>
+          <Label className="text-xs mb-1 block">Payment method</Label>
+          <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(categories.data?.paymentMethods ?? ['CASH', 'TRANSFER', 'POS', 'CHEQUE']).map((m) => (
+                <SelectItem key={m} value={m}>
+                  {m}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-            <button
-              className="dgn-btn dgn-btn-primary mt-5 w-full"
-              disabled={saving || !costCategoryId || !description || !(Number(amount) > 0)}
-              onClick={submit}
+        <div>
+          <Label className="text-xs mb-1 block">Receipt / invoice #</Label>
+          <Input
+            className="h-8 text-xs"
+            placeholder="Optional receipt reference"
+            value={receiptRef}
+            onChange={(e) => setReceiptRef(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <Label className="text-xs mb-1 block">Date incurred</Label>
+          <Input
+            type="date"
+            className="h-8 text-xs"
+            value={incurredAt}
+            onChange={(e) => setIncurredAt(e.target.value)}
+          />
+        </div>
+
+        <div className="sm:col-span-2">
+          <Label className="text-xs mb-1 block">Charge to</Label>
+          <div className="grid grid-cols-2 gap-2">
+            <label
+              className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs ${
+                allocationScope === 'FACTORY'
+                  ? 'border-zinc-900 bg-zinc-50 font-semibold'
+                  : 'border-zinc-200'
+              }`}
             >
-              <Receipt className="h-4 w-4" />
-              {saving ? 'Saving…' : 'Submit for approval'}
-            </button>
-            <p className="mt-2 text-center text-xs text-[var(--ink-faint)]">
-              Someone else has to approve it before it affects factory costs.
-            </p>
-          </Card>
+              <input
+                type="radio"
+                name="scope"
+                checked={allocationScope === 'FACTORY'}
+                onChange={() => setAllocationScope('FACTORY')}
+              />
+              <span>Factory overhead pool</span>
+            </label>
+            <label
+              className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs ${
+                allocationScope === 'BATCH'
+                  ? 'border-zinc-900 bg-zinc-50 font-semibold'
+                  : 'border-zinc-200'
+              }`}
+            >
+              <input
+                type="radio"
+                name="scope"
+                checked={allocationScope === 'BATCH'}
+                onChange={() => setAllocationScope('BATCH')}
+              />
+              <span>Direct to specific batch</span>
+            </label>
+          </div>
+        </div>
+
+        {allocationScope === 'BATCH' && (
+          <div className="sm:col-span-2">
+            <Label className="text-xs mb-1 block">Batch number</Label>
+            <Input
+              className="h-8 text-xs font-mono"
+              required
+              placeholder="e.g. CRU-2026-001"
+              value={batchNumber}
+              onChange={(e) => setBatchNumber(e.target.value)}
+            />
+          </div>
+        )}
+
+        <div className="sm:col-span-2">
+          <Label className="text-xs mb-1 block">Notes</Label>
+          <Input
+            className="h-8 text-xs"
+            placeholder="Optional notes or justification"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </div>
       </div>
-    </div>
-  )
-}
 
-function ScopeOption({
-  selected,
-  onSelect,
-  title,
-  desc,
-}: {
-  selected: boolean
-  onSelect: () => void
-  title: string
-  desc: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full rounded-2xl border p-4 text-left transition-colors ${
-        selected
-          ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-          : 'border-[var(--line)] hover:border-[var(--accent)]'
-      }`}
-    >
-      <p className="font-semibold">{title}</p>
-      <p className="mt-1 text-xs text-[var(--ink-muted)]">{desc}</p>
-    </button>
+      {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+
+      <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+        <Button
+          type="submit"
+          size="sm"
+          className="h-8 text-xs font-semibold"
+          disabled={saving || !description || !costCategoryId || !(Number(amount) > 0)}
+        >
+          {saving ? 'Saving…' : 'Record expense'}
+        </Button>
+      </div>
+    </form>
   )
 }

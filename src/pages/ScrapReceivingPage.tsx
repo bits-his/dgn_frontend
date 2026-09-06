@@ -3,11 +3,14 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill, ErrorBanner } from '@/components/ui'
+import { Card, Field, ErrorBanner } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
 import { cn } from '@/lib/utils'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { MATERIAL_BUY_TYPES } from '@/lib/materials'
+import { Truck, Scale, ShoppingCart, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { ColorCombobox } from '@/components/ui/color-combobox'
 
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
@@ -15,14 +18,16 @@ type ColorLot = { batchNumber: string; color: string; qtyKg: number }
 
 type FormValues = {
   inboundForm: 'RAW' | 'CRUSHED'
-  supplierId: string
+  supplierName: string
   materialId: string
   locationId: string
   kg: string
   pricePerKg: string
+  sortingPricePerKg: string
   transportCost: string
+  scaleCost: string
+  netCost: string
   loadingCost: string
-  unloadingCost: string
   otherCost: string
   notes: string
 }
@@ -40,6 +45,7 @@ export function ScrapReceivingPage() {
   const navigate = useNavigate()
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ netWeight: number } | null>(null)
+  const [isCostBreakdownOpen, setIsCostBreakdownOpen] = useState(false)
   const [success, setSuccess] = useState<{
     batchNumber: string
     nextStage: string
@@ -66,21 +72,23 @@ export function ScrapReceivingPage() {
   const { register, handleSubmit, watch, setValue, formState } = useForm<FormValues>({
     defaultValues: {
       inboundForm: 'RAW',
-      supplierId: '',
+      supplierName: '',
       materialId: '',
       locationId: '',
       kg: '',
       pricePerKg: '',
+      sortingPricePerKg: '0',
       transportCost: '0',
+      scaleCost: '0',
+      netCost: '0',
       loadingCost: '0',
-      unloadingCost: '0',
       otherCost: '0',
       notes: '',
     },
   })
 
   const buyMaterials = useMemo(() => {
-    const codes = new Set(MATERIAL_BUY_TYPES.map((m) => m.code))
+    const codes = new Set<string>(MATERIAL_BUY_TYPES.map((m) => m.code))
     const fromApi = (materials.data || []).filter((m) => m.code && codes.has(m.code))
     return MATERIAL_BUY_TYPES.map((wanted) => {
       const hit =
@@ -111,21 +119,38 @@ export function ScrapReceivingPage() {
 
   const inboundForm = watch('inboundForm')
   const isCrushed = inboundForm === 'CRUSHED'
-  const price = Number(watch('pricePerKg') || 0)
+
   const colorTotal = useMemo(
     () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
     [colorLines],
   )
   const rawKg = Number(watch('kg') || 0)
   const netKg = isCrushed ? colorTotal : Number(Math.max(rawKg, 0).toFixed(3))
-  const purchaseCost = useMemo(
-    () => Number((netKg * price).toFixed(2)),
-    [netKg, price],
+
+  const pricePerKg = Number(watch('pricePerKg') || 0)
+  const sortingPricePerKg = Number(watch('sortingPricePerKg') || 0)
+  const transportCost = Number(watch('transportCost') || 0)
+  const scaleCost = Number(watch('scaleCost') || 0)
+  const netCost = Number(watch('netCost') || 0)
+  const loadingCost = Number(watch('loadingCost') || 0)
+  const otherCost = Number(watch('otherCost') || 0)
+
+  const scrapCost = useMemo(() => Number((netKg * pricePerKg).toFixed(2)), [netKg, pricePerKg])
+  const sortingCost = useMemo(() => Number((netKg * sortingPricePerKg).toFixed(2)), [netKg, sortingPricePerKg])
+  const totalOtherCosts = useMemo(
+    () => Number((transportCost + scaleCost + netCost + loadingCost + otherCost).toFixed(2)),
+    [transportCost, scaleCost, netCost, loadingCost, otherCost]
+  )
+  const grandTotalCost = useMemo(
+    () => Number((scrapCost + sortingCost + totalOtherCosts).toFixed(2)),
+    [scrapCost, sortingCost, totalOtherCosts]
+  )
+  const effectiveCostPerKg = useMemo(
+    () => (netKg > 0 ? Number((grandTotalCost / netKg).toFixed(2)) : 0),
+    [grandTotalCost, netKg]
   )
 
-  const availableColors = SORT_COLORS.filter(
-    (c) => !colorLines.some((line) => line.color === c.code),
-  )
+
 
   useEffect(() => {
     setColorLines([])
@@ -164,6 +189,11 @@ export function ScrapReceivingPage() {
     setServerErrors([])
     setWarning(null)
 
+    if (!values.supplierName?.trim()) {
+      setServerErrors([{ label: 'Supplier', message: 'Please enter a supplier name.' }])
+      return
+    }
+
     if (values.inboundForm === 'CRUSHED' && !colorLines.length) {
       setServerErrors([
         {
@@ -175,24 +205,33 @@ export function ScrapReceivingPage() {
     }
 
     try {
+      // Find matching supplier id if exact match exists
+      const matchedSup = (suppliers.data || []).find(
+        (s) => s.name.trim().toLowerCase() === values.supplierName.trim().toLowerCase()
+      )
+
       const { data } = await api.post('/receiving/scrap', {
-        supplierId: Number(values.supplierId),
+        supplierId: matchedSup ? matchedSup.id : undefined,
+        supplierName: values.supplierName.trim(),
         materialId: Number(values.materialId),
         locationId: Number(values.locationId),
         inboundForm: values.inboundForm,
         kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
         colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
         pricePerKg: Number(values.pricePerKg),
+        sortingPricePerKg: Number(values.sortingPricePerKg || 0),
         transportCost: Number(values.transportCost || 0),
+        scaleCost: Number(values.scaleCost || 0),
+        netCost: Number(values.netCost || 0),
         loadingCost: Number(values.loadingCost || 0),
-        unloadingCost: Number(values.unloadingCost || 0),
         otherCost: Number(values.otherCost || 0),
         notes: values.notes || null,
         confirmUnusualNet,
       })
+
       setSuccess({
         batchNumber: data.batchNumber,
-        nextStage: data.nextStage || (values.inboundForm === 'CRUSHED' ? 'washing' : 'sorting'),
+        nextStage: data.nextStage || (values.inboundForm === 'CRUSHED' ? 'washing' : 'crushing'),
         inboundForm: data.inboundForm || values.inboundForm,
         colorLots: Array.isArray(data.colorLots) ? data.colorLots : [],
       })
@@ -225,107 +264,126 @@ export function ScrapReceivingPage() {
   }
 
   if (success) {
-    const nextLabel = success.nextStage === 'washing' ? 'Washing' : 'Sorting'
+    const nextLabel = success.nextStage === 'washing' ? 'Washing' : 'Crushing'
     const crushedLots = success.colorLots.length > 0
     return (
-      <Card>
-        <div className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-            {success.inboundForm === 'CRUSHED' ? 'Crushed colour batches created' : 'Scrap ticket created'}
-          </p>
-          {!crushedLots && (
-            <p className="mt-3 text-3xl font-semibold tracking-tight">{success.batchNumber}</p>
-          )}
-          <p className="mt-2 text-sm text-[var(--ink-muted)]">
-            {success.inboundForm === 'CRUSHED'
-              ? 'Each colour has its own BAT- number and goes to washing.'
-              : 'Raw scrap ticket (SCR-). Sorting will split it into BAT- lots by colour.'}
-          </p>
-        </div>
+      <PageLayout
+        title="Scrap Buying Complete"
+        back={true}
+        backTo="/receiving"
+      >
+        <div className="mx-auto max-w-2xl">
+          <Card className="border-emerald-500/30 bg-emerald-500/5 text-center !p-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-500">
+              {success.inboundForm === 'CRUSHED' ? 'Crushed colour batches created' : 'Scrap ticket recorded'}
+            </p>
+            {!crushedLots && (
+              <p className="mt-3 text-3xl font-bold tracking-tight text-white">{success.batchNumber}</p>
+            )}
+            <p className="mt-2 text-sm text-[var(--ink-muted)]">
+              {success.inboundForm === 'CRUSHED'
+                ? 'Each colour has its own BAT- number and is sent directly to washing.'
+                : 'Sorted from buying and ready for crushing. Proceed to allocate colors & crush.'}
+            </p>
 
-        {crushedLots && (
-          <ul className="mt-5 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
-            {success.colorLots.map((lot) => (
-              <li key={lot.batchNumber} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div>
-                  <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
-                  <p className="text-sm text-[var(--ink-muted)]">
-                    {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
-                  </p>
-                </div>
+            {crushedLots && (
+              <ul className="mt-5 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)] text-left">
+                {success.colorLots.map((lot) => (
+                  <li key={lot.batchNumber} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div>
+                      <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
+                      <p className="text-sm text-[var(--ink-muted)]">
+                        {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="dgn-btn dgn-btn-secondary"
+                      onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+                    >
+                      Open
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-primary flex items-center justify-center gap-2"
+                onClick={() => navigate(`/process/${success.nextStage}`)}
+              >
+                <span>Go to {nextLabel}</span>
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              {!crushedLots && (
                 <button
                   type="button"
                   className="dgn-btn dgn-btn-secondary"
-                  onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+                  onClick={() => navigate(`/batches/${success.batchNumber}`)}
                 >
-                  Open
+                  Open batch
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-primary"
-            onClick={() => navigate(`/process/${success.nextStage}`)}
-          >
-            Go to {nextLabel}
-          </button>
-          {!crushedLots && (
-            <button
-              type="button"
-              className="dgn-btn dgn-btn-secondary"
-              onClick={() => navigate(`/batches/${success.batchNumber}`)}
-            >
-              Open record
-            </button>
-          )}
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-secondary"
-            onClick={() => setSuccess(null)}
-          >
-            New buying
-          </button>
+              )}
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-secondary"
+                onClick={() => navigate('/receiving')}
+              >
+                Back to list
+              </button>
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-secondary"
+                onClick={() => setSuccess(null)}
+              >
+                Record new buying
+              </button>
+            </div>
+          </Card>
         </div>
-      </Card>
+      </PageLayout>
     )
   }
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Processing · inbound"
-        title="Scrap buying"
-      />
+    <PageLayout
+      title="New Scrap Buying"
+      description="Processing · Inbound raw scrap or crushed flakes"
+      back={true}
+      backTo="/receiving"
+    >
 
       <form
         className="space-y-4"
         onSubmit={handleSubmit((values) => submitPayload(values, false))}
       >
-        <Card>
-          <h2 className="text-lg font-semibold tracking-tight">What did you buy?</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {/* Section 1: Inbound Form Selector */}
+        <Card className="p-3 sm:p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold tracking-tight">Scrap condition</h2>
+            <span className="text-xs text-[var(--ink-muted)]">Select inbound format</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
             {(
               [
                 {
                   value: 'RAW' as const,
-                  title: 'Raw / unprocessed',
-                  desc: 'Sort → Crush → Wash → Dry',
+                  title: 'Raw / Unprocessed',
+                  desc: 'Sorted on buying → Crushing',
                 },
                 {
                   value: 'CRUSHED' as const,
-                  title: 'Already crushed',
-                  desc: 'Enter by colour → Wash → Dry',
+                  title: 'Already Crushed',
+                  desc: 'By colour → Washing',
                 },
               ] as const
             ).map((opt) => (
               <label
                 key={opt.value}
                 className={cn(
-                  'cursor-pointer rounded-xl px-4 py-3 ring-1 transition',
+                  'cursor-pointer rounded-xl p-3 ring-1 transition select-none',
                   inboundForm === opt.value
                     ? 'bg-[var(--accent-soft)] ring-[var(--accent)]'
                     : 'ring-[var(--line)] hover:ring-[var(--ink-faint)]',
@@ -344,30 +402,37 @@ export function ScrapReceivingPage() {
           </div>
         </Card>
 
-        <Card>
+        {/* Section 2: Supplier, Material & Location */}
+        <Card className="p-3 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold tracking-tight">Material & store</h2>
+            <h2 className="text-base font-semibold tracking-tight">Supplier & material</h2>
             <Link
               to="/suppliers"
-              className="text-sm font-semibold text-[var(--accent-strong)]"
+              className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
             >
-              Manage suppliers
+              All suppliers →
             </Link>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Supplier">
-              <select className="dgn-input" {...register('supplierId', { required: true })}>
-                <option value="">Select supplier</option>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Field label="Supplier name">
+              <input
+                type="text"
+                list="suppliers-datalist"
+                placeholder="Type or select supplier name"
+                className="dgn-input w-full"
+                autoComplete="off"
+                {...register('supplierName', { required: true })}
+              />
+              <datalist id="suppliers-datalist">
                 {suppliers.data?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
+                  <option key={s.id} value={s.name} />
                 ))}
-              </select>
+              </datalist>
             </Field>
+
             <Field label="Material type">
-              <select className="dgn-input" {...register('materialId', { required: true })}>
+              <select className="dgn-input w-full" {...register('materialId', { required: true })}>
                 <option value="">Select material type</option>
                 {buyMaterials.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -376,55 +441,55 @@ export function ScrapReceivingPage() {
                 ))}
               </select>
             </Field>
+
             {!isCrushed && (
-              <Field label="Store location">
-                <select className="dgn-input" {...register('locationId', { required: true })}>
-                  <option value="">Select location</option>
-                  {locations.data?.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Store location">
+                  <select className="dgn-input w-full" {...register('locationId', { required: true })}>
+                    <option value="">Select storage location</option>
+                    {locations.data?.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} ({l.code})
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
             )}
           </div>
         </Card>
 
+        {/* Section 3: Quantity & Buying Rates */}
         {isCrushed ? (
-          <Card>
-            <h2 className="text-lg font-semibold tracking-tight">Colours → batches</h2>
-            <p className="mt-1 text-sm text-[var(--ink-muted)]">
-              Add each colour and its kg. Each colour gets its own BAT- number for washing.
+          <Card className="p-3 sm:p-5">
+            <h2 className="text-base font-semibold tracking-tight">Crushed colours → batches</h2>
+            <p className="mt-1 text-xs text-[var(--ink-muted)]">
+              Add each colour and kg. Each colour mints its own BAT- batch for washing.
             </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Price / kg (₦)">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <Field label="Purchase price / kg (₦)">
                 <input
                   inputMode="decimal"
-                  className="dgn-input"
+                  placeholder="0.00"
+                  className="dgn-input w-full"
                   {...register('pricePerKg', { required: true })}
                 />
               </Field>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-[1.2fr_1fr_auto]">
+            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-[1.2fr_1fr_auto]">
               <Field label="Colour">
-                <select
-                  className="dgn-input"
+                <ColorCombobox
                   value={pickColor}
-                  onChange={(e) => setPickColor(e.target.value)}
-                >
-                  <option value="">Select colour</option>
-                  {availableColors.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setPickColor}
+                  exclude={colorLines.map((l) => l.color)}
+                  placeholder="Select colour…"
+                />
               </Field>
               <Field label="Kg">
                 <input
                   inputMode="decimal"
-                  className="dgn-input"
+                  placeholder="0"
+                  className="dgn-input w-full"
                   value={pickKg}
                   onChange={(e) => setPickKg(e.target.value)}
                 />
@@ -435,23 +500,23 @@ export function ScrapReceivingPage() {
                   className="dgn-btn dgn-btn-secondary w-full"
                   onClick={addColorLine}
                 >
-                  Add colour
+                  + Add colour
                 </button>
               </div>
             </div>
 
             {colorLines.length > 0 && (
-              <ul className="mt-4 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+              <ul className="mt-3 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
                 {colorLines.map((line) => (
                   <li
                     key={line.color}
-                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
                   >
                     <span className="font-medium">{colorName(line.color)}</span>
                     <span className="text-[var(--ink-muted)]">{line.qtyKg.toLocaleString()} kg</span>
                     <button
                       type="button"
-                      className="text-xs font-semibold text-red-700"
+                      className="text-xs font-semibold text-red-500 hover:text-red-400"
                       onClick={() =>
                         setColorLines((prev) => prev.filter((row) => row.color !== line.color))
                       }
@@ -462,82 +527,229 @@ export function ScrapReceivingPage() {
                 ))}
               </ul>
             )}
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <StatPill
-                label="Total weight"
-                value={netKg > 0 ? `${netKg.toLocaleString()} kg` : '—'}
-                tone="accent"
-              />
-              <StatPill
-                label="Purchase cost"
-                value={purchaseCost > 0 ? `₦${purchaseCost.toLocaleString()}` : '—'}
-                tone="success"
-              />
-            </div>
           </Card>
         ) : (
-          <Card>
-            <h2 className="text-lg font-semibold tracking-tight">Quantity & price</h2>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <Field label="Quantity (kg)">
+          <Card className="p-3 sm:p-5">
+            <h2 className="text-base font-semibold tracking-tight">Quantity & rates</h2>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="Total quantity (kg)">
                 <input
+                  type="number"
+                  step="any"
                   inputMode="decimal"
-                  className="dgn-input"
+                  placeholder="e.g. 1500"
+                  className="dgn-input w-full font-semibold"
                   {...register('kg', { required: !isCrushed })}
                 />
               </Field>
-              <Field label="Price / kg (₦)">
+              <Field label="Buying price / kg (₦)">
                 <input
+                  type="number"
+                  step="any"
                   inputMode="decimal"
-                  className="dgn-input"
+                  placeholder="e.g. 350"
+                  className="dgn-input w-full"
                   {...register('pricePerKg', { required: true })}
                 />
               </Field>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <StatPill
-                label="Weight"
-                value={netKg > 0 ? `${netKg.toLocaleString()} kg` : '—'}
-                tone="accent"
-              />
-              <StatPill
-                label="Purchase cost"
-                value={purchaseCost > 0 ? `₦${purchaseCost.toLocaleString()}` : '—'}
-                tone="success"
-              />
+              <Field label="Sorting price / kg (₦)">
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="e.g. 20"
+                  className="dgn-input w-full"
+                  {...register('sortingPricePerKg')}
+                />
+              </Field>
             </div>
           </Card>
         )}
 
-        <Card>
-          <h2 className="text-lg font-semibold tracking-tight">Other costs & notes</h2>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Field label="Transport ₦">
-              <input inputMode="decimal" className="dgn-input" {...register('transportCost')} />
+        {/* Section 4: Unified Card - Costs, Notes & Live Grand Total Calculation */}
+        <Card className="p-3 sm:p-5 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold tracking-tight">Expenses, notes & total cost</h2>
+            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+              Record transport, scale, net cost, and view live totals.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <Field label="Transport (₦)">
+              <div className="relative flex items-center">
+                <Truck className="pointer-events-none absolute left-2.5 z-10 h-3.5 w-3.5 text-zinc-400" />
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="0"
+                  style={{ paddingLeft: '2rem' }}
+                  className="dgn-input w-full"
+                  {...register('transportCost')}
+                />
+              </div>
             </Field>
-            <Field label="Loading ₦">
-              <input inputMode="decimal" className="dgn-input" {...register('loadingCost')} />
+
+            <Field label="Scale fee (₦)">
+              <div className="relative flex items-center">
+                <Scale className="pointer-events-none absolute left-2.5 z-10 h-3.5 w-3.5 text-zinc-400" />
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="0"
+                  style={{ paddingLeft: '2rem' }}
+                  className="dgn-input w-full"
+                  {...register('scaleCost')}
+                />
+              </div>
             </Field>
-            <Field label="Unloading ₦">
-              <input inputMode="decimal" className="dgn-input" {...register('unloadingCost')} />
+
+            <Field label="Net bag cost (₦)">
+              <div className="relative flex items-center">
+                <ShoppingCart className="pointer-events-none absolute left-2.5 z-10 h-3.5 w-3.5 text-zinc-400" />
+                <input
+                  type="number"
+                  step="any"
+                  inputMode="decimal"
+                  placeholder="0"
+                  style={{ paddingLeft: '2rem' }}
+                  className="dgn-input w-full"
+                  {...register('netCost')}
+                />
+              </div>
             </Field>
-            <Field label="Other ₦">
-              <input inputMode="decimal" className="dgn-input" {...register('otherCost')} />
+
+            <Field label="Loading (₦)">
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                placeholder="0"
+                className="dgn-input w-full"
+                {...register('loadingCost')}
+              />
+            </Field>
+
+            <Field label="Other (₦)">
+              <input
+                type="number"
+                step="any"
+                inputMode="decimal"
+                placeholder="0"
+                className="dgn-input w-full"
+                {...register('otherCost')}
+              />
             </Field>
           </div>
-          <div className="mt-4">
-            <Field label="Notes">
-              <textarea className="dgn-input" rows={3} {...register('notes')} />
-            </Field>
+
+          <Field label="Notes / Truck or Driver details">
+            <textarea
+              className="dgn-input w-full text-sm"
+              rows={2}
+              placeholder="e.g. Weighbridge ticket #, vehicle reg, driver name..."
+              {...register('notes')}
+            />
+          </Field>
+
+          {/* Live Calculation Box - White & Collapsible by default */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-4 shadow-xs">
+            <div
+              className="flex items-center justify-between cursor-pointer select-none"
+              onClick={() => setIsCostBreakdownOpen((prev) => !prev)}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-zinc-700">
+                  Cost Breakdown & Grand Total
+                </span>
+                <span className="text-[11px] text-zinc-400 font-normal">
+                  {isCostBreakdownOpen ? '(Click to hide)' : '(Click to view breakdown)'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-base sm:text-lg font-black font-mono text-emerald-600">
+                    ₦{grandTotalCost.toLocaleString()}
+                  </span>
+                  {effectiveCostPerKg > 0 && (
+                    <span className="block text-[11px] text-zinc-500 font-mono">
+                      ₦{effectiveCostPerKg.toLocaleString()} / kg
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+                >
+                  {isCostBreakdownOpen ? (
+                    <ChevronUp className="size-4" />
+                  ) : (
+                    <ChevronDown className="size-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {isCostBreakdownOpen && (
+              <div className="mt-3 pt-3 border-t border-zinc-100 space-y-2 text-xs sm:text-sm text-zinc-600 animate-in fade-in duration-200">
+                <div className="flex justify-between">
+                  <span>Material purchase ({netKg.toLocaleString()} kg @ ₦{pricePerKg.toLocaleString()})</span>
+                  <span className="font-mono font-medium text-zinc-900">₦{scrapCost.toLocaleString()}</span>
+                </div>
+                {sortingPricePerKg > 0 && (
+                  <div className="flex justify-between text-indigo-700">
+                    <span>Sorting fee ({netKg.toLocaleString()} kg @ ₦{sortingPricePerKg.toLocaleString()})</span>
+                    <span className="font-mono font-medium">₦{sortingCost.toLocaleString()}</span>
+                  </div>
+                )}
+                {scaleCost > 0 && (
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Scale / Weighbridge fee</span>
+                    <span className="font-mono text-zinc-900">₦{scaleCost.toLocaleString()}</span>
+                  </div>
+                )}
+                {netCost > 0 && (
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Net bags</span>
+                    <span className="font-mono text-zinc-900">₦{netCost.toLocaleString()}</span>
+                  </div>
+                )}
+                {transportCost > 0 && (
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Transport</span>
+                    <span className="font-mono text-zinc-900">₦{transportCost.toLocaleString()}</span>
+                  </div>
+                )}
+                {loadingCost > 0 && (
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Loading expense</span>
+                    <span className="font-mono text-zinc-900">₦{loadingCost.toLocaleString()}</span>
+                  </div>
+                )}
+                {otherCost > 0 && (
+                  <div className="flex justify-between text-zinc-600">
+                    <span>Other expenses</span>
+                    <span className="font-mono text-zinc-900">₦{otherCost.toLocaleString()}</span>
+                  </div>
+                )}
+
+                <div className="mt-2.5 pt-2 border-t border-zinc-100 flex items-center justify-between text-xs font-bold text-zinc-900">
+                  <span>Grand Total Net Cost:</span>
+                  <span className="text-sm font-mono font-black text-emerald-600">
+                    ₦{grandTotalCost.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 
         {serverErrors.length > 0 && <ErrorBanner items={serverErrors} />}
 
         {warning && (
-          <Card className="border-amber-200 bg-amber-50 text-amber-950">
-            <p className="text-sm">
+          <Card className="border-amber-200 bg-amber-50 text-amber-950 p-4">
+            <p className="text-sm font-medium">
               Weight {warning.netWeight.toLocaleString()} kg looks unusually high. Confirm to save?
             </p>
             <button
@@ -550,14 +762,29 @@ export function ScrapReceivingPage() {
           </Card>
         )}
 
-        <button
-          type="submit"
-          disabled={formState.isSubmitting || (isCrushed && !colorLines.length)}
-          className="dgn-btn dgn-btn-primary w-full sm:w-auto"
-        >
-          {formState.isSubmitting ? 'Saving…' : 'Save buying'}
-        </button>
+        <div className="pt-1">
+          <button
+            type="submit"
+            disabled={formState.isSubmitting || (isCrushed && !colorLines.length)}
+            className="w-full rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 py-3.5 text-[15px] font-bold tracking-wide text-white shadow-lg shadow-emerald-800/30 transition-all hover:from-emerald-500 hover:to-emerald-400 hover:shadow-emerald-700/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
+          >
+            {formState.isSubmitting ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                Saving scrap ticket…
+              </>
+            ) : (
+              <>
+                <ShoppingCart className="h-4.5 w-4.5" />
+                Record Scrap Buying
+              </>
+            )}
+          </button>
+        </div>
       </form>
-    </div>
+    </PageLayout>
   )
 }

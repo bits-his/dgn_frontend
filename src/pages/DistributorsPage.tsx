@@ -1,12 +1,47 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { Plus, Search, ShoppingBag, Users, CreditCard, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
-import { Card, Field, StatPill, NairaAmountInput } from '@/components/ui'
+import { NairaAmountInput } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
+
+export function CreditBar({ percent, atLimit }: { percent: number; atLimit: boolean }) {
+  const width = Math.min(100, Math.max(0, percent))
+  const tone =
+    atLimit || percent >= 100
+      ? 'bg-red-600'
+      : percent >= 80
+        ? 'bg-amber-500'
+        : 'bg-teal-600'
+  return (
+    <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
+      <div className={`h-full rounded-full ${tone}`} style={{ width: `${width}%` }} />
+    </div>
+  )
+}
 
 export type DistributorCredit = {
   creditLimit: number
@@ -75,50 +110,11 @@ export function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
 
-export function CreditBar({ percent, atLimit }: { percent: number; atLimit: boolean }) {
-  const width = Math.min(100, Math.max(0, percent))
-  const tone =
-    atLimit || percent >= 100
-      ? 'bg-red-600'
-      : percent >= 80
-        ? 'bg-amber-500'
-        : 'bg-teal-600'
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-zinc-100">
-      <div className={`h-full rounded-full ${tone}`} style={{ width: `${width}%` }} />
-    </div>
-  )
-}
-
 export function unpaidSummary(c: DistributorCredit) {
   const count = c.unpaidCount ?? c.unpaid?.length ?? 0
   if (count > 0) return `${count} unpaid · ${money(c.outstanding)}`
   if (c.outstanding > 0.001) return `Unpaid · ${money(c.outstanding)}`
   return 'No unpaid invoices'
-}
-
-function Dialog({
-  title,
-  children,
-  onClose,
-}: {
-  title: string
-  children: ReactNode
-  onClose: () => void
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-6">
-      <div className="dgn-card max-h-[92vh] w-full overflow-y-auto rounded-b-none p-5 sm:max-w-3xl sm:rounded-2xl sm:p-6">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button type="button" className="dgn-btn dgn-btn-ghost" onClick={onClose}>
-            Close
-          </button>
-        </div>
-        <div className="mt-4">{children}</div>
-      </div>
-    </div>
-  )
 }
 
 export function DistributorsPage() {
@@ -204,7 +200,7 @@ export function DistributorsPage() {
       return data.data as DistributorRow
     },
     onSuccess: async () => {
-      setMessage('Distributor added')
+      setMessage('Distributor added successfully')
       setError('')
       setForm(emptyForm)
       setAddOpen(false)
@@ -237,315 +233,494 @@ export function DistributorsPage() {
     return () => window.clearTimeout(t)
   }, [message, error])
 
-  useEffect(() => {
-    if (!addOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      setAddOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [addOpen])
+  const columns = useMemo<ColumnDef<DistributorRow>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: 'Distributor',
+        cell: ({ row }) => (
+          <div>
+            <Link
+              to={`/distributors/${row.original.code}`}
+              className="font-semibold text-zinc-900 hover:text-zinc-600 hover:underline inline-flex items-center gap-1.5"
+            >
+              <span>{row.original.name}</span>
+            </Link>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="font-mono text-[11px] text-zinc-400">{row.original.code}</span>
+              {row.original.region && (
+                <span className="text-[11px] text-zinc-500">· {row.original.region}</span>
+              )}
+              {row.original.isActive === false && (
+                <span className="rounded bg-zinc-100 px-1.5 py-0.2 text-[10px] font-semibold text-zinc-600">
+                  Inactive
+                </span>
+              )}
+            </div>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'distributorKind',
+        header: 'Type',
+        cell: ({ row }) => (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
+            {kindLabel(row.original.distributorKind)}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'minOrderQty',
+        header: 'Min Qty',
+        cell: ({ row }) => (
+          <span className="tabular-nums text-xs text-zinc-700">
+            {Number(row.original.minOrderQty || 0) > 0
+              ? Number(row.original.minOrderQty).toLocaleString()
+              : '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'outstanding',
+        header: 'Owes',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs tabular-nums text-zinc-900">
+            {money(row.original.credit.outstanding)}
+          </span>
+        ),
+      },
+      {
+        id: 'creditLimit',
+        header: 'Limit',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-600">
+            {money(row.original.credit.creditLimit)}
+          </span>
+        ),
+      },
+      {
+        id: 'available',
+        header: 'Available',
+        cell: ({ row }) => {
+          const c = row.original.credit
+          return (
+            <span
+              className={`font-semibold text-xs tabular-nums ${
+                c.atLimit ? 'text-red-700' : 'text-teal-700'
+              }`}
+            >
+              {money(c.available)}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'payment',
+        header: 'Payment Status',
+        cell: ({ row }) => {
+          const c = row.original.credit
+          if (c.creditLimit <= 0 && row.original.isActive !== false) {
+            return (
+              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+                Cash only
+              </span>
+            )
+          }
+          if (c.atLimit && c.creditLimit > 0) {
+            return (
+              <span className="rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 border border-red-200">
+                Credit closed
+              </span>
+            )
+          }
+          if ((c.overdueCount || 0) > 0) {
+            return (
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                {c.overdueCount} overdue
+              </span>
+            )
+          }
+          return <span className="text-xs text-zinc-600">{unpaidSummary(c)}</span>
+        },
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-1.5">
+            {canSell && row.original.isActive !== false && (
+              <Button
+                asChild
+                size="sm"
+                className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap"
+              >
+                <Link to={`/sales/new?distributor=${encodeURIComponent(row.original.code)}`}>
+                  <ShoppingBag className="size-3.5" />
+                  <span>Sell</span>
+                </Link>
+              </Button>
+            )}
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5 text-xs font-semibold"
+            >
+              <Link to={`/distributors/${row.original.code}`}>View</Link>
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [canSell]
+  )
 
   return (
-    <div>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatPill label="Distributors" value={String(totals.count)} hint={`${totals.active} active`} />
-        <StatPill
-          label="They owe the factory"
-          value={money(totals.outstanding)}
-          tone={totals.outstanding > 0 ? 'danger' : 'success'}
-        />
-        <StatPill label="Credit still open" value={money(totals.available)} tone="accent" />
-        <StatPill
-          label="Blocked at limit"
-          value={String(totals.atLimit)}
-          tone={totals.atLimit > 0 ? 'danger' : 'success'}
-          hint={totals.overdue ? `${totals.overdue} with overdue invoices` : 'None overdue'}
-        />
-      </div>
-
-      {canEdit && (
-        <div className="mb-4 flex justify-end">
-          <button type="button" className="dgn-btn dgn-btn-primary" onClick={() => setAddOpen(true)}>
-            <Plus className="h-4 w-4" />
+    <PageLayout
+      title="Distributors"
+      description="Commercial network, credit lines, payments, and receivables"
+      actions={
+        canEdit ? (
+          <Button
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold gap-1.5"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="size-3.5" />
             Add distributor
-          </button>
-        </div>
-      )}
-
-      {(message || error) && (
-        <p className={`mb-4 text-sm ${error ? 'text-red-700' : 'text-zinc-800'}`}>{error || message}</p>
-      )}
-
-      <Card className="!p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">Distributor book</h2>
-            <p className="text-sm text-zinc-700">
-              {filtered.length} shown
-              {distributors.data ? ` · ${distributors.data.length} total` : ''}
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-4">
+        {/* Metric Cards: Compact 2 per row on mobile, 4 on desktop */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+          {/* Total Distributors */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Distributors
+                </span>
+                <div className="size-5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                  <Users className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate">
+                  {totals.count}
+                </span>
+                <span className="text-[10px] text-zinc-400 font-medium truncate">
+                  ({totals.active} active)
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Dealer accounts
             </p>
           </div>
-          <div className="w-full sm:w-56">
-            <input
-              className="dgn-input w-full !rounded-lg !px-3 !py-2 text-sm"
-              placeholder="Search name, code, region…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <label className="mt-2 flex items-center gap-2 text-sm text-zinc-800">
+
+          {/* Outstanding Balance */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Total Outstanding
+                </span>
+                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${totals.outstanding > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400'}`}>
+                  <CreditCard className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate block ${totals.outstanding > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
+                  {money(totals.outstanding)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Owed to factory
+            </p>
+          </div>
+
+          {/* Credit Available */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Credit Headroom
+                </span>
+                <div className="size-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums tracking-tight truncate block">
+                  {money(totals.available)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Available to spend
+            </p>
+          </div>
+
+          {/* At Credit Limit / Overdue */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Blocked / Overdue
+                </span>
+                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${totals.atLimit > 0 || totals.overdue > 0 ? 'bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}`}>
+                  <AlertTriangle className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate ${totals.atLimit > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-white'}`}>
+                  {totals.atLimit}
+                </span>
+                <span className="text-[10px] text-zinc-400 font-medium truncate">
+                  at limit
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              {totals.overdue > 0 ? `${totals.overdue} with overdue bills` : 'None overdue'}
+            </p>
+          </div>
+        </div>
+
+        {(message || error) && (
+          <div
+            className={`p-3 rounded-lg text-xs font-medium ${
+              error
+                ? 'bg-red-50 text-red-700 border border-red-200'
+                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+            }`}
+          >
+            {error || message}
+          </div>
+        )}
+
+        {/* Filter controls row */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            {/* View filter as Select instead of tab buttons */}
+            <div className="w-full sm:w-56">
+              <Select
+                value={filter}
+                onValueChange={(val) =>
+                  setFilter(val as 'all' | 'internal' | 'external' | 'owing' | 'limit')
+                }
+              >
+                <SelectTrigger className="w-full h-8 text-xs font-semibold">
+                  <SelectValue placeholder="Filter distributors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All distributors ({distributors.data?.length ?? 0})</SelectItem>
+                  <SelectItem value="internal">Internal network</SelectItem>
+                  <SelectItem value="external">External dealers</SelectItem>
+                  <SelectItem value="owing">Owing factory</SelectItem>
+                  <SelectItem value="limit">At credit limit</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
+              <Input
+                className="pl-8 h-8 text-xs w-full"
+                placeholder="Search name, code, region…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs text-zinc-600 self-end sm:self-center">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
                 type="checkbox"
+                className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
                 checked={showInactive}
                 onChange={(e) => setShowInactive(e.target.checked)}
               />
-              Show inactive
+              <span>Show inactive</span>
             </label>
           </div>
         </div>
 
-        <div className="mt-4 flex w-fit rounded-xl bg-zinc-100 p-1 text-xs font-semibold">
-            {(
-              [
-                ['all', 'All'],
-                ['internal', 'Internal'],
-                ['external', 'External'],
-                ['owing', 'Owing'],
-                ['limit', 'At limit'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`rounded-lg px-3 py-1.5 ${
-                  filter === id ? 'bg-white shadow-sm' : 'text-zinc-700'
-                }`}
-                onClick={() => setFilter(id)}
-              >
-                {label}
-              </button>
-            ))}
-        </div>
+        {/* CustomTable1 with card removed around it */}
+        <CustomTable1
+          columns={columns}
+          data={filtered}
+          loading={distributors.isLoading}
+        />
 
-        {distributors.isLoading && (
-          <p className="mt-4 py-6 text-center text-sm text-zinc-700">Loading distributors…</p>
-        )}
-        {!distributors.isLoading && filtered.length === 0 && (
-          <p className="mt-4 py-6 text-center text-sm text-zinc-700">
-            {distributors.data?.length
-              ? 'No distributors match this filter.'
-              : 'No distributors yet. Add one to start the book.'}
-          </p>
-        )}
-        {!distributors.isLoading && filtered.length > 0 && (
-          <div className="mt-4 -mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[880px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="py-2 pr-4">Distributor</th>
-                  <th className="py-2 pr-4">Type</th>
-                  <th className="py-2 pr-4 text-right">Min qty</th>
-                  <th className="py-2 pr-4 text-right">Owes</th>
-                  <th className="py-2 pr-4 text-right">Limit</th>
-                  <th className="py-2 pr-4 text-right">Left</th>
-                  <th className="py-2 pr-4">Payment</th>
-                  <th className="py-2 text-right"> </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => {
-                  const c = row.credit
-                  return (
-                    <tr key={row.id} className="border-b border-[var(--line)] last:border-0">
-                      <td className="py-3 pr-4">
-                        <Link to={`/distributors/${row.code}`} className="hover:underline">
-                          <p className="font-semibold tracking-tight">{row.name}</p>
-                          <p className="mt-0.5 font-mono text-xs text-zinc-500">{row.code}</p>
-                        </Link>
-                        {row.isActive === false && (
-                          <p className="mt-1 text-xs font-semibold text-zinc-600">Inactive</p>
-                        )}
-                      </td>
-                      <td className="py-3 pr-4">{kindLabel(row.distributorKind)}</td>
-                      <td className="py-3 pr-4 text-right">
-                        {Number(row.minOrderQty || 0) > 0 ? Number(row.minOrderQty).toLocaleString() : '—'}
-                      </td>
-                      <td className="py-3 pr-4 text-right">{money(c.outstanding)}</td>
-                      <td className="py-3 pr-4 text-right">{money(c.creditLimit)}</td>
-                      <td
-                        className={
-                          'py-3 pr-4 text-right font-semibold ' +
-                          (c.atLimit ? 'text-red-700' : 'text-teal-800')
-                        }
-                      >
-                        {money(c.available)}
-                      </td>
-                      <td className="py-3 pr-4">
-                        {c.creditLimit <= 0 && row.isActive !== false ? (
-                          <span className="rounded-lg bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-800">
-                            Cash only
-                          </span>
-                        ) : c.atLimit && c.creditLimit > 0 ? (
-                          <span className="rounded-lg bg-red-50 px-2 py-1 text-xs font-semibold text-red-700">
-                            Credit closed
-                          </span>
-                        ) : (c.overdueCount || 0) > 0 ? (
-                          <span className="rounded-lg bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
-                            {c.overdueCount} overdue
-                          </span>
-                        ) : (
-                          <span className="text-xs text-zinc-700">{unpaidSummary(c)}</span>
-                        )}
-                      </td>
-                      <td className="py-3 text-right">
-                        {canSell && row.isActive !== false && (
-                          <Link
-                            to={`/sales?distributor=${encodeURIComponent(row.code)}`}
-                            className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
-                          >
-                            Sell
-                          </Link>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+        {/* Add Distributor Modal Dialog */}
+        <Dialog open={addOpen} onOpenChange={setAddOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add distributor</DialogTitle>
+              <DialogDescription>
+                Code is issued automatically. Set the credit limit in naira — that is the most they may
+                owe at any time.
+              </DialogDescription>
+            </DialogHeader>
 
-      {addOpen && (
-        <Dialog
-          title="Add distributor"
-          onClose={() => {
-            setAddOpen(false)
-            setError('')
-          }}
-        >
-          <p className="mb-4 text-sm text-zinc-700">
-            Code is issued automatically. Set the credit limit in naira — that is the most they may
-            owe at any time.
-          </p>
-          <form
-            className="grid gap-3 sm:grid-cols-2"
-            onSubmit={(e) => {
-              e.preventDefault()
-              saveMutation.mutate()
-            }}
-          >
-            <Field label="Business name">
-              <input
-                className="dgn-input"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                required
-                placeholder="Northern Plastics Distributors"
-              />
-            </Field>
-            <Field label="Contact person">
-              <input
-                className="dgn-input"
-                value={form.contactPerson}
-                onChange={(e) => setForm((f) => ({ ...f, contactPerson: e.target.value }))}
-              />
-            </Field>
-            <Field label="Phone">
-              <input
-                className="dgn-input"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              />
-            </Field>
-            <Field label="Region / territory">
-              <input
-                className="dgn-input"
-                value={form.region}
-                onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
-                placeholder="Kano, Kaduna…"
-              />
-            </Field>
-            <Field label="Type">
-              <select
-                className="dgn-input"
-                value={form.distributorKind}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    distributorKind: e.target.value === 'INTERNAL' ? 'INTERNAL' : 'EXTERNAL',
-                  }))
-                }
-              >
-                <option value="EXTERNAL">External</option>
-                <option value="INTERNAL">Internal</option>
-              </select>
-            </Field>
-            <Field
-              label="Minimum quantity"
-              hint="They cannot take fewer than this many units on a sale"
+            <form
+              className="grid gap-3 sm:grid-cols-2 mt-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                saveMutation.mutate()
+              }}
             >
-              <input
-                className="dgn-input"
-                type="number"
-                min={0}
-                inputMode="decimal"
-                value={form.minOrderQty}
-                onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
-                required
-                placeholder="50"
-              />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Address">
-                <input
-                  className="dgn-input"
+              <div className="space-y-1">
+                <Label className="text-xs">Business name</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  required
+                  placeholder="Northern Plastics Distributors"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Contact person</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={form.contactPerson}
+                  onChange={(e) => setForm((f) => ({ ...f, contactPerson: e.target.value }))}
+                  placeholder="Alhaji Bello"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Phone</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={form.phone}
+                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  placeholder="0803 000 0000"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Region / territory</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={form.region}
+                  onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
+                  placeholder="Kano, Kaduna…"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Type</Label>
+                <Select
+                  value={form.distributorKind}
+                  onValueChange={(val) =>
+                    setForm((f) => ({
+                      ...f,
+                      distributorKind: val as 'INTERNAL' | 'EXTERNAL',
+                    }))
+                  }
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EXTERNAL">External</SelectItem>
+                    <SelectItem value="INTERNAL">Internal</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Minimum quantity</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  min={0}
+                  inputMode="decimal"
+                  value={form.minOrderQty}
+                  onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
+                  required
+                  placeholder="50"
+                />
+              </div>
+
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Address</Label>
+                <Input
+                  className="h-8 text-xs"
                   value={form.address}
                   onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="Store location or warehouse address"
                 />
-              </Field>
-            </div>
-            <Field label="Credit limit" hint="0 means they must pay in full on every sale">
-              <NairaAmountInput
-                value={form.creditLimit}
-                onChange={(value) => setForm((f) => ({ ...f, creditLimit: value }))}
-                required
-                placeholder="2,000,000"
-              />
-            </Field>
-            <Field label="Payment terms (days)">
-              <input
-                className="dgn-input"
-                type="number"
-                min={0}
-                max={365}
-                value={form.paymentTermsDays}
-                onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
-              />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Notes">
-                <input
-                  className="dgn-input"
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Credit limit (₦)</Label>
+                <NairaAmountInput
+                  value={form.creditLimit}
+                  onChange={(value) => setForm((f) => ({ ...f, creditLimit: value }))}
+                  required
+                  placeholder="2,000,000"
+                />
+                <p className="text-[10px] text-zinc-500">0 means pay in full on every sale</p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Payment terms (days)</Label>
+                <Input
+                  className="h-8 text-xs"
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={form.paymentTermsDays}
+                  onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Notes</Label>
+                <Input
+                  className="h-8 text-xs"
                   value={form.notes}
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="Optional operational notes"
                 />
-              </Field>
-            </div>
-            {error && <p className="text-sm text-red-700 sm:col-span-2">{error}</p>}
-            <div className="sm:col-span-2">
-              <button
-                type="submit"
-                className="dgn-btn dgn-btn-primary"
-                disabled={saveMutation.isPending || !form.name.trim()}
-              >
-                {saveMutation.isPending ? 'Saving…' : 'Add distributor'}
-              </button>
-            </div>
-          </form>
+              </div>
+
+              {error && (
+                <p className="text-xs font-semibold text-red-600 sm:col-span-2">{error}</p>
+              )}
+
+              <div className="flex items-center justify-end gap-2 sm:col-span-2 mt-3 pt-3 border-t border-zinc-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setAddOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8 text-xs font-semibold"
+                  disabled={saveMutation.isPending || !form.name.trim()}
+                >
+                  {saveMutation.isPending ? 'Saving…' : 'Add distributor'}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
         </Dialog>
-      )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }

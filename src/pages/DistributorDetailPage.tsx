@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
@@ -219,12 +220,21 @@ export function DistributorDetailPage() {
   }
 
   return (
-    <div>
-      <div className="mb-6">
-        <Link className="dgn-btn dgn-btn-ghost" to="/distributors">
-          <ArrowLeft className="h-4 w-4" /> All distributors
-        </Link>
-      </div>
+    <PageLayout
+      title={d.name}
+      description={`${d.code} · ${d.region || 'No region'} · ${d.distributorKind === 'INTERNAL' ? 'Internal distributor' : 'External distributor'}`}
+      back={true}
+      backTo="/distributors"
+      backLabel="All distributors"
+      actions={
+        canSell ? (
+          <Button size="sm" className="h-8 text-xs font-semibold gap-1.5" asChild>
+            <Link to={`/sales/new?customer=${d.id}`}>New sale</Link>
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-6">
 
       {(message || error) && (
         <p className={`mb-4 text-sm ${error ? 'text-red-700' : 'text-zinc-800'}`}>{error || message}</p>
@@ -656,7 +666,8 @@ export function DistributorDetailPage() {
           />
         </Dialog>
       )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 

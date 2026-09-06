@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Factory, Clock } from 'lucide-react'
+import { CheckCircle2, Factory, Clock } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 
 type ProductionRunRow = {
   id: number
@@ -136,6 +138,19 @@ export function CompleteProductionPage() {
   const run = useMemo(() => {
     return runsQuery.data?.find((r) => String(r.id) === id) || null
   }, [runsQuery.data, id])
+
+  const inProgressRuns = useMemo(() => {
+    return (runsQuery.data || []).filter((r) => r.batch?.status === 'IN_PROGRESS')
+  }, [runsQuery.data])
+
+  const inProgressOptions = useMemo(() => {
+    return inProgressRuns.map((r) => ({
+      value: String(r.id),
+      label: `${r.batch?.batchNumber || `Run #${r.id}`} · ${r.product?.name || 'Product'}`,
+      sublabel: `${r.machine?.name || 'Machine'}${r.operatorName ? ` · ${r.operatorName}` : ''}`,
+      badge: `${r.materialConsumed} kg in`,
+    }))
+  }, [inProgressRuns])
 
   const form = useForm<CompleteFormValues>({
     defaultValues: {
@@ -290,27 +305,49 @@ export function CompleteProductionPage() {
 
   if (!run) {
     return (
-      <div className="max-w-2xl mx-auto py-12 text-center space-y-4">
-        <p className="text-base font-semibold text-zinc-800">Production run not found.</p>
-        <Link to="/production" className="dgn-btn dgn-btn-primary">
-          Return to Production
-        </Link>
-      </div>
+      <PageLayout
+        title="Complete Production Run"
+        description="Select an active production run to record finished pieces, runtime, and yield"
+        back={true}
+        backTo="/production"
+      >
+        <div className="max-w-xl mx-auto py-8 space-y-4">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-xs space-y-4">
+            <div>
+              <h2 className="text-sm font-bold text-zinc-900">Select In-Progress Production Run</h2>
+              <p className="text-xs text-zinc-500">
+                Choose an active run from the factory floor to record completed outputs and downtime.
+              </p>
+            </div>
+            <SearchableSelect
+              size="sm"
+              value=""
+              onChange={(runId) => navigate(`/production/complete/${runId}`)}
+              options={inProgressOptions}
+              placeholder="Search active runs by batch #, product, or operator…"
+              searchPlaceholder="Type batch #, machine, or product…"
+              emptyMessage="No in-progress production runs found."
+            />
+            <div className="pt-2">
+              <Link to="/production" className="dgn-btn dgn-btn-ghost text-xs">
+                Back to Production Runs
+              </Link>
+            </div>
+          </div>
+        </div>
+      </PageLayout>
     )
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-3">
-      {/* Back link */}
-      <div>
-        <Link
-          to="/production"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:text-zinc-900 transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to Production Runs
-        </Link>
-      </div>
+    <PageLayout
+      title={`Complete Run: ${run.batch?.batchNumber || `Run #${run.id}`}`}
+      description={`Record output, runtime, and scrap for ${run.product?.name || 'Production'}`}
+      back={true}
+      backTo="/production"
+      backLabel="Back to Production Runs"
+    >
+      <div className="space-y-3">
 
       {/* Compact Run Summary Banner */}
       <div className="rounded-xl border border-zinc-200 bg-white p-3 shadow-xs">
@@ -559,6 +596,7 @@ export function CompleteProductionPage() {
           </div>
         </form>
       </Card>
-    </div>
+      </div>
+    </PageLayout>
   )
 }

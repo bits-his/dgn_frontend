@@ -1,9 +1,13 @@
-import { Link, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -135,6 +139,8 @@ type ProcessRunRow = {
 
 export function BatchDetailPage() {
   const { batchNumber = '' } = useParams()
+  const navigate = useNavigate()
+  const [stockAuditOpen, setStockAuditOpen] = useState(false)
 
   const detail = useQuery({
     queryKey: ['batch', batchNumber],
@@ -173,6 +179,8 @@ export function BatchDetailPage() {
           }
           startedAt?: string
           endedAt?: string
+          businessDate?: string | null
+          createdAt?: string
           createdBy?: { firstname: string; lastname: string }
           scrapReceipt?: {
             netWeight: number
@@ -335,6 +343,7 @@ export function BatchDetailPage() {
 
   const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
 
+
   const prodGoodUnits = Number(productionRun?.qtyGood || batch.qtyOut || 0)
   const prodRejectUnits = Number(productionRun?.qtyReject || batch.qtyReject || 0)
   const prodTotalUnits = Number(productionRun?.qtyProduced || (prodGoodUnits + prodRejectUnits) || 0)
@@ -372,18 +381,27 @@ export function BatchDetailPage() {
   const isNotCompleted = isProd && (batch.status === 'IN_PROGRESS' || productionRun?.status === 'IN_PROGRESS' || !productionRun?.endedAt)
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-lg font-semibold tracking-tight">{batch.batchNumber}</p>
-        {isNotCompleted && productionRun ? (
-          <Link
-            to={`/production/${productionRun.id}/complete`}
-            className="dgn-btn dgn-btn-primary inline-flex items-center gap-1.5 !px-3.5 !py-2 text-sm font-semibold shadow-sm"
+    <PageLayout
+      title={<span className="font-mono">{batch.batchNumber}</span>}
+      description={`${typeLabel} · Created ${formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt)}`}
+      back={true}
+      backLabel="Back"
+      onBack={() => navigate(-1)}
+      actions={
+        isNotCompleted && productionRun ? (
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+            asChild
           >
-            Complete Run →
-          </Link>
-        ) : null}
-      </div>
+            <Link to={`/production/${productionRun.id}/complete`}>
+              Complete Run →
+            </Link>
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-3">
 
       {isNotCompleted && (
         <Card className="!p-3.5 border-l-4 !border-l-amber-500">
@@ -400,7 +418,7 @@ export function BatchDetailPage() {
       )}
 
       <Card className="!p-4">
-        <h2 className="text-base font-semibold">Basic info</h2>
+        <h2 className="text-base font-semibold">Batch overview</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {isProd ? (
             <>
@@ -410,31 +428,53 @@ export function BatchDetailPage() {
                 strong
               />
               <Fact
-                label="Cost / pc (price/1)"
-                value={prodCostPerPiece > 0 ? `${money(prodCostPerPiece)}/pc` : (isNotCompleted ? 'Pending completion' : '—')}
+                label="Cost / pc"
+                value={prodCostPerPiece > 0 ? `${money(prodCostPerPiece)}/pc` : (isNotCompleted ? 'Pending…' : '—')}
                 strong
               />
               <Fact
                 label="Cost / dozen"
-                value={prodCostPerDozen > 0 ? `${money(prodCostPerDozen)}/dz` : (isNotCompleted ? 'Pending completion' : '—')}
+                value={prodCostPerDozen > 0 ? `${money(prodCostPerDozen)}/dz` : (isNotCompleted ? 'Pending…' : '—')}
               />
-              <Fact label="Current total cost" value={money(summary.totalCost)} strong />
+              <Fact label="Total cost" value={money(summary.totalCost)} strong />
             </>
           ) : (
             <>
               <Fact label="Qty in" value={kg(batch.qtyIn)} strong />
-              <Fact label="Qty available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
+              <Fact label="Available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
               <Fact label="Total cost" value={money(summary.totalCost)} />
               <Fact label="Cost / kg" value={costPerKg != null ? `${money(costPerKg)}/kg` : '—'} />
             </>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--ink-muted)]">
-          {batch.location?.name && <span>Location: {batch.location.name}</span>}
-          {batch.product?.name && <span>Product: {batch.product.name}</span>}
-          {batch.sortColor && <span>Colour: {colorLabel(batch.sortColor)}</span>}
-          <span>Stage: {typeLabel}</span>
-          <span>Status: {isNotCompleted ? 'IN_PROGRESS (Not completed)' : batch.status}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {batch.sortColor && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+              {colorLabel(batch.sortColor)}
+            </span>
+          )}
+          {batch.location?.name && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+              {batch.location.name}
+            </span>
+          )}
+          {batch.product?.name && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+              {batch.product.name}
+            </span>
+          )}
+          <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+            {typeLabel}
+          </span>
+          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+            isNotCompleted
+              ? 'bg-amber-100 text-amber-700'
+              : batch.status === 'CLOSED'
+              ? 'bg-zinc-200 text-zinc-600'
+              : 'bg-emerald-100 text-emerald-700'
+          }`}>
+            {isNotCompleted ? 'In progress' : batch.status}
+          </span>
         </div>
       </Card>
 
@@ -811,70 +851,100 @@ export function BatchDetailPage() {
         </div>
       </Card>
 
-      {(batch.inventoryTransactions || []).length > 0 && (
+      {/* Combined Stock & Audit — collapsible */}
+      {((batch.inventoryTransactions || []).length > 0 || detail.data.auditLogs.length > 0) && (
         <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold">Stock moves</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-3 py-3 font-semibold">Direction</th>
-                  <th className="px-3 py-3 font-semibold">Reason</th>
-                  <th className="px-4 py-3 font-semibold text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(batch.inventoryTransactions || []).map((tx) => (
-                  <tr key={tx.id} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                      {tx.businessDate
-                        ? formatBusinessDate(tx.businessDate)
-                        : formatDateTime(tx.createdAt)}
-                    </td>
-                    <td className="px-3 py-3">{tx.direction}</td>
-                    <td className="px-3 py-3 text-[var(--ink-muted)]">{tx.reason}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {tx.qty} {tx.uom}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+            onClick={() => setStockAuditOpen((o) => !o)}
+          >
+            <div>
+              <h2 className="text-base font-semibold">Stock &amp; Audit</h2>
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                {(batch.inventoryTransactions || []).length} stock move{(batch.inventoryTransactions || []).length !== 1 ? 's' : ''}
+                {' · '}
+                {detail.data.auditLogs.length} audit event{detail.data.auditLogs.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            {stockAuditOpen
+              ? <ChevronUp className="h-4 w-4 text-zinc-400 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />}
+          </button>
 
-      {detail.data.auditLogs.length > 0 && (
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold">Audit log</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.data.auditLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                      {formatDateTime(log.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">{log.action}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {stockAuditOpen && (
+            <div className="border-t border-[var(--line)]">
+
+              {/* Stock moves */}
+              {(batch.inventoryTransactions || []).length > 0 && (
+                <div>
+                  <p className="px-4 pt-3 pb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Stock moves</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                          <th className="px-4 py-2.5 font-semibold">Date</th>
+                          <th className="px-3 py-2.5 font-semibold">Direction</th>
+                          <th className="px-3 py-2.5 font-semibold">Reason</th>
+                          <th className="px-4 py-2.5 font-semibold text-right">Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(batch.inventoryTransactions || []).map((tx) => (
+                          <tr key={tx.id} className="border-b border-[var(--line)]">
+                            <td className="px-4 py-2.5 tabular-nums text-[var(--ink-muted)]">
+                              {tx.businessDate ? formatBusinessDate(tx.businessDate) : formatDateTime(tx.createdAt)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                tx.direction === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {tx.direction}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-[var(--ink-muted)]">{tx.reason}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums font-medium">{tx.qty} {tx.uom}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Audit log */}
+              {detail.data.auditLogs.length > 0 && (
+                <div className={`${ (batch.inventoryTransactions || []).length > 0 ? 'border-t border-[var(--line)]' : '' }`}>
+                  <p className="px-4 pt-3 pb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Audit log</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[420px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                          <th className="px-4 py-2.5 font-semibold">Date &amp; time</th>
+                          <th className="px-4 py-2.5 font-semibold">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.data.auditLogs.map((log) => (
+                          <tr key={log.id} className="border-b border-[var(--line)]">
+                            <td className="px-4 py-2.5 tabular-nums text-[var(--ink-muted)] whitespace-nowrap">
+                              {formatDateTime(log.createdAt)}
+                            </td>
+                            <td className="px-4 py-2.5 text-sm">{log.action}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
         </Card>
       )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 

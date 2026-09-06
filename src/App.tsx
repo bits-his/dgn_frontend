@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { LoginPage } from '@/pages/LoginPage'
 import { HomePage } from '@/pages/HomePage'
+import { ScrapReceivingListPage } from '@/pages/ScrapReceivingListPage'
 import { ScrapReceivingPage } from '@/pages/ScrapReceivingPage'
 import { BatchesPage } from '@/pages/BatchesPage'
 import { BatchDetailPage } from '@/pages/BatchDetailPage'
@@ -23,6 +24,7 @@ import { StockLedgerPage } from '@/pages/StockLedgerPage'
 import { QcPage } from '@/pages/QcPage'
 import { QcTrendsPage } from '@/pages/QcTrendsPage'
 import { SalesPage } from '@/pages/SalesPage'
+import { NewSalePage } from '@/pages/NewSalePage'
 import { SaleDetailPage } from '@/pages/SaleDetailPage'
 import { SaleInvoicePage, SaleReceiptPage } from '@/pages/SaleDocumentPage'
 import { DistributorsPage } from '@/pages/DistributorsPage'
@@ -86,7 +88,8 @@ function App() {
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/floor" element={<Navigate to="/receiving" replace />} />
-                <Route path="/receiving" element={<ScrapReceivingPage />} />
+                <Route path="/receiving" element={<ScrapReceivingListPage />} />
+                <Route path="/receiving/new" element={<ScrapReceivingPage />} />
                 <Route path="/process/:stage" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
@@ -99,6 +102,7 @@ function App() {
                 <Route path="/qc" element={<QcPage />} />
                 <Route path="/qc/trends" element={<QcTrendsPage />} />
                 <Route path="/sales" element={<SalesPage />} />
+                <Route path="/sales/new" element={<NewSalePage />} />
                 <Route path="/sales/margins" element={<SalesMarginPage />} />
                 <Route path="/sales/:saleNumber" element={<SaleDetailPage />} />
                 <Route path="/distributors" element={<DistributorsPage />} />

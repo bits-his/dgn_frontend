@@ -28,3 +28,65 @@ export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Intelligence', key: 'alerts', label: 'Alerts' },
   { group: 'Intelligence', key: 'dashboard', label: 'Executive dashboard' },
 ]
+
+export const DEPARTMENT_OPTIONS = [
+  'Production',
+  'Recycling',
+  'Sales',
+  'Quality Control',
+  'Inventory & Store',
+  'Maintenance',
+  'Finance & Accounts',
+  'Administration',
+] as const
+
+export const ROLE_OPTIONS = [
+  { code: 'WORKER', label: 'Worker' },
+  { code: 'OPERATOR', label: 'Operator' },
+  { code: 'STAFF', label: 'Staff' },
+  { code: 'PROD_SUPERVISOR', label: 'Supervisor' },
+  { code: 'QC_OFFICER', label: 'QC Officer' },
+  { code: 'INVENTORY_OFFICER', label: 'Inventory Officer' },
+  { code: 'SALES_OFFICER', label: 'Sales Officer' },
+  { code: 'STOREKEEPER', label: 'Storekeeper' },
+  { code: 'FINANCE_OFFICER', label: 'Finance Officer' },
+  { code: 'FACTORY_MANAGER', label: 'Manager' },
+  { code: 'ADMIN', label: 'Administrator' },
+] as const
+
+export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
+  WORKER: ['sorting', 'crushing', 'washing', 'drying'],
+  OPERATOR: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production'],
+  STAFF: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production', 'inventory', 'batches'],
+  PROD_SUPERVISOR: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production', 'qc', 'inventory', 'batches', 'machines', 'alerts'],
+  QC_OFFICER: ['qc', 'batches', 'production', 'inventory', 'alerts'],
+  INVENTORY_OFFICER: ['inventory', 'receiving', 'batches', 'suppliers', 'production', 'alerts'],
+  STOREKEEPER: ['inventory', 'receiving', 'production', 'batches'],
+  SALES_OFFICER: ['sales', 'inventory', 'sales_margins', 'alerts'],
+  FINANCE_OFFICER: ['expenses', 'payroll', 'costs', 'overhead', 'sales', 'sales_margins', 'alerts'],
+  FACTORY_MANAGER: [
+    'receiving',
+    'sorting',
+    'crushing',
+    'washing',
+    'drying',
+    'suppliers',
+    'production',
+    'qc',
+    'inventory',
+    'sales',
+    'batches',
+    'masters',
+    'expenses',
+    'staff',
+    'payroll',
+    'machines',
+    'sales_margins',
+    'costs',
+    'overhead',
+    'alerts',
+    'dashboard',
+  ],
+  ADMIN: SIDEBAR_MENU_ACCESS.map((i) => i.key),
+}
+

@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Printer } from 'lucide-react'
+import { CreditCard, Printer } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { DistributorPaymentForm } from '@/pages/DistributorPaymentForm'
@@ -191,52 +193,35 @@ export function SaleDetailPage() {
   const customerIsDistributor = s.customer?.customerType === 'DISTRIBUTOR' && Boolean(s.customer.code)
 
   return (
-    <div>
-      <div className="mb-6">
-        <Link className="dgn-btn dgn-btn-ghost" to="/sales">
-          <ArrowLeft className="h-4 w-4" /> All sales
-        </Link>
-      </div>
-
-      <Card className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">{s.saleNumber}</h1>
-            <p className="mt-1 text-sm text-zinc-700">
-              {customerIsDistributor ? (
-                <Link
-                  to={`/distributors/${s.customer!.code}`}
-                  className="font-medium text-[var(--accent-strong)] hover:underline"
-                >
-                  {s.customer?.name}
-                </Link>
-              ) : (
-                s.customer?.name || 'Unknown customer'
-              )}
-              <span className="text-zinc-500">
-                {' '}
-                · {s.saleType.toLowerCase()} · {s.status.replace('_', ' ').toLowerCase()}
-              </span>
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              className="dgn-btn dgn-btn-secondary !px-3 !py-1.5 text-sm"
-              to={`/sales/${s.saleNumber}/invoice`}
-            >
-              <Printer className="h-4 w-4" /> Invoice
+    <PageLayout
+      title={`Sale: ${s.saleNumber}`}
+      description={`${customerIsDistributor ? s.customer?.name : s.customer?.name || 'Customer'} · ${s.saleType.toLowerCase()} · ${s.status.replace('_', ' ').toLowerCase()}`}
+      back={true}
+      backTo="/sales"
+      backLabel="All sales"
+      actions={
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
+            <Link to={`/sales/${s.saleNumber}/invoice`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <Printer className="size-3.5 shrink-0" />
+              <span>Invoice</span>
             </Link>
-            {s.amountPaid > 0.001 && (
-              <Link
-                className="dgn-btn dgn-btn-secondary !px-3 !py-1.5 text-sm"
-                to={`/sales/${s.saleNumber}/receipt`}
-              >
-                <Printer className="h-4 w-4" /> Receipt
+          </Button>
+          {s.amountPaid > 0.001 && (
+            <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
+              <Link to={`/sales/${s.saleNumber}/receipt`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <Printer className="size-3.5 shrink-0" />
+                <span>Receipt</span>
               </Link>
-            )}
-          </div>
+            </Button>
+          )}
         </div>
-        <div className="mt-4 space-y-2 text-sm">
+      }
+    >
+      <div className="space-y-6">
+        <Card className="!p-5">
+          <h2 className="text-base font-semibold mb-3">Order summary</h2>
+          <div className="space-y-2 text-sm">
           <Row label="Goods value" value={money(s.subtotal)} />
           <Row label="Discount" value={`− ${money(s.discount)}`} />
           <div className="border-t border-[var(--line)] pt-2">
@@ -288,13 +273,15 @@ export function SaleDetailPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canSell && unpaid && (
-              <button
+              <Button
                 type="button"
-                className="dgn-btn dgn-btn-primary !px-3 !py-1.5 text-sm"
+                size="sm"
+                className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
                 onClick={() => setPayOpen(true)}
               >
-                Record payment
-              </button>
+                <CreditCard className="size-3.5 shrink-0" />
+                <span>Record payment</span>
+              </Button>
             )}
           </div>
         </div>
@@ -498,7 +485,8 @@ export function SaleDetailPage() {
           />
         </Dialog>
       )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 

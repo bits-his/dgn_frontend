@@ -23,19 +23,21 @@ import {
   Bell,
   X,
   PackagePlus,
-  Filter,
   Hammer,
   Droplets,
   Flame,
-  Contact,
   Store,
   Warehouse,
   Play,
+  RotateCcw,
+  Download,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
+import { usePwaInstall } from '@/hooks/usePwaInstall'
 
 type NavItem = {
   to: string
@@ -44,6 +46,7 @@ type NavItem = {
   end?: boolean
   permission?: string
   badge?: number
+  menuKey?: string
 }
 
 type NavGroup = {
@@ -51,6 +54,33 @@ type NavGroup = {
   label: string
   icon: ComponentType<{ className?: string }>
   items: NavItem[]
+}
+
+export function canAccessNavItem(
+  user: ReturnType<typeof useAuthStore.getState>['user'],
+  item: NavItem,
+): boolean {
+  if (!user) return false
+  // Admin has full access to everything
+  if (user.roleCode === 'ADMIN' || user.permissions?.includes('*')) return true
+
+  // If user has specific menuAccess array assigned
+  if (user.menuAccess && Array.isArray(user.menuAccess) && user.menuAccess.length > 0) {
+    if (item.menuKey) {
+      return user.menuAccess.includes(item.menuKey)
+    }
+    // Items without a menuKey (e.g. Overview '/')
+    if (item.permission) {
+      return hasPermission(user, item.permission)
+    }
+    return true
+  }
+
+  // Fallback to permission check if no explicit menuAccess is configured on user
+  if (item.permission) {
+    return hasPermission(user, item.permission)
+  }
+  return true
 }
 
 const mainNavTop: NavItem[] = [
@@ -62,11 +92,12 @@ const recyclingGroup: NavGroup = {
   label: 'Processing',
   icon: Factory,
   items: [
-    { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, permission: 'receiving.create' },
-    { to: '/process/sorting', label: 'Sorting', icon: Filter, permission: 'batch.create' },
-    { to: '/process/crushing', label: 'Crushing', icon: Hammer, permission: 'batch.create' },
-    { to: '/process/washing', label: 'Washing', icon: Droplets, permission: 'batch.create' },
-    { to: '/process/drying', label: 'Drying', icon: Flame, permission: 'batch.create' },
+    { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
+    { to: '/process/sorting', label: 'Sorting', icon: Layers, menuKey: 'sorting', permission: 'batch.create' },
+    { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
+    { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
+    { to: '/process/drying', label: 'Drying', icon: Flame, menuKey: 'drying', permission: 'batch.create' },
+    { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'crushing', permission: 'batch.create' },
   ],
 }
 
@@ -75,33 +106,33 @@ const productionGroup: NavGroup = {
   label: 'Production',
   icon: Cog,
   items: [
-    { to: '/production', label: 'Production runs', icon: Play, end: true, permission: 'batch.view' },
-    { to: '/production/store', label: 'Production store', icon: Warehouse, permission: 'batch.view' },
+    { to: '/production', label: 'Production runs', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
+    { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production', permission: 'batch.view' },
   ],
 }
 
 const mainNavRest: NavItem[] = [
-  { to: '/suppliers', label: 'Suppliers', icon: Contact, permission: 'batch.view' },
-  { to: '/qc', label: 'Quality control', icon: ShieldCheck, permission: 'batch.view' },
-  { to: '/inventory', label: 'Inventory', icon: Boxes, permission: 'inventory.view' },
-  { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, permission: 'sales.view' },
-  { to: '/distributors', label: 'Distributors', icon: Store, permission: 'sales.view' },
-  { to: '/batches', label: 'Batches', icon: Search, permission: 'batch.view' },
-  { to: '/masters', label: 'Masters', icon: Boxes, permission: 'masters.manage' },
+  { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
+  { to: '/inventory', label: 'Inventory', icon: Boxes, menuKey: 'inventory', permission: 'inventory.view' },
+  { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
+  { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'sales', permission: 'sales.view' },
+  { to: '/batches', label: 'Batches', icon: Search, menuKey: 'batches', permission: 'batch.view' },
+  { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },
+  { to: '/masters', label: 'Masters', icon: Boxes, menuKey: 'masters', permission: 'masters.manage' },
 ]
 
 const financeNav: NavItem[] = [
-  { to: '/expenses', label: 'Expenses', icon: Receipt, permission: 'expense.view' },
-  { to: '/staff', label: 'Staff', icon: Users, permission: 'labour.view' },
-  { to: '/payroll', label: 'Payroll', icon: Wallet, permission: 'labour.view' },
+  { to: '/expenses', label: 'Expenses', icon: Receipt, menuKey: 'expenses', permission: 'expense.view' },
+  { to: '/staff', label: 'Staff', icon: Users, menuKey: 'staff', permission: 'labour.view' },
+  { to: '/payroll', label: 'Payroll', icon: Wallet, menuKey: 'payroll', permission: 'labour.view' },
 ]
 
 const intelligenceNav: NavItem[] = [
-  { to: '/dashboard', label: 'Command centre', icon: LayoutDashboard, permission: 'dashboard.executive' },
-  { to: '/machines', label: 'Machines & insights', icon: Gauge, permission: 'batch.view' },
-  { to: '/sales/margins', label: 'Sales margin', icon: TrendingUp, permission: 'sales.view' },
-  { to: '/costs', label: 'Cost intelligence', icon: Calculator, end: true, permission: 'costs.view' },
-  { to: '/costs/overhead', label: 'Factory overhead', icon: Layers, permission: 'costs.view' },
+  { to: '/dashboard', label: 'Command centre', icon: LayoutDashboard, menuKey: 'dashboard', permission: 'dashboard.executive' },
+  { to: '/machines', label: 'Machines & insights', icon: Gauge, menuKey: 'machines', permission: 'batch.view' },
+  { to: '/sales/margins', label: 'Sales margin', icon: TrendingUp, menuKey: 'sales_margins', permission: 'sales.view' },
+  { to: '/costs', label: 'Cost intelligence', icon: Calculator, end: true, menuKey: 'costs', permission: 'costs.view' },
+  { to: '/costs/overhead', label: 'Factory overhead', icon: Layers, menuKey: 'overhead', permission: 'costs.view' },
 ]
 
 function NavList({
@@ -118,7 +149,7 @@ function NavList({
   return (
     <div className="space-y-1">
       {items.map((item) => {
-        if (item.permission && !hasPermission(user, item.permission)) return null
+        if (!canAccessNavItem(user, item)) return null
         const Icon = item.icon
         return (
           <NavLink
@@ -177,9 +208,7 @@ function CollapsibleNavGroup({
   onNavigate?: () => void
 }) {
   const location = useLocation()
-  const visibleItems = group.items.filter(
-    (item) => !item.permission || hasPermission(user, item.permission),
-  )
+  const visibleItems = group.items.filter((item) => canAccessNavItem(user, item))
   const childActive = visibleItems.some(
     (item) =>
       location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
@@ -234,6 +263,7 @@ export function AppShell() {
   const logout = useAuthStore((s) => s.logout)
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const { isInstallable, isInstalled, promptInstall } = usePwaInstall()
 
   const canSeeAlerts = hasPermission(user, 'alert.view')
   const alertSummary = useQuery({
@@ -287,19 +317,23 @@ export function AppShell() {
           <NavList items={mainNavRest} user={user} onNavigate={() => setMobileOpen(false)} />
         </div>
 
-        <div className="mt-4 pb-1">
-          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Money & people
-          </p>
-          <NavList items={financeNav} user={user} onNavigate={() => setMobileOpen(false)} />
-        </div>
+        {financeNav.some((i) => canAccessNavItem(user, i)) && (
+          <div className="mt-4 pb-1">
+            <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Money &amp; people
+            </p>
+            <NavList items={financeNav} user={user} onNavigate={() => setMobileOpen(false)} />
+          </div>
+        )}
 
-        <div className="mt-4 pb-1">
-          <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-            Intelligence
-          </p>
-          <NavList items={intelligenceItems} user={user} onNavigate={() => setMobileOpen(false)} />
-        </div>
+        {intelligenceItems.some((i) => canAccessNavItem(user, i)) && (
+          <div className="mt-4 pb-1">
+            <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+              Intelligence
+            </p>
+            <NavList items={intelligenceItems} user={user} onNavigate={() => setMobileOpen(false)} />
+          </div>
+        )}
       </div>
 
       <div className="shrink-0 border-t border-white/10 p-4">
@@ -309,6 +343,16 @@ export function AppShell() {
           </p>
           <p className="mt-0.5 text-xs text-zinc-400">{user?.roleCode}</p>
         </div>
+        {!isInstalled && isInstallable && (
+          <button
+            type="button"
+            className="dgn-btn dgn-btn-ghost w-full justify-start text-violet-300 hover:bg-violet-500/10 hover:text-white mb-2 gap-2"
+            onClick={() => promptInstall()}
+          >
+            <Download className="size-4 text-violet-400" />
+            Install DGN App
+          </button>
+        )}
         <button
           type="button"
           className="dgn-btn dgn-btn-ghost w-full justify-start text-zinc-300 hover:bg-white/5 hover:text-white"
@@ -363,6 +407,17 @@ export function AppShell() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {!isInstalled && isInstallable && (
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-full bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800/80 px-2.5 py-1 text-xs font-bold transition-colors hover:bg-violet-100 shadow-xs"
+                  onClick={() => promptInstall()}
+                  title="Install DGN Factory Control App"
+                >
+                  <Download className="size-3.5 text-violet-600 dark:text-violet-400" />
+                  <span className="hidden sm:inline">Install App</span>
+                </button>
+              )}
               {canSeeAlerts && openCount > 0 && (
                 <button
                   type="button"
@@ -385,12 +440,14 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
-          <div className="mx-auto max-w-6xl">
+        <main className="px-0 py-0">
+          <div className="mx-auto max-w-7xl">
             <Outlet />
           </div>
         </main>
       </div>
+
+      <PwaInstallPrompt />
     </div>
   )
 }
