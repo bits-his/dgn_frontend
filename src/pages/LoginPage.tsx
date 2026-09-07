@@ -9,12 +9,38 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
+const REMEMBER_KEY = 'dgn_remember_login'
+
 const schema = z.object({
   email: z.string().email('Enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
+  rememberMe: z.boolean().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
+
+function getInitialLoginValues(): FormValues {
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (parsed.email && parsed.password) {
+        return {
+          email: parsed.email,
+          password: parsed.password,
+          rememberMe: true,
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Failed to parse remembered login:', err)
+  }
+  return {
+    email: 'admin@dgn.factory',
+    password: 'admin123',
+    rememberMe: true,
+  }
+}
 
 export function LoginPage() {
   const login = useAuthStore((s) => s.login)
@@ -28,13 +54,21 @@ export function LoginPage() {
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: 'admin@dgn.factory', password: 'admin123' },
+    defaultValues: getInitialLoginValues(),
   })
 
   const onSubmit = handleSubmit(async (values) => {
     setError('')
     try {
       await login(values.email, values.password)
+      if (values.rememberMe) {
+        localStorage.setItem(
+          REMEMBER_KEY,
+          JSON.stringify({ email: values.email, password: values.password })
+        )
+      } else {
+        localStorage.removeItem(REMEMBER_KEY)
+      }
       navigate('/')
     } catch {
       setError('Invalid email or password. Please try again.')
@@ -117,6 +151,21 @@ export function LoginPage() {
                   {errors.password.message}
                 </p>
               )}
+            </div>
+
+            <div className="flex items-center justify-between pt-0.5">
+              <label
+                htmlFor="rememberMe"
+                className="flex items-center gap-2 cursor-pointer select-none text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200"
+              >
+                <input
+                  id="rememberMe"
+                  type="checkbox"
+                  className="size-3.5 rounded border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 focus:ring-zinc-500/20 cursor-pointer accent-zinc-900 dark:accent-zinc-100"
+                  {...register('rememberMe')}
+                />
+                <span>Remember me</span>
+              </label>
             </div>
 
             <Button
