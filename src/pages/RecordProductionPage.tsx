@@ -81,8 +81,10 @@ type SingleStepFormValues = {
   colorType: '' | 'master' | 'normal'
   masterbatchColor?: string
   masterbatchKg: string
+  masterbatchPrice?: string
   normalColorName?: string
   pigmentKg: string
+  pigmentPrice?: string
   colorName: string
   colorQty: string
   colorCost: string
@@ -153,35 +155,6 @@ export function RecordProductionPage() {
     },
   })
 
-  const storeColors = useQuery({
-    queryKey: ['production-store-colors'],
-    queryFn: async () => {
-      const { data } = await api.get('/production/store/colors')
-      return (data.data || { masterbatches: [], normalColors: [] }) as {
-        masterbatches: Array<{
-          id: number
-          batchNumber: string
-          colorName: string
-          label: string
-          type: 'master'
-          qtyRemaining: number
-          costPerKg: number
-          uom: string
-        }>
-        normalColors: Array<{
-          id: number
-          batchNumber: string
-          colorName: string
-          label: string
-          type: 'normal'
-          qtyRemaining: number
-          costPerKg: number
-          uom: string
-        }>
-      }
-    },
-  })
-
   const productOptions = useMemo(() => {
     return (products.data || []).map((p) => ({
       value: String(p.id),
@@ -229,40 +202,6 @@ export function RecordProductionPage() {
     }))
   }, [inputs.data])
 
-  const masterbatchOptions = useMemo(() => {
-    const list = storeColors.data?.masterbatches || []
-    const storeOpts = list.map((m) => ({
-      value: m.colorName,
-      label: m.colorName,
-      sublabel: `${m.costPerKg > 0 ? `₦${m.costPerKg.toLocaleString()}/kg · ` : ''}${m.qtyRemaining}kg in store`,
-      badge: 'Store Stock',
-    }))
-    const existing = new Set(storeOpts.map((x) => x.value.toLowerCase()))
-    const presetOpts = SORT_COLORS.filter((c) => !existing.has(c.name.toLowerCase())).map((c) => ({
-      value: c.name,
-      label: c.name,
-      sublabel: 'Standard preset',
-    }))
-    return [...storeOpts, ...presetOpts]
-  }, [storeColors.data?.masterbatches])
-
-  const normalColorOptions = useMemo(() => {
-    const list = storeColors.data?.normalColors || []
-    const storeOpts = list.map((c) => ({
-      value: c.colorName,
-      label: c.colorName,
-      sublabel: `${c.costPerKg > 0 ? `₦${c.costPerKg.toLocaleString()}/kg · ` : ''}${c.qtyRemaining}kg in store`,
-      badge: 'Store Stock',
-    }))
-    const existing = new Set(storeOpts.map((x) => x.value.toLowerCase()))
-    const presetOpts = SORT_COLORS.filter((c) => !existing.has(c.name.toLowerCase())).map((c) => ({
-      value: c.name,
-      label: c.name,
-      sublabel: 'Standard preset',
-    }))
-    return [...storeOpts, ...presetOpts]
-  }, [storeColors.data?.normalColors])
-
   const form = useForm<SingleStepFormValues>({
     defaultValues: {
       machineId: '',
@@ -293,8 +232,10 @@ export function RecordProductionPage() {
       colorType: '',
       masterbatchColor: '',
       masterbatchKg: '',
+      masterbatchPrice: '',
       normalColorName: '',
       pigmentKg: '',
+      pigmentPrice: '',
       colorName: '',
       colorQty: '',
       colorCost: '',
@@ -350,32 +291,38 @@ export function RecordProductionPage() {
     form.setValue('qtyProduced', String(totalProduced))
   }, [totalProduced, form])
 
-  // Color formulation helpers & auto-calculation from store prices
-  const watchMbColor = form.watch('masterbatchColor')
-  const watchMbKg = form.watch('masterbatchKg')
-  const watchNormalColor = form.watch('normalColorName')
-  const watchPigmentKg = form.watch('pigmentKg')
+  // Additives & Production Material calculations
+  const watchMbKg = form.watch('masterbatchKg') || ''
+  const watchMbPrice = form.watch('masterbatchPrice') || ''
+  const watchPigmentKg = form.watch('pigmentKg') || ''
+  const watchPigmentPrice = form.watch('pigmentPrice') || ''
+  const watchMaterialConsumed = form.watch('materialConsumed') || ''
 
-  const selectedMb = useMemo(() => {
-    return storeColors.data?.masterbatches?.find(
-      (m) => m.colorName.toLowerCase() === watchMbColor?.toLowerCase()
-    )
-  }, [storeColors.data?.masterbatches, watchMbColor])
+  const mbSubtotal = useMemo(() => {
+    return Number(watchMbKg || 0) * Number(watchMbPrice || 0)
+  }, [watchMbKg, watchMbPrice])
 
-  const selectedNormal = useMemo(() => {
-    return storeColors.data?.normalColors?.find(
-      (n) => n.colorName.toLowerCase() === watchNormalColor?.toLowerCase()
-    )
-  }, [storeColors.data?.normalColors, watchNormalColor])
+  const pigSubtotal = useMemo(() => {
+    return Number(watchPigmentKg || 0) * Number(watchPigmentPrice || 0)
+  }, [watchPigmentKg, watchPigmentPrice])
+
+  const totalAdditiveCost = useMemo(() => {
+    return Math.round(mbSubtotal + pigSubtotal)
+  }, [mbSubtotal, pigSubtotal])
+
+  const totalAdditiveKg = useMemo(() => {
+    return +(Number(watchMbKg || 0) + Number(watchPigmentKg || 0)).toFixed(2)
+  }, [watchMbKg, watchPigmentKg])
+
+  const totalMaterialMix = useMemo(() => {
+    return +(Number(watchMaterialConsumed || 0) + totalAdditiveKg).toFixed(2)
+  }, [watchMaterialConsumed, totalAdditiveKg])
 
   useEffect(() => {
-    const mbCost = Number(watchMbKg || 0) * Number(selectedMb?.costPerKg || 0)
-    const normCost = Number(watchPigmentKg || 0) * Number(selectedNormal?.costPerKg || 0)
-    const totalCost = Math.round(mbCost + normCost)
-    if (totalCost > 0) {
-      form.setValue('colorCost', String(totalCost))
+    if (totalAdditiveCost > 0) {
+      form.setValue('colorCost', String(totalAdditiveCost))
     }
-  }, [watchMbKg, watchPigmentKg, selectedMb, selectedNormal, form])
+  }, [totalAdditiveCost, form])
 
   // Live metrics calculations
   const runtimeMins = Number(form.watch('runtimeMinutes') || 0)
@@ -396,8 +343,9 @@ export function RecordProductionPage() {
       availability && performance && quality
         ? +(((availability / 100) * (performance / 100) * (quality / 100)) * 100).toFixed(1)
         : 0
-    return { yieldPct, rejectPct, perHour, oee }
-  }, [totalProduced, watchGood, watchReject, runtimeMins, scheduledMins, selectedMachine])
+    const materialPerUnit = totalProduced > 0 ? +(totalMaterialMix / totalProduced).toFixed(3) : 0
+    return { yieldPct, rejectPct, perHour, oee, materialPerUnit }
+  }, [totalProduced, watchGood, watchReject, runtimeMins, scheduledMins, selectedMachine, totalMaterialMix])
 
   const onSubmit = async (values: SingleStepFormValues, confirmUnusualRun = false) => {
     setServerError('')
@@ -412,6 +360,18 @@ export function RecordProductionPage() {
     }
 
     try {
+      const mbKg = Number(values.masterbatchKg || 0)
+      const mbPrice = Number(values.masterbatchPrice || 0)
+      const pigKg = Number(values.pigmentKg || 0)
+      const pigPrice = Number(values.pigmentPrice || 0)
+      const computedAdditiveCost = Math.round(mbKg * mbPrice + pigKg * pigPrice)
+      const finalAdditiveCost = computedAdditiveCost > 0 ? computedAdditiveCost : Number(values.colorCost || 0)
+
+      const colorParts = []
+      if (pigKg > 0) colorParts.push(`Normal Pigment (${pigKg}kg${pigPrice > 0 ? ` @ ₦${pigPrice.toLocaleString()}/kg` : ''})`)
+      if (mbKg > 0) colorParts.push(`Masterbatch (${mbKg}kg${mbPrice > 0 ? ` @ ₦${mbPrice.toLocaleString()}/kg` : ''})`)
+      const finalColorName = colorParts.join(' + ') || undefined
+
       await api.post('/production/runs', {
         machineId: Number(values.machineId),
         productId: Number(values.productId),
@@ -432,17 +392,14 @@ export function RecordProductionPage() {
         autoRelease: values.autoRelease !== false,
         notes: values.notes || null,
         confirmUnusualRun,
-        colorType: (values.masterbatchColor && values.normalColorName) ? undefined : values.masterbatchColor ? 'master' : values.normalColorName ? 'normal' : undefined,
-        colorName: [
-          values.normalColorName ? `${values.normalColorName} (Normal)` : '',
-          values.masterbatchColor ? `${values.masterbatchColor} (MB)` : '',
-        ].filter(Boolean).join(' + ') || values.colorName || undefined,
-        masterbatchColor: values.masterbatchColor || undefined,
-        normalColorName: values.normalColorName || undefined,
-        masterbatchKg: Number(values.masterbatchKg || 0),
-        pigmentKg: Number(values.pigmentKg || 0),
-        colorQty: (Number(values.masterbatchKg || 0) + Number(values.pigmentKg || 0)) || Number(values.colorQty || 0),
-        colorCost: Number(values.colorCost || 0),
+        colorType: mbKg > 0 && pigKg > 0 ? 'both' : mbKg > 0 ? 'master' : pigKg > 0 ? 'normal' : undefined,
+        colorName: finalColorName,
+        masterbatchColor: mbKg > 0 ? `Masterbatch (${mbKg}kg)` : undefined,
+        normalColorName: pigKg > 0 ? `Normal Pigment (${pigKg}kg)` : undefined,
+        masterbatchKg: mbKg,
+        pigmentKg: pigKg,
+        colorQty: +(mbKg + pigKg).toFixed(2),
+        colorCost: finalAdditiveCost,
       })
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
@@ -643,6 +600,17 @@ export function RecordProductionPage() {
                   {...form.register('materialConsumed', { required: true })}
                 />
               </Field>
+
+              {totalAdditiveKg > 0 && (
+                <div className="sm:col-span-2 flex items-center justify-between rounded-lg bg-zinc-100/90 px-3 py-1.5 text-xs text-zinc-700">
+                  <span>
+                    Total Production Material Mix: <strong>{totalMaterialMix} kg</strong>
+                  </span>
+                  <span className="text-[11px] text-zinc-500">
+                    (Base: {Number(watchMaterialConsumed || 0).toFixed(1)} kg + Additives: {totalAdditiveKg} kg)
+                  </span>
+                </div>
+              )}
             </div>
 
             {selectedBatch && (
@@ -671,17 +639,17 @@ export function RecordProductionPage() {
               </div>
             )}
 
-            {/* Color Formulation Inputs (Masterbatch & Normal Pigment from Production Store) */}
+            {/* Color Formulation Inputs (Masterbatch & Normal Pigment) */}
             <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
                   <Palette className="size-3.5 text-violet-600" />
                   <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-700">
-                    Color Formulation (Masterbatch & Normal Pigment)
+                    Color Formulation & Additives (Masterbatch & Normal Pigment)
                   </span>
                 </div>
                 <span className="text-[10px] text-zinc-500">
-                  Stocked from Production Store · Unit prices auto-calculate additive cost
+                  Enter quantity and unit price to compute additive cost and mix
                 </span>
               </div>
 
@@ -689,33 +657,32 @@ export function RecordProductionPage() {
                 {/* Masterbatch Column */}
                 <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-800">Masterbatch Pellets</span>
-                    {selectedMb && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                        {selectedMb.costPerKg > 0 ? `₦${selectedMb.costPerKg.toLocaleString()}/kg · ` : ''}{selectedMb.qtyRemaining}kg in store
+                    <span className="text-xs font-bold text-zinc-800">Masterbatch</span>
+                    {mbSubtotal > 0 && (
+                      <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-200">
+                        ₦{mbSubtotal.toLocaleString()}
                       </span>
                     )}
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 grid-cols-2">
                     <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">MB Color</Label>
-                      <SearchableSelect
-                        size="sm"
-                        value={form.watch('masterbatchColor') || ''}
-                        onChange={(col) => form.setValue('masterbatchColor', col)}
-                        options={masterbatchOptions}
-                        placeholder="Select masterbatch…"
-                        searchPlaceholder="Search store masterbatches…"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">MB Qty (kg)</Label>
+                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
                       <input
                         type="number"
                         step="any"
                         placeholder="0.0"
                         className="dgn-input text-xs font-semibold h-8"
                         {...form.register('masterbatchKg')}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₦/kg"
+                        className="dgn-input text-xs font-semibold h-8"
+                        {...form.register('masterbatchPrice')}
                       />
                     </div>
                   </div>
@@ -725,26 +692,15 @@ export function RecordProductionPage() {
                 <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-zinc-800">Normal Pigment</span>
-                    {selectedNormal && (
+                    {pigSubtotal > 0 && (
                       <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                        {selectedNormal.costPerKg > 0 ? `₦${selectedNormal.costPerKg.toLocaleString()}/kg · ` : ''}{selectedNormal.qtyRemaining}kg in store
+                        ₦{pigSubtotal.toLocaleString()}
                       </span>
                     )}
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 grid-cols-2">
                     <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Normal Color</Label>
-                      <SearchableSelect
-                        size="sm"
-                        value={form.watch('normalColorName') || ''}
-                        onChange={(col) => form.setValue('normalColorName', col)}
-                        options={normalColorOptions}
-                        placeholder="Select normal color…"
-                        searchPlaceholder="Search normal pigments…"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Pigment Qty (kg)</Label>
+                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
                       <input
                         type="number"
                         step="any"
@@ -753,25 +709,31 @@ export function RecordProductionPage() {
                         {...form.register('pigmentKg')}
                       />
                     </div>
+                    <div>
+                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₦/kg"
+                        className="dgn-input text-xs font-semibold h-8"
+                        {...form.register('pigmentPrice')}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Total Additive Cost Row */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-100 text-xs">
-                <div className="text-zinc-500 text-[11px]">
-                  {Number(form.watch('masterbatchKg') || 0) + Number(form.watch('pigmentKg') || 0) > 0 ? (
-                    <span>
-                      Total Additive: <strong>{(Number(form.watch('masterbatchKg') || 0) + Number(form.watch('pigmentKg') || 0)).toFixed(2)} kg</strong>
-                      {selectedMb && Number(form.watch('masterbatchKg') || 0) > 0 && selectedMb.costPerKg > 0 && (
-                        <span> (MB: ₦{(Number(form.watch('masterbatchKg') || 0) * selectedMb.costPerKg).toLocaleString()})</span>
-                      )}
-                      {selectedNormal && Number(form.watch('pigmentKg') || 0) > 0 && selectedNormal.costPerKg > 0 && (
-                        <span> (Pigment: ₦{(Number(form.watch('pigmentKg') || 0) * selectedNormal.costPerKg).toLocaleString()})</span>
-                      )}
+              {/* Total Additive Cost & Mix Row */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-200/80 text-xs">
+                <div className="text-zinc-600 text-[11px] flex flex-wrap items-center gap-2">
+                  <span>
+                    Total Material Mix:{' '}
+                    <strong className="text-zinc-900 font-bold">{totalMaterialMix} kg</strong>
+                  </span>
+                  {totalAdditiveKg > 0 && (
+                    <span className="text-[10px] text-zinc-500">
+                      (Base: {Number(watchMaterialConsumed || 0).toFixed(1)}kg + Additives: {totalAdditiveKg}kg)
                     </span>
-                  ) : (
-                    <span>Enter masterbatch or pigment kg to compute additive cost</span>
                   )}
                 </div>
 
@@ -781,7 +743,7 @@ export function RecordProductionPage() {
                     type="number"
                     step="any"
                     placeholder="0"
-                    className="dgn-input text-xs font-bold w-28 h-8 text-right"
+                    className="dgn-input text-xs font-bold w-28 h-8 text-right text-emerald-700"
                     {...form.register('colorCost')}
                   />
                 </div>
@@ -905,7 +867,7 @@ export function RecordProductionPage() {
           </div>
 
           {/* Live Metrics Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-zinc-100">
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-zinc-100">
             <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
             <StatPill
               label="Reject %"
@@ -913,6 +875,8 @@ export function RecordProductionPage() {
               tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
             />
             <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
+            <StatPill label="Total Mix (kg)" value={`${totalMaterialMix} kg`} />
+            <StatPill label="Mix / Unit" value={`${liveMetrics.materialPerUnit} kg`} />
             <StatPill
               label="OEE (live)"
               value={`${liveMetrics.oee}%`}

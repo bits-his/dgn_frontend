@@ -93,7 +93,7 @@ const recyclingGroup: NavGroup = {
   icon: Factory,
   items: [
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
-    { to: '/process/sorting', label: 'Sorting', icon: Layers, menuKey: 'sorting', permission: 'batch.create' },
+    // { to: '/process/sorting', label: 'Sorting', icon: Layers, menuKey: 'sorting', permission: 'batch.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
     { to: '/process/drying', label: 'Drying', icon: Flame, menuKey: 'drying', permission: 'batch.create' },
@@ -117,7 +117,7 @@ const mainNavRest: NavItem[] = [
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
   { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'sales', permission: 'sales.view' },
   { to: '/batches', label: 'Batches', icon: Search, menuKey: 'batches', permission: 'batch.view' },
-  { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },
+  // { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },
   { to: '/masters', label: 'Masters', icon: Boxes, menuKey: 'masters', permission: 'masters.manage' },
 ]
 

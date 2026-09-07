@@ -12,6 +12,7 @@ import { BatchesPage } from '@/pages/BatchesPage'
 import { BatchDetailPage } from '@/pages/BatchDetailPage'
 import { SuppliersPage } from '@/pages/SuppliersPage'
 import { MastersPage } from '@/pages/MastersPage'
+import { ProcessStageListPage } from '@/pages/ProcessStageListPage'
 import { ProcessStagePage } from '@/pages/ProcessStagePage'
 import { CostIntelligencePage } from '@/pages/CostIntelligencePage'
 import { ProductionPage } from '@/pages/ProductionPage'
@@ -90,7 +91,8 @@ function App() {
                 <Route path="/floor" element={<Navigate to="/receiving" replace />} />
                 <Route path="/receiving" element={<ScrapReceivingListPage />} />
                 <Route path="/receiving/new" element={<ScrapReceivingPage />} />
-                <Route path="/process/:stage" element={<ProcessStagePage />} />
+                <Route path="/process/:stage" element={<ProcessStageListPage />} />
+                <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
                 <Route path="/production/new" element={<RecordProductionPage />} />

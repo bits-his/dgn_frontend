@@ -2,11 +2,10 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus, PackagePlus, Eye, Scale } from 'lucide-react'
+import { Plus, Eye } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -62,12 +61,6 @@ export function ScrapReceivingListPage() {
   })
 
   const rows = receiptsQuery.data || []
-
-  // Calculate summary metrics
-  const totalReceipts = rows.length
-  const totalNetKg = rows.reduce((acc, r) => acc + Number(r.netWeight || 0), 0)
-  const totalCost = rows.reduce((acc, r) => acc + Number(r.purchaseCost || 0), 0)
-  const avgPricePerKg = totalNetKg > 0 ? totalCost / totalNetKg : 0
 
   const columns: ColumnDef<ScrapReceiptRow>[] = useMemo(
     () => [
@@ -219,61 +212,7 @@ export function ScrapReceivingListPage() {
       }
     >
       <div className="space-y-5">
-        {/* Stat Cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Total Receipts
-              </span>
-              <PackagePlus className="h-4 w-4 text-amber-600" />
-            </div>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-foreground">
-              {totalReceipts}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Recorded inbound deliveries</p>
-          </Card>
-
-          <Card className="p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Total Inbound
-              </span>
-              <Scale className="h-4 w-4 text-sky-600" />
-            </div>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-foreground">
-              {totalNetKg.toLocaleString(undefined, { maximumFractionDigits: 1 })}{' '}
-              <span className="text-xs font-normal text-muted-foreground">kg</span>
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Net scrap weight purchased</p>
-          </Card>
-
-          <Card className="p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Total Spend
-              </span>
-              <span className="text-sm font-bold text-emerald-600">₦</span>
-            </div>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-foreground truncate">
-              ₦{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Material purchase costs</p>
-          </Card>
-
-          <Card className="p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Avg Price / kg
-              </span>
-              <span className="text-sm font-bold text-purple-600">₦</span>
-            </div>
-            <p className="mt-2 text-2xl font-bold tracking-tight text-foreground">
-              ₦{avgPricePerKg.toFixed(2)}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">Weighted average inbound</p>
-          </Card>
-        </div>
+     
 
         {/* Table */}
         <CustomTable1

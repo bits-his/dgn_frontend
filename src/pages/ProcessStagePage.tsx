@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { type ColumnDef } from '@tanstack/react-table'
-import { ArrowRightLeft, Warehouse, Flame, X, CheckCircle2 } from 'lucide-react'
+import { Warehouse, RotateCcw, ArrowRight, CheckCircle2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, StatPill, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -13,9 +12,8 @@ import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Button } from '@/components/ui/button'
-import CustomTable1 from '@/components/CustomTable1'
 
-const STAGE_META: Record<
+export const STAGE_META: Record<
   string,
   {
     title: string
@@ -105,7 +103,7 @@ const STAGE_META: Record<
   },
 }
 
-type FormValues = {
+export type FormValues = {
   inputBatchNumber: string
   qtyInput: string
   qtyUsable: string
@@ -125,7 +123,7 @@ type FormValues = {
   notes: string
 }
 
-type InputBatch = {
+export type InputBatch = {
   id: number
   batchNumber: string
   batchType: string
@@ -141,15 +139,15 @@ type InputBatch = {
   pricePerKg?: number | null
 }
 
-type ColorLine = { color: string; qtyKg: number }
-type ColorLot = { batchNumber: string; color: string; qtyKg: number }
+export type ColorLine = { color: string; qtyKg: number }
+export type ColorLot = { batchNumber: string; color: string; qtyKg: number }
 
-function colorName(code?: string | null) {
+export function colorName(code?: string | null) {
   if (!code) return '—'
   return SORT_COLORS.find((c) => c.code === code)?.name || code
 }
 
-function formatBusinessDate(raw?: string | null) {
+export function formatBusinessDate(raw?: string | null) {
   if (!raw || raw.length !== 6) return null
   const yy = Number(raw.slice(0, 2))
   const mm = Number(raw.slice(2, 4))
@@ -162,7 +160,7 @@ function formatBusinessDate(raw?: string | null) {
   })
 }
 
-function formatCreatedAt(raw?: string) {
+export function formatCreatedAt(raw?: string) {
   if (!raw) return '—'
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return '—'
@@ -175,7 +173,7 @@ function formatCreatedAt(raw?: string) {
   })
 }
 
-function qtyLabel(value: string | number | undefined, uom: string) {
+export function qtyLabel(value: string | number | undefined, uom: string) {
   if (value == null || value === '') return '—'
   return `${Number(value).toLocaleString()} ${uom || 'kg'}`
 }
@@ -227,6 +225,8 @@ export function ProcessStageForm({
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
   const [successBatch, setSuccessBatch] = useState<string | null>(null)
+  const [dryingDestination, setDryingDestination] = useState<'recrushing' | 'production' | null>(null)
+  const [submitAction, setSubmitAction] = useState<string | null>(null)
   const [colorLots, setColorLots] = useState<ColorLot[]>([])
   const [scrapTicket, setScrapTicket] = useState<string | null>(null)
   const [colorLines, setColorLines] = useState<ColorLine[]>([])
@@ -283,7 +283,7 @@ export function ProcessStageForm({
                   (receipt.loadingCost ?? 0) +
                   (receipt.otherCost ?? 0)) /
                 (receipt.netWeight || 1)
-              ).toFixed(2)
+              ).toFixed(2),
             )
           : null,
       }
@@ -321,36 +321,13 @@ export function ProcessStageForm({
     }))
   }, [machines.data])
 
-  // When on drying or recrushing stage, fetch completed batches waiting for handover
-  const pendingHandoverQuery = useQuery({
-    queryKey: ['pending-handover-lots'],
-    queryFn: async () => {
-      const { data } = await api.get('/production/store/pending')
-      return (data.data || []) as InputBatch[]
-    },
-    enabled: stage === 'drying',
-  })
-
-  const [transferringBatch, setTransferringBatch] = useState<string | null>(null)
-  const [handoverFeedback, setHandoverFeedback] = useState<string | null>(null)
-
-  const handleTransferBatch = async (batchNumber: string) => {
-    setTransferringBatch(batchNumber)
-    setHandoverFeedback(null)
-    try {
-      await api.post('/production/store/transfer', { batchNumber })
-      await queryClient.invalidateQueries({ queryKey: ['drying-completed-lots'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-store-pending'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
-      setHandoverFeedback(`Batch ${batchNumber} transferred to Production Store!`)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; message?: string } } }
-      alert(axiosErr.response?.data?.err || axiosErr.response?.data?.message || 'Failed to transfer batch to Production Store')
-    } finally {
-      setTransferringBatch(null)
-    }
-  }
+  const batchOptions = useMemo(() => {
+    return (inputs.data || []).map((b) => ({
+      value: b.batchNumber,
+      label: `${b.batchNumber} - ${colorName(b.sortColor)} (${qtyLabel(b.qtyRemaining, b.uom)})`,
+      sublabel: `${b.material?.name || b.batchType} · Loc: ${b.location?.name || 'Processing Area'}`,
+    }))
+  }, [inputs.data])
 
   const { register, handleSubmit, watch, setValue, formState, reset } = useForm<FormValues>({
     defaultValues: emptyForm(activeBatch || ''),
@@ -361,6 +338,7 @@ export function ProcessStageForm({
     const fromUrl = searchParams.get('batch') || presetBatchNumber || null
     setActiveBatch(fromUrl)
     setSuccessBatch(null)
+    setDryingDestination(null)
     setColorLots([])
     setScrapTicket(null)
     setServerErrors([])
@@ -378,6 +356,7 @@ export function ProcessStageForm({
   const openBatch = (batchNumber: string) => {
     setActiveBatch(batchNumber)
     setSuccessBatch(null)
+    setDryingDestination(null)
     setServerErrors([])
     setWarning(null)
     setColorLines([])
@@ -388,16 +367,7 @@ export function ProcessStageForm({
   }
 
   const backToQueue = () => {
-    setActiveBatch(null)
-    setSuccessBatch(null)
-    setColorLots([])
-    setScrapTicket(null)
-    setServerErrors([])
-    setWarning(null)
-    setColorLines([])
-    reset(emptyForm())
-    setSearchParams({}, { replace: true })
-    queryClient.invalidateQueries({ queryKey: ['process-inputs', stage] })
+    navigate(`/process/${stage}`)
   }
 
   useEffect(() => {
@@ -445,155 +415,25 @@ export function ProcessStageForm({
     [qtyInput, qtyUsable],
   )
 
-
-  // Build columns for the queue CustomTable1
-  const queueColumns = useMemo((): ColumnDef<InputBatch>[] => [
-    {
-      accessorKey: 'batchNumber',
-      header: 'Batch',
-      cell: ({ row }) => (
-        <div>
-          <p className="font-semibold tracking-tight text-sm">{row.original.batchNumber}</p>
-          <p className="mt-0.5 text-xs text-[var(--ink-faint)]">{row.original.batchType}</p>
-        </div>
-      ),
-    },
-    ...(!isSorting ? [{
-      accessorKey: 'sortColor',
-      header: 'Colour',
-      cell: ({ row }: { row: { original: InputBatch } }) => (
-        <span className="text-sm text-[var(--ink-muted)]">{colorName(row.original.sortColor)}</span>
-      ),
-    }] : []),
-    {
-      accessorFn: (row) => row.material?.name ?? '',
-      id: 'material',
-      header: 'Material',
-      cell: ({ row }) => <span className="text-sm">{row.original.material?.name || '—'}</span>,
-    },
-    {
-      accessorKey: 'qtyRemaining',
-      header: 'Available',
-      cell: ({ row }) => (
-        <span className="text-sm font-medium tabular-nums">
-          {qtyLabel(row.original.qtyRemaining, row.original.uom)}
-        </span>
-      ),
-    },
-    {
-      accessorFn: (row) => row.location?.name ?? '',
-      id: 'location',
-      header: 'Location',
-      cell: ({ row }) => <span className="text-sm text-[var(--ink-muted)]">{row.original.location?.name || '—'}</span>,
-    },
-    {
-      accessorKey: 'businessDate',
-      header: 'Date',
-      cell: ({ row }) => (
-        <span className="text-sm tabular-nums text-[var(--ink-muted)]">
-          {formatBusinessDate(row.original.businessDate) || formatCreatedAt(row.original.createdAt)}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      enableSorting: false,
-      cell: ({ row }) => (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            asChild
-          >
-            <Link to={`/batches/${row.original.batchNumber}`}>
-              View
-            </Link>
-          </Button>
-          <Button
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation()
-              openBatch(row.original.batchNumber)
-            }}
-          >
-            Process
-          </Button>
-        </div>
-      ),
-    },
-  ], [isSorting, openBatch]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const addColorLine = () => {
-    setServerErrors([])
-    const color = pickColor
-    const qtyKg = Number(pickKg)
-    if (!color) {
-      setServerErrors([{ label: 'Colour', message: 'Select a colour before adding.' }])
-      return
+    const kg = Number(pickKg)
+    if (!pickColor || !(kg > 0)) return
+    if (colorLines.some((l) => l.color === pickColor)) {
+      setColorLines((prev) =>
+        prev.map((l) => (l.color === pickColor ? { ...l, qtyKg: +(l.qtyKg + kg).toFixed(3) } : l)),
+      )
+    } else {
+      setColorLines((prev) => [...prev, { color: pickColor, qtyKg: +kg.toFixed(3) }])
     }
-    if (!(qtyKg > 0)) {
-      setServerErrors([
-        { label: 'Kg', message: 'Enter a weight greater than zero for this colour.' },
-      ])
-      return
-    }
-    if (!(qtyInput > 0)) {
-      setServerErrors([
-        {
-          label: 'Scrap ticket',
-          message: 'Choose a scrap ticket first so available kg is known.',
-        },
-      ])
-      return
-    }
-    if (colorLines.some((line) => line.color === color)) {
-      setServerErrors([
-        {
-          label: 'Colour',
-          message: `${colorName(color)} is already on the list. Remove it first if you need to change the kg.`,
-        },
-      ])
-      return
-    }
-    const nextTotal = +(colorUsable + qtyKg).toFixed(3)
-    if (nextTotal - qtyInput > 0.001) {
-      setServerErrors([
-        {
-          label: 'Colours',
-          message: `Adding ${qtyKg} kg would make colours ${nextTotal} kg, which is over the scrap ticket (${qtyInput} kg). Only ${colorRoomLeft} kg left.`,
-        },
-      ])
-      return
-    }
-    setColorLines((prev) => [...prev, { color, qtyKg: +qtyKg.toFixed(3) }])
     setPickColor('')
     setPickKg('')
   }
 
   const saveEditColorLine = (color: string) => {
-    const qtyKg = Number(editingKg)
-    if (!(qtyKg > 0)) {
-      setEditingColor(null)
-      setEditingKg('')
-      return
-    }
-    // Calculate total excluding the line being edited
-    const othersTotal = +colorLines
-      .filter((l) => l.color !== color)
-      .reduce((s, l) => s + l.qtyKg, 0)
-      .toFixed(3)
-    if (othersTotal + qtyKg - qtyInput > 0.001) {
-      setServerErrors([
-        {
-          label: 'Colours',
-          message: `${qtyKg} kg would bring total to ${+(othersTotal + qtyKg).toFixed(3)} kg, over the lot (${qtyInput} kg).`,
-        },
-      ])
-      return
-    }
+    const kg = Number(editingKg)
+    if (!(kg > 0)) return
     setColorLines((prev) =>
-      prev.map((l) => (l.color === color ? { ...l, qtyKg: +qtyKg.toFixed(3) } : l)),
+      prev.map((l) => (l.color === color ? { ...l, qtyKg: +kg.toFixed(3) } : l)),
     )
     setEditingColor(null)
     setEditingKg('')
@@ -603,9 +443,14 @@ export function ProcessStageForm({
     setColorLines((prev) => prev.filter((line) => line.color !== color))
   }
 
-  const submitPayload = async (values: FormValues, confirmUnusualYield = false) => {
+  const submitPayload = async (
+    values: FormValues,
+    confirmUnusualYield = false,
+    destination?: 'recrushing' | 'production',
+  ) => {
     setServerErrors([])
     setWarning(null)
+    setSubmitAction(destination || 'save')
 
     if (isColorAllocation) {
       if (!colorLines.length) {
@@ -615,6 +460,7 @@ export function ProcessStageForm({
             message: 'Add at least one colour with kg. Each colour becomes its own BAT- lot for washing.',
           },
         ])
+        setSubmitAction(null)
         return
       }
       if (colorsOverLot) {
@@ -624,12 +470,14 @@ export function ProcessStageForm({
             message: `Colour total is ${colorUsable} kg but the input batch is only ${qtyInput} kg (over by ${(colorUsable - qtyInput).toFixed(3)} kg).`,
           },
         ])
+        setSubmitAction(null)
         return
       }
       if (!values.inputBatchNumber) {
         setServerErrors([
           { label: 'Input batch', message: 'Select the batch you are processing.' },
         ])
+        setSubmitAction(null)
         return
       }
     } else if (isCrushing) {
@@ -642,6 +490,7 @@ export function ProcessStageForm({
             message: 'Enter the measured kg after crushing.',
           },
         ])
+        setSubmitAction(null)
         return
       }
       if (measured - inbound > 0.001) {
@@ -651,6 +500,7 @@ export function ProcessStageForm({
             message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
           },
         ])
+        setSubmitAction(null)
         return
       }
     }
@@ -666,6 +516,7 @@ export function ProcessStageForm({
             message: `Enter the measured kg after ${stageName}.`,
           },
         ])
+        setSubmitAction(null)
         return
       }
       if (measured - inbound > 0.001) {
@@ -675,6 +526,7 @@ export function ProcessStageForm({
             message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
           },
         ])
+        setSubmitAction(null)
         return
       }
     }
@@ -702,11 +554,33 @@ export function ProcessStageForm({
         teamName: meta.showTeam ? values.teamName : undefined,
         confirmUnusualYield,
       })
+
+      const resultingBatch = data.batchNumber || activeBatch || values.inputBatchNumber
+
+      // If drying and user clicked "Move to Production", immediately handover to Production Store
+      if (isDrying && destination === 'production') {
+        try {
+          await api.post('/production/store/transfer', { batchNumber: resultingBatch })
+          await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+          await queryClient.invalidateQueries({ queryKey: ['production-store-pending'] })
+          await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
+        } catch (transferErr: any) {
+          console.error('Failed to auto-transfer to production store:', transferErr)
+          alert(
+            `Drying saved as batch ${resultingBatch}, but transfer to Production Store had an issue: ` +
+              (transferErr.response?.data?.err || transferErr.response?.data?.message || transferErr.message),
+          )
+        }
+        setDryingDestination('production')
+      } else if (isDrying && destination === 'recrushing') {
+        setDryingDestination('recrushing')
+      }
+
       if (Array.isArray(data.colorLots) && data.colorLots.length > 0) {
         setColorLots(data.colorLots)
         setScrapTicket(data.scrapTicket || values.inputBatchNumber)
       }
-      setSuccessBatch(data.batchNumber)
+      setSuccessBatch(resultingBatch)
       queryClient.invalidateQueries({ queryKey: ['process-inputs', stage] })
       queryClient.invalidateQueries({ queryKey: ['batches'] })
     } catch (err: unknown) {
@@ -732,9 +606,12 @@ export function ProcessStageForm({
         res?.data?.err || res?.data?.message || 'Failed to save process run',
       )
       setServerErrors(items)
+    } finally {
+      setSubmitAction(null)
     }
   }
 
+  // ——— Success view ———
   if (successBatch) {
     const nextMap: Record<string, string | null> = {
       sorting: 'crushing',
@@ -745,631 +622,703 @@ export function ProcessStageForm({
     }
     const next = nextMap[stage]
     const hasLots = colorLots.length > 0
+
+    if (isDrying) {
+      return (
+        <PageLayout
+          title={meta.title}
+          description={
+            dryingDestination === 'production'
+              ? 'Drying completed & transferred to Production Store'
+              : 'Drying completed & ready for Re-crushing'
+          }
+        >
+          <Card className="text-center !p-6 max-w-xl mx-auto space-y-4">
+            <div className="mx-auto size-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+              {dryingDestination === 'production' ? (
+                <Warehouse className="size-6" />
+              ) : (
+                <RotateCcw className="size-6" />
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+                Drying Complete
+              </p>
+              <p className="mt-1 text-2xl font-bold tracking-tight">{successBatch}</p>
+              <p className="mt-2 text-sm text-[var(--ink-muted)]">
+                {dryingDestination === 'production'
+                  ? 'Batch has been saved and transferred directly to the Production Store. It is now ready for production extrusion.'
+                  : 'Batch has been saved in the drying area for secondary crushing. It is now available in the Re-crushing queue.'}
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2.5">
+              {dryingDestination === 'production' ? (
+                <Button asChild className="dgn-btn-primary">
+                  <Link
+                    to="/production/store"
+                    className="inline-flex items-center justify-center gap-1.5 leading-none"
+                  >
+                    <Warehouse className="size-4 shrink-0" />
+                    <span>Open Production Store</span>
+                  </Link>
+                </Button>
+              ) : (
+                <Button asChild className="dgn-btn-primary">
+                  <Link
+                    to={`/process/recrushing/new?batch=${encodeURIComponent(successBatch)}`}
+                    className="inline-flex items-center justify-center gap-1.5 leading-none"
+                  >
+                    <RotateCcw className="size-4 shrink-0" />
+                    <span>Process Re-crushing Now</span>
+                  </Link>
+                </Button>
+              )}
+              <Button variant="outline" asChild>
+                <Link to={`/batches/${successBatch}`}>Batch 360°</Link>
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSuccessBatch(null)
+                  setDryingDestination(null)
+                  setActiveBatch(null)
+                  setSearchParams({}, { replace: true })
+                  reset(emptyForm())
+                }}
+              >
+                Record Another Batch
+              </Button>
+              <Button variant="ghost" asChild>
+                <Link to={`/process/${stage}`}>Back to Drying Queue</Link>
+              </Button>
+            </div>
+          </Card>
+        </PageLayout>
+      )
+    }
+
     return (
       <PageLayout
         title={meta.title}
         description={hasLots ? 'Colour lots created' : `${meta.title} saved`}
       >
-        <Card className="text-center !p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-            {hasLots ? 'Colour lots created' : `${meta.title} saved`}
-          </p>
-          {hasLots ? (
-            <>
-              <p className="mt-2 text-sm text-[var(--ink-muted)]">
-                {isSorting
-                  ? `Sorted from scrap ${scrapTicket}. Each colour now has its own BAT- number for the rest of the line.`
-                  : `Crushed from scrap ${scrapTicket || activeBatch}. Each colour now has its own BAT- number ready for washing.`}
-              </p>
-              <ul className="mx-auto mt-4 max-w-md divide-y divide-[var(--line)] rounded-xl text-left ring-1 ring-[var(--line)]">
-                {colorLots.map((lot) => (
-                  <li
-                    key={lot.batchNumber}
-                    className="flex items-center justify-between gap-3 px-4 py-3"
-                  >
-                    <div>
-                      <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
-                      <p className="text-xs text-[var(--ink-muted)]">
-                        {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-[var(--accent-strong)]"
-                      onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+        <Card className="text-center !p-6 max-w-xl mx-auto space-y-4">
+          <div className="mx-auto size-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+            <CheckCircle2 className="size-6" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
+              {hasLots ? 'Colour lots created' : `${meta.title} saved`}
+            </p>
+            {hasLots ? (
+              <>
+                <p className="mt-2 text-sm text-[var(--ink-muted)]">
+                  {isSorting
+                    ? `Sorted from scrap ${scrapTicket}. Each colour now has its own BAT- number for the rest of the line.`
+                    : `Crushed from scrap ${scrapTicket || activeBatch}. Each colour now has its own BAT- number ready for washing.`}
+                </p>
+                <ul className="mx-auto mt-4 max-w-md divide-y divide-[var(--line)] rounded-xl text-left ring-1 ring-[var(--line)]">
+                  {colorLots.map((lot) => (
+                    <li
+                      key={lot.batchNumber}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
                     >
-                      Open
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : (
-            <p className="mt-2 text-2xl font-semibold tracking-tight">{successBatch}</p>
-          )}
-          <div className="mt-4 flex flex-col justify-center gap-2 sm:flex-row">
-            {next && (
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-primary"
-                onClick={() => navigate(`/process/${next}`)}
-              >
-                Next: {STAGE_META[next]?.title}
-              </button>
+                      <div>
+                        <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
+                        <p className="text-xs text-[var(--ink-muted)]">
+                          {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-[var(--accent-strong)]"
+                        onClick={() => navigate(`/batches/${lot.batchNumber}`)}
+                      >
+                        Open
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="mt-1 text-2xl font-bold tracking-tight">{successBatch}</p>
             )}
-            {stage === 'drying' && successBatch && (
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-primary flex items-center justify-center gap-1.5"
-                onClick={async () => {
-                  try {
-                    await api.post('/production/store/transfer', { batchNumber: successBatch })
-                    await queryClient.invalidateQueries({ queryKey: ['production-store'] })
-                    await queryClient.invalidateQueries({ queryKey: ['pending-handover-lots'] })
-                    navigate('/production/store')
-                  } catch (e) {
-                    console.error(e)
-                  }
-                }}
-              >
-                <Warehouse className="size-4" />
-                Transfer to Production Store Now
-              </button>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2">
+            {next && (
+              <Button asChild className="dgn-btn-primary">
+                <Link
+                  to={`/process/${next}/new`}
+                  className="inline-flex items-center justify-center gap-1.5 leading-none"
+                >
+                  <span>Next: {STAGE_META[next]?.title}</span>
+                  <ArrowRight className="size-4 shrink-0 ml-0.5" />
+                </Link>
+              </Button>
             )}
             {!isSorting && (
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-secondary"
-                onClick={() => navigate(`/batches/${successBatch}`)}
-              >
-                Batch 360°
-              </button>
+              <Button variant="outline" asChild>
+                <Link to={`/batches/${successBatch}`}>Batch 360°</Link>
+              </Button>
             )}
-            <button type="button" className="dgn-btn dgn-btn-secondary" onClick={backToQueue}>
-              Back to queue
-            </button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSuccessBatch(null)
+                setActiveBatch(null)
+                setSearchParams({}, { replace: true })
+                reset(emptyForm())
+              }}
+            >
+              Record Another
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link to={`/process/${stage}`}>Back to {meta.title} Queue</Link>
+            </Button>
           </div>
         </Card>
       </PageLayout>
     )
   }
 
-  // ——— Queue: pick a batch first ———
-  if (!activeBatch) {
-    return (
-      <PageLayout
-        title={meta.title}
-        description={meta.queueTitle}
-      >
-        <div className="space-y-4">
-          <CustomTable1
-            data={inputs.data || []}
-            columns={queueColumns}
-            filter={true}
-            loading={inputs.isLoading}
-          />
-
-        {/* If drying stage: show completed batches waiting for handover */}
-        {stage === 'drying' && (
-          <Card className="mt-4 !p-0 overflow-hidden">
-            <div className="p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-start justify-between gap-3">
-              <div className="flex items-start gap-2.5">
-                <Flame className="size-4 text-amber-700 shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="text-xs font-bold text-amber-950">
-                    Completed Batches Waiting for Handover to Production Store
-                  </h3>
-                  <p className="text-[11px] text-amber-800">
-                    These materials stay in processing until transferred to the Production Store. Click <strong>Transfer to Production</strong> to hand over.
-                  </p>
-                </div>
+  // ——— Form view ———
+  return (
+    <PageLayout
+      title={selected ? `${meta.title}: ${selected.batchNumber}` : `Record ${meta.title}`}
+      description={
+        selected
+          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
+          : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
+      }
+      back={true}
+      backLabel={`Back to ${meta.title} queue`}
+      onBack={backToQueue}
+    >
+      <div className="w-full space-y-4">
+        {/* Batch Picker Card if no batch selected or to change batch */}
+        {!selected ? (
+          <Card className="!p-5">
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[var(--ink-muted)] mb-1">
+                  Select Input Batch
+                </label>
+                <p className="text-xs text-[var(--ink-muted)] mb-3">
+                  Choose an available batch waiting in the {meta.title.toLowerCase()} queue to proceed.
+                </p>
               </div>
-              <Link
-                to="/production/store"
-                className="text-xs font-semibold text-[var(--accent-strong)] hover:underline shrink-0 flex items-center gap-1"
-              >
-                <Warehouse className="size-3.5" />
-                Production Store →
-              </Link>
+              <SearchableSelect
+                value={activeBatch || ''}
+                onChange={(val) => {
+                  if (val) openBatch(val)
+                }}
+                options={batchOptions}
+                placeholder={`Select a batch waiting for ${meta.title.toLowerCase()}…`}
+                searchPlaceholder="Search batch number, colour, material…"
+              />
+              {!inputs.isLoading && (inputs.data || []).length === 0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                  {meta.emptyHint}
+                </p>
+              )}
             </div>
-
-            {handoverFeedback && (
-              <div className="p-2.5 bg-emerald-50 text-xs font-medium text-emerald-800 border-b border-emerald-200 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <CheckCircle2 className="size-3.5 text-emerald-600" />
-                  <span>{handoverFeedback}</span>
-                </div>
-                <button type="button" onClick={() => setHandoverFeedback(null)}>
-                  <X className="size-3.5" />
-                </button>
+          </Card>
+        ) : (
+          <Card className="!p-4 bg-zinc-50 border-zinc-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--ink-faint)]">
+                  Selected Batch
+                </span>
+                <h3 className="text-lg font-bold text-zinc-900">{selected.batchNumber}</h3>
+                <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                  {selected.material?.name || selected.batchType} · Colour:{' '}
+                  <strong>{colorName(selected.sortColor)}</strong> · Available:{' '}
+                  <strong className="text-emerald-700">
+                    {qtyLabel(selected.qtyRemaining, selected.uom)}
+                  </strong>{' '}
+                  · Location: {selected.location?.name || 'Processing Area'}
+                </p>
               </div>
-            )}
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-600 font-semibold uppercase tracking-wider text-[11px]">
-                  <tr>
-                    <th className="py-2.5 px-3">Batch Number</th>
-                    <th className="py-2.5 px-3">Colour</th>
-                    <th className="py-2.5 px-3">Material</th>
-                    <th className="py-2.5 px-3 text-right">Available</th>
-                    <th className="py-2.5 px-3">Location</th>
-                    <th className="py-2.5 px-3 text-right">Handover Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100">
-                  {pendingHandoverQuery.isLoading && (
-                    <tr>
-                      <td colSpan={6} className="py-6 text-center text-zinc-500">
-                        Checking processing area for completed batches…
-                      </td>
-                    </tr>
-                  )}
-                  {!pendingHandoverQuery.isLoading && (pendingHandoverQuery.data || []).length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="py-6 text-center text-zinc-500">
-                        No batches currently waiting in processing area. All batches have been handed over to Production Store.
-                      </td>
-                    </tr>
-                  )}
-                  {!pendingHandoverQuery.isLoading &&
-                    (pendingHandoverQuery.data || []).map((b) => (
-                      <tr key={b.id} className="hover:bg-zinc-50/70 transition-colors">
-                        <td className="py-2 px-3 font-semibold text-zinc-900">
-                          <Link to={`/batches/${b.batchNumber}`} className="text-[var(--accent-strong)] hover:underline">
-                            {b.batchNumber}
-                          </Link>
-                        </td>
-                        <td className="py-2 px-3 text-zinc-700">{colorName(b.sortColor)}</td>
-                        <td className="py-2 px-3 text-zinc-700">{b.material?.name || '—'}</td>
-                        <td className="py-2 px-3 text-right font-bold text-amber-900">
-                          {qtyLabel(b.qtyRemaining, b.uom)}
-                        </td>
-                        <td className="py-2 px-3 text-zinc-500">{b.location?.name || 'Processing Area'}</td>
-                        <td className="py-2 px-3 text-right">
-                          <button
-                            type="button"
-                            disabled={transferringBatch === b.batchNumber}
-                            className="dgn-btn dgn-btn-primary text-[11px] py-1 px-2.5 inline-flex items-center gap-1"
-                            onClick={() => handleTransferBatch(b.batchNumber)}
-                          >
-                            <ArrowRightLeft className="size-3" />
-                            {transferringBatch === b.batchNumber ? 'Transferring…' : 'Transfer to Production'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs shrink-0 self-start sm:self-center"
+                onClick={() => {
+                  setActiveBatch(null)
+                  setSearchParams({}, { replace: true })
+                  reset(emptyForm())
+                }}
+              >
+                Change Batch
+              </Button>
             </div>
           </Card>
         )}
-        </div>
-      </PageLayout>
-    )
-  }
 
-  // ——— Form: process the chosen batch ———
-  return (
-    <PageLayout
-      title={`${meta.title}: ${selected?.batchNumber || activeBatch}`}
-      description={selected ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available` : 'Batch processing'}
-      back={true}
-      backLabel="Back to queue"
-      onBack={backToQueue}
-    >
-      <div className="space-y-4">
+        {selected && (
+          <form
+            className="space-y-4"
+            onSubmit={handleSubmit((values) => submitPayload(values, false))}
+          >
+            <input type="hidden" {...register('inputBatchNumber', { required: true })} />
 
-      {!selected && !inputs.isLoading && (
-        <Card className="mb-4 border-amber-200 bg-amber-50 text-amber-950 !p-4">
-          <p className="text-sm">
-            {activeBatch} is not in this stage queue anymore (already processed or moved).
-          </p>
-          <button type="button" className="dgn-btn dgn-btn-secondary mt-3" onClick={backToQueue}>
-            Choose another batch
-          </button>
-        </Card>
-      )}
-
-      {selected && (
-        <div className="flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-semibold text-[var(--accent-strong)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]"></span>
-            {selected.qtyRemaining} {selected.uom} available
-          </span>
-          {selected.sortColor && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-              {colorName(selected.sortColor)}
-            </span>
-          )}
-          {selected.location?.name && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-500">
-              {selected.location.name}
-            </span>
-          )}
-        </div>
-      )}
-
-      <form
-        className="space-y-4"
-        onSubmit={handleSubmit((values) => submitPayload(values, false))}
-      >
-        <input type="hidden" {...register('inputBatchNumber', { required: true })} />
-
-        {isColorAllocation ? (
-          <Card>
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold tracking-tight">
-                {isSorting ? 'Sort into colours' : 'Allocate colours'}
-              </h2>
-              {isCrushing && qtyInput > 0 && (
-                <span className="text-xs text-[var(--ink-muted)]">
-                  {colorRoomLeft > 0.001
-                    ? `${colorRoomLeft.toFixed(3)} kg left`
-                    : <span className="font-semibold text-emerald-600">Fully allocated ✓</span>}
-                </span>
-              )}
-            </div>
-
-            {/* Stats strip */}
-            {isCrushing && qtyInput > 0 && (
-              <div className="mt-3 grid divide-x divide-zinc-100 rounded-xl border border-zinc-100 bg-zinc-50"
-                style={{ gridTemplateColumns: batchDetail.data?.pricePerKg ? 'repeat(4, 1fr)' : 'repeat(4, 1fr)' }}
-              >
-                {/* <div className="py-2.5 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Total</p>
-                  <p className="mt-0.5 text-sm font-bold text-zinc-800">{qtyInput} kg</p>
-                </div> */}
-                <div className="py-2.5 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Allocated</p>
-                  <p className="mt-0.5 text-sm font-bold text-emerald-600">{colorUsable.toFixed(3)} kg</p>
+            {isColorAllocation ? (
+              <Card>
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold tracking-tight">
+                    {isSorting ? 'Sort into colours' : 'Allocate colours'}
+                  </h2>
                 </div>
-                <div className="py-2.5 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Remaining</p>
-                  <p className={`mt-0.5 text-sm font-bold ${colorRoomLeft > 0.001 ? 'text-amber-600' : 'text-zinc-400'}`}>
-                    {colorRoomLeft.toFixed(3)} kg
-                  </p>
-                </div>
-                <div className="py-2.5 text-center">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Waste</p>
-                  <p className="mt-0.5 text-sm font-bold text-zinc-600">{qtyInput > 0 ? qtyReject.toFixed(3) : '—'} kg</p>
-                </div>
-                {batchDetail.data?.pricePerKg && (
-                  <div className="py-2.5 text-center">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">₦ / kg</p>
-                    <p className="mt-0.5 text-sm font-bold text-zinc-700 font-mono">
-                      ₦{batchDetail.data.pricePerKg.toLocaleString()}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
 
-            {/* Add colour row */}
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="flex-1 shrink-0">
-                <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">Colour</label>
-                <ColorCombobox
-                  value={pickColor}
-                  onChange={(code) => {
-                    setPickColor(code)
-                    setTimeout(() => {
-                      document.getElementById('pick-kg-input')?.focus()
-                    }, 80)
-                  }}
-                  exclude={colorLines.map((l) => l.color)}
-                  placeholder="Pick a colour…"
-                  disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001}
-                />
-              </div>
-              <div className="flex-1">
-                <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
-                  Kg
-                  {colorRoomLeft > 0.001 && <span className="ml-1 font-normal normal-case text-zinc-400">(max {colorRoomLeft.toFixed(3)})</span>}
-                </label>
-                <input
-                  id="pick-kg-input"
-                  inputMode="decimal"
-                  className="dgn-input w-full"
-                  placeholder="0.000"
-                  value={pickKg}
-                  max={colorRoomLeft > 0 ? colorRoomLeft : undefined}
-                  onChange={(e) => setPickKg(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addColorLine())}
-                />
-              </div>
-              <div className="sm:shrink-0 flex-1">
-                <Button
-                  type="button"
-                  className="w-full h-12 mb-1"
-                  disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001 || !pickColor || !(Number(pickKg) > 0)}
-                  onClick={addColorLine}
-                >
-                  + Add
-                </Button>
-              </div>
-            </div>
-
-            {/* Added colours list */}
-            {colorLines.length > 0 && (
-              <ul className="mt-4 divide-y divide-zinc-100 rounded-xl border border-zinc-100 overflow-hidden">
-                {colorLines.map((line) => (
-                  <li
-                    key={line.color}
-                    className="flex items-center gap-3 px-4 py-3"
+                {/* Stats strip */}
+                {isCrushing && qtyInput > 0 && (
+                  <div
+                    className="mt-3 grid divide-x divide-zinc-100 rounded-xl border border-zinc-100 bg-zinc-50"
+                    style={{
+                      gridTemplateColumns: batchDetail.data?.pricePerKg
+                        ? 'repeat(4, 1fr)'
+                        : 'repeat(3, 1fr)',
+                    }}
                   >
-                    <span className="flex-1 text-sm font-medium">{colorName(line.color)}</span>
-
-                    {editingColor === line.color ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          autoFocus
-                          inputMode="decimal"
-                          className="dgn-input w-24 text-sm"
-                          value={editingKg}
-                          onChange={(e) => setEditingKg(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') { e.preventDefault(); saveEditColorLine(line.color) }
-                            if (e.key === 'Escape') { setEditingColor(null); setEditingKg('') }
-                          }}
-                        />
-                        <span className="text-xs text-zinc-400">kg</span>
-                        <button
-                          type="button"
-                          className="dgn-btn dgn-btn-primary text-xs px-2.5 py-1"
-                          onClick={() => saveEditColorLine(line.color)}
-                        >
-                          Save
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs text-zinc-400 hover:text-zinc-600"
-                          onClick={() => { setEditingColor(null); setEditingKg('') }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-mono font-semibold text-zinc-700">
-                          {line.qtyKg.toLocaleString()} kg
-                        </span>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                          onClick={() => { setEditingColor(line.color); setEditingKg(String(line.qtyKg)) }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-red-500 hover:text-red-700"
-                          onClick={() => removeColorLine(line.color)}
-                        >
-                          Remove
-                        </button>
+                    <div className="py-2.5 text-center">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Allocated</p>
+                      <p className="mt-0.5 text-sm font-bold text-emerald-600">{colorUsable.toFixed(3)} kg</p>
+                    </div>
+                    <div className="py-2.5 text-center">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Remaining</p>
+                      <p
+                        className={`mt-0.5 text-sm font-bold ${
+                          colorRoomLeft > 0.001 ? 'text-amber-600' : 'text-zinc-400'
+                        }`}
+                      >
+                        {colorRoomLeft.toFixed(3)} kg
+                      </p>
+                    </div>
+                    <div className="py-2.5 text-center">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Waste</p>
+                      <p className="mt-0.5 text-sm font-bold text-zinc-600">
+                        {qtyInput > 0 ? qtyReject.toFixed(3) : '—'} kg
+                      </p>
+                    </div>
+                    {batchDetail.data?.pricePerKg && (
+                      <div className="py-2.5 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">₦ / kg</p>
+                        <p className="mt-0.5 text-sm font-bold text-zinc-700 font-mono">
+                          ₦{batchDetail.data.pricePerKg.toLocaleString()}
+                        </p>
                       </div>
                     )}
-                  </li>
-                ))}
-              </ul>
+                  </div>
+                )}
+
+                {/* Add colour row */}
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="flex-1 shrink-0">
+                    <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
+                      Colour
+                    </label>
+                    <ColorCombobox
+                      value={pickColor}
+                      onChange={(code) => {
+                        setPickColor(code)
+                        setTimeout(() => {
+                          document.getElementById('pick-kg-input')?.focus()
+                        }, 80)
+                      }}
+                      exclude={colorLines.map((l) => l.color)}
+                      placeholder="Pick a colour…"
+                      disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
+                      Kg
+                      {colorRoomLeft > 0.001 && (
+                        <span className="ml-1 font-normal normal-case text-zinc-400">
+                          (max {colorRoomLeft.toFixed(3)})
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      id="pick-kg-input"
+                      inputMode="decimal"
+                      className="dgn-input w-full"
+                      placeholder="0.000"
+                      value={pickKg}
+                      max={colorRoomLeft > 0 ? colorRoomLeft : undefined}
+                      onChange={(e) => setPickKg(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addColorLine())}
+                    />
+                  </div>
+                  <div className="sm:shrink-0 flex-1">
+                    <Button
+                      type="button"
+                      className="w-full h-12 mb-1"
+                      disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001 || !pickColor || !(Number(pickKg) > 0)}
+                      onClick={addColorLine}
+                    >
+                      + Add
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Added colours list */}
+                {colorLines.length > 0 && (
+                  <ul className="mt-4 divide-y divide-zinc-100 rounded-xl border border-zinc-100 overflow-hidden">
+                    {colorLines.map((line) => (
+                      <li key={line.color} className="flex items-center gap-3 px-4 py-3">
+                        <span className="flex-1 text-sm font-medium">{colorName(line.color)}</span>
+
+                        {editingColor === line.color ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoFocus
+                              inputMode="decimal"
+                              className="dgn-input w-24 text-sm"
+                              value={editingKg}
+                              onChange={(e) => setEditingKg(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  saveEditColorLine(line.color)
+                                }
+                                if (e.key === 'Escape') {
+                                  setEditingColor(null)
+                                  setEditingKg('')
+                                }
+                              }}
+                            />
+                            <span className="text-xs text-zinc-400">kg</span>
+                            <button
+                              type="button"
+                              className="dgn-btn dgn-btn-primary text-xs px-2.5 py-1"
+                              onClick={() => saveEditColorLine(line.color)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs text-zinc-400 hover:text-zinc-600"
+                              onClick={() => {
+                                setEditingColor(null)
+                                setEditingKg('')
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-mono font-semibold text-zinc-700">
+                              {line.qtyKg.toLocaleString()} kg
+                            </span>
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                              onClick={() => {
+                                setEditingColor(line.color)
+                                setEditingKg(String(line.qtyKg))
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-red-500 hover:text-red-700"
+                              onClick={() => removeColorLine(line.color)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Waste display */}
+                {qtyInput > 0 && colorLines.length > 0 && qtyReject > 0 && (
+                  <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+                      Waste / Reject
+                    </span>
+                    <span className="font-mono text-sm font-bold text-amber-800">
+                      {qtyReject.toFixed(3)} kg
+                    </span>
+                  </div>
+                )}
+
+                {colorsOverLot && (
+                  <p className="mt-2 text-xs font-semibold text-red-600">
+                    ⚠ Colours total ({colorUsable.toFixed(3)} kg) exceeds lot ({qtyInput} kg)
+                  </p>
+                )}
+              </Card>
+            ) : (
+              <Card>
+                <div
+                  className={
+                    showsWaste || showsMeasuredOut
+                      ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
+                      : 'grid gap-3 sm:grid-cols-2'
+                  }
+                >
+                  <Field label="Qty in (kg)" hint="From the lot — cannot be edited">
+                    <input
+                      inputMode="decimal"
+                      className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                      readOnly
+                      tabIndex={-1}
+                      {...register('qtyInput', { required: true })}
+                    />
+                  </Field>
+                  {showsWaste ? (
+                    <>
+                      <Field label="Usable out (kg)">
+                        <input
+                          inputMode="decimal"
+                          className="dgn-input"
+                          {...register('qtyUsable', { required: true })}
+                        />
+                      </Field>
+                      <Field label="Waste (kg)" hint="Qty in − usable out">
+                        <input
+                          className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                          value={qtyInput > 0 || qtyUsable > 0 ? String(qtyReject) : ''}
+                          readOnly
+                          tabIndex={-1}
+                        />
+                      </Field>
+                    </>
+                  ) : showsMeasuredOut ? (
+                    <>
+                      <Field
+                        label={
+                          isCrushing
+                            ? 'Measured after crushing (kg)'
+                            : isRecrushing
+                            ? 'Measured after re-crushing (kg)'
+                            : 'Measured after drying (kg)'
+                        }
+                        hint={
+                          measuredOverIn
+                            ? 'Cannot be more than qty in'
+                            : 'Weigh the material and enter the scale reading'
+                        }
+                      >
+                        <input
+                          inputMode="decimal"
+                          className={`dgn-input ${
+                            measuredOverIn ? 'border-red-400 ring-1 ring-red-300' : ''
+                          }`}
+                          {...register('qtyUsable', { required: true })}
+                        />
+                      </Field>
+                      <Field
+                        label="Difference (kg)"
+                        hint="Qty in − measured (weight change, not waste)"
+                      >
+                        <input
+                          className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                          value={qtyInput > 0 || qtyUsable > 0 ? String(measuredShrink) : ''}
+                          readOnly
+                          tabIndex={-1}
+                        />
+                      </Field>
+                    </>
+                  ) : (
+                    <Field label="Qty out (kg)" hint="Same as qty in — no waste on this stage">
+                      <input
+                        className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
+                        value={qtyInput > 0 ? String(qtyInput) : ''}
+                        readOnly
+                        tabIndex={-1}
+                      />
+                    </Field>
+                  )}
+                </div>
+                {(showsWaste || showsMeasuredOut) && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
+                    <StatPill
+                      label={showsMeasuredOut ? 'Measured / in' : 'Accounted'}
+                      value={
+                        showsMeasuredOut
+                          ? `${qtyUsable || 0} / ${qtyInput || 0} kg`
+                          : `${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`
+                      }
+                    />
+                  </div>
+                )}
+              </Card>
             )}
 
-            {/* Waste display — only show when there's something to show */}
-            {qtyInput > 0 && colorLines.length > 0 && qtyReject > 0 && (
-              <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">Waste / Reject</span>
-                <span className="font-mono text-sm font-bold text-amber-800">{qtyReject.toFixed(3)} kg</span>
-              </div>
-            )}
-
-            {colorsOverLot && (
-              <p className="mt-2 text-xs font-semibold text-red-600">
-                ⚠ Colours total ({colorUsable.toFixed(3)} kg) exceeds lot ({qtyInput} kg)
-              </p>
-            )}
-          </Card>
-        ) : (
-          <Card>
-            <div
-              className={
-                showsWaste || showsMeasuredOut
-                  ? 'grid gap-3 sm:grid-cols-2 lg:grid-cols-3'
-                  : 'grid gap-3 sm:grid-cols-2'
-              }
-            >
-              <Field label="Qty in (kg)" hint="From the lot — cannot be edited">
-                <input
-                  inputMode="decimal"
-                  className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                  readOnly
-                  tabIndex={-1}
-                  {...register('qtyInput', { required: true })}
-                />
-              </Field>
-              {showsWaste ? (
-                <>
-                  <Field label="Usable out (kg)">
+            <Card>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {meta.showMachine && (
+                  <Field label={meta.machineLabel || 'Machine'}>
+                    <SearchableSelect
+                      value={watch('machineName') || ''}
+                      onChange={(val) =>
+                        setValue('machineName', val, { shouldValidate: true, shouldDirty: true })
+                      }
+                      options={machineOptions}
+                      placeholder={`Select ${meta.machineLabel?.toLowerCase() || 'machine'}…`}
+                      searchPlaceholder="Search machine name or code…"
+                    />
+                  </Field>
+                )}
+                {meta.showOperator !== false && (
+                  <Field label={meta.operatorLabel || 'Operator'}>
+                    <SearchableSelect
+                      value={watch('operatorName') || ''}
+                      onChange={(val) =>
+                        setValue('operatorName', val, { shouldValidate: true, shouldDirty: true })
+                      }
+                      options={staffOptions}
+                      placeholder={`Select ${meta.operatorLabel?.toLowerCase() || 'operator'}…`}
+                      searchPlaceholder="Search staff by name or code…"
+                    />
+                  </Field>
+                )}
+                {meta.showTeam && (
+                  <Field label="Team">
+                    <input className="dgn-input" {...register('teamName')} placeholder="Team name" />
+                  </Field>
+                )}
+                {meta.showLabourCost !== false && (
+                  <Field label="Labour cost / kg (₦)">
+                    <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
+                  </Field>
+                )}
+                {meta.showEnergyCost !== false && (
+                  <Field label="Energy cost (₦)">
+                    <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
+                  </Field>
+                )}
+                {meta.showWashFields && (
+                  <>
+                    <Field label="Water cost (₦)">
+                      <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
+                    </Field>
+                    <Field label="Detergent cost (₦)">
+                      <input
+                        inputMode="decimal"
+                        className="dgn-input"
+                        {...register('detergentCost')}
+                      />
+                    </Field>
+                  </>
+                )}
+                {meta.showDryFields && (
+                  <Field label="Moisture %">
                     <input
                       inputMode="decimal"
                       className="dgn-input"
-                      {...register('qtyUsable', { required: true })}
+                      {...register('moistureReading')}
                     />
                   </Field>
-                  <Field label="Waste (kg)" hint="Qty in − usable out">
-                    <input
-                      className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                      value={qtyInput > 0 || qtyUsable > 0 ? String(qtyReject) : ''}
-                      readOnly
-                      tabIndex={-1}
-                    />
-                  </Field>
-                </>
-              ) : showsMeasuredOut ? (
-                <>
-                  <Field
-                    label={
-                      isCrushing
-                        ? 'Measured after crushing (kg)'
-                        : isRecrushing
-                        ? 'Measured after re-crushing (kg)'
-                        : 'Measured after drying (kg)'
-                    }
-                    hint={
-                      measuredOverIn
-                        ? 'Cannot be more than qty in'
-                        : 'Weigh the material and enter the scale reading'
-                    }
-                  >
-                    <input
-                      inputMode="decimal"
-                      className={`dgn-input ${
-                        measuredOverIn ? 'border-red-400 ring-1 ring-red-300' : ''
-                      }`}
-                      {...register('qtyUsable', { required: true })}
-                    />
-                  </Field>
-                  <Field
-                    label="Difference (kg)"
-                    hint="Qty in − measured (weight change, not waste)"
-                  >
-                    <input
-                      className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                      value={qtyInput > 0 || qtyUsable > 0 ? String(measuredShrink) : ''}
-                      readOnly
-                      tabIndex={-1}
-                    />
-                  </Field>
-                </>
-              ) : (
-                <Field label="Qty out (kg)" hint="Same as qty in — no waste on this stage">
-                  <input
-                    className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                    value={qtyInput > 0 ? String(qtyInput) : ''}
-                    readOnly
-                    tabIndex={-1}
-                  />
+                )}
+                {meta.showDowntime && (
+                  <>
+                    <Field label="Downtime (min)">
+                      <input
+                        inputMode="numeric"
+                        className="dgn-input"
+                        {...register('downtimeMinutes')}
+                      />
+                    </Field>
+                    <Field label="Downtime reason">
+                      <input className="dgn-input" {...register('downtimeReason')} />
+                    </Field>
+                  </>
+                )}
+                <Field label="Notes">
+                  <input className="dgn-input" {...register('notes')} />
                 </Field>
-              )}
-            </div>
-            {(showsWaste || showsMeasuredOut) && (
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
-                <StatPill
-                  label={showsMeasuredOut ? 'Measured / in' : 'Accounted'}
-                  value={
-                    showsMeasuredOut
-                      ? `${qtyUsable || 0} / ${qtyInput || 0} kg`
-                      : `${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`
-                  }
-                />
               </div>
+            </Card>
+
+            {serverErrors.length > 0 && <ErrorBanner items={serverErrors} />}
+
+            {warning && (
+              <Card className="border-amber-200 bg-amber-50 text-amber-950 !p-3">
+                <p className="text-sm">Yield {warning.yieldPercent}% looks unusual. Confirm?</p>
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-primary mt-2"
+                  onClick={handleSubmit((values) => submitPayload(values, true))}
+                >
+                  Confirm unusual yield
+                </button>
+              </Card>
             )}
-          </Card>
+
+            {/* Action buttons: for drying, provide the 2 distinct destinations requested */}
+            {isDrying ? (
+              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  disabled={
+                    formState.isSubmitting ||
+                    !selected ||
+                    !(qtyUsable > 0) ||
+                    measuredOverIn
+                  }
+                  className="w-full sm:w-auto h-11 px-5 border-amber-600/40 text-amber-900 hover:bg-amber-50 hover:text-amber-950 font-semibold inline-flex items-center justify-center gap-2 leading-none"
+                  onClick={handleSubmit((values) => submitPayload(values, false, 'recrushing'))}
+                >
+                  <RotateCcw className="size-4 shrink-0 text-amber-700" />
+                  <span>
+                    {formState.isSubmitting && submitAction === 'recrushing'
+                      ? 'Moving to Re-crushing…'
+                      : 'Move to Re-crushing'}
+                  </span>
+                </Button>
+
+                <Button
+                  type="button"
+                  size="lg"
+                  disabled={
+                    formState.isSubmitting ||
+                    !selected ||
+                    !(qtyUsable > 0) ||
+                    measuredOverIn
+                  }
+                  className="w-full sm:w-auto h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-sm"
+                  onClick={handleSubmit((values) => submitPayload(values, false, 'production'))}
+                >
+                  <Warehouse className="size-4 shrink-0" />
+                  <span>
+                    {formState.isSubmitting && submitAction === 'production'
+                      ? 'Moving to Production Store…'
+                      : 'Move to Production'}
+                  </span>
+                </Button>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={
+                  formState.isSubmitting ||
+                  !selected ||
+                  (isColorAllocation && (colorsOverLot || !colorLines.length)) ||
+                  (!isColorAllocation && showsMeasuredOut && (!(qtyUsable > 0) || measuredOverIn))
+                }
+                className="dgn-btn dgn-btn-primary w-full sm:w-auto"
+              >
+                {formState.isSubmitting ? 'Saving…' : `Save ${meta.title.toLowerCase()}`}
+              </button>
+            )}
+          </form>
         )}
-
-        <Card>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {meta.showMachine && (
-              <Field label={meta.machineLabel || 'Machine'}>
-                <SearchableSelect
-                  value={watch('machineName') || ''}
-                  onChange={(val) => setValue('machineName', val, { shouldValidate: true, shouldDirty: true })}
-                  options={machineOptions}
-                  placeholder={`Select ${meta.machineLabel?.toLowerCase() || 'machine'}…`}
-                  searchPlaceholder="Search machine name or code…"
-                />
-              </Field>
-            )}
-            {meta.showOperator !== false && (
-              <Field label={meta.operatorLabel || 'Operator'}>
-                <SearchableSelect
-                  value={watch('operatorName') || ''}
-                  onChange={(val) => setValue('operatorName', val, { shouldValidate: true, shouldDirty: true })}
-                  options={staffOptions}
-                  placeholder={`Select ${meta.operatorLabel?.toLowerCase() || 'operator'}…`}
-                  searchPlaceholder="Search staff by name or code…"
-                />
-              </Field>
-            )}
-            {meta.showTeam && (
-              <Field label="Team">
-                <input className="dgn-input" {...register('teamName')} placeholder="Team name" />
-              </Field>
-            )}
-            {meta.showLabourCost !== false && (
-              <Field label="Labour cost / kg (₦)">
-                <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
-              </Field>
-            )}
-            {meta.showEnergyCost !== false && (
-              <Field label="Energy cost (₦)">
-                <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
-              </Field>
-            )}
-            {meta.showWashFields && (
-              <>
-                <Field label="Water cost (₦)">
-                  <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
-                </Field>
-                <Field label="Detergent cost (₦)">
-                  <input inputMode="decimal" className="dgn-input" {...register('detergentCost')} />
-                </Field>
-              </>
-            )}
-            {meta.showDryFields && (
-              <Field label="Moisture %">
-                <input inputMode="decimal" className="dgn-input" {...register('moistureReading')} />
-              </Field>
-            )}
-            {meta.showDowntime && (
-              <>
-                <Field label="Downtime (min)">
-                  <input
-                    inputMode="numeric"
-                    className="dgn-input"
-                    {...register('downtimeMinutes')}
-                  />
-                </Field>
-                <Field label="Downtime reason">
-                  <input className="dgn-input" {...register('downtimeReason')} />
-                </Field>
-              </>
-            )}
-            <Field label="Notes">
-              <input className="dgn-input" {...register('notes')} />
-            </Field>
-          </div>
-        </Card>
-
-        {serverErrors.length > 0 && <ErrorBanner items={serverErrors} />}
-
-        {warning && (
-          <Card className="border-amber-200 bg-amber-50 text-amber-950 !p-3">
-            <p className="text-sm">Yield {warning.yieldPercent}% looks unusual. Confirm?</p>
-            <button
-              type="button"
-              className="dgn-btn dgn-btn-primary mt-2"
-              onClick={handleSubmit((values) => submitPayload(values, true))}
-            >
-              Confirm unusual yield
-            </button>
-          </Card>
-        )}
-
-        <button
-          type="submit"
-          disabled={
-            formState.isSubmitting ||
-            !selected ||
-            (isColorAllocation && (colorsOverLot || !colorLines.length)) ||
-            (!isColorAllocation && showsMeasuredOut && (!(qtyUsable > 0) || measuredOverIn))
-          }
-          className="dgn-btn dgn-btn-primary w-full sm:w-auto"
-        >
-          {formState.isSubmitting ? 'Saving…' : `Save ${meta.title.toLowerCase()}`}
-        </button>
-      </form>
       </div>
     </PageLayout>
   )

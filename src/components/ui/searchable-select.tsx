@@ -121,9 +121,9 @@ export function SearchableSelect({
         onClick={handleToggle}
         className={cn(
           'flex w-full items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white shadow-2xs transition-colors hover:bg-zinc-50/70 focus:outline-hidden focus:ring-1 focus:ring-zinc-950 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/70 dark:focus:ring-zinc-300 text-left',
-          size === 'sm' && 'h-8 px-2.5 py-1 text-xs',
-          size === 'default' && 'h-9 px-3 py-1.5 text-xs',
-          size === 'lg' && 'h-11 px-3.5 py-2 text-sm',
+          size === 'sm' && 'h-13 px-2.5 py-1 text-xs',
+          size === 'default' && 'h-13 px-3 py-1.5 text-xs',
+          size === 'lg' && 'h-13 px-3.5 py-2 text-sm',
           disabled && 'opacity-50 cursor-not-allowed',
           triggerClassName
         )}
