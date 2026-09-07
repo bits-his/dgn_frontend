@@ -7,12 +7,11 @@ export type MenuAccessItem = {
 
 export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Operations', key: 'receiving', label: 'Scrap buying' },
-  { group: 'Operations', key: 'sorting', label: 'Sorting' },
   { group: 'Operations', key: 'crushing', label: 'Crushing' },
   { group: 'Operations', key: 'washing', label: 'Washing' },
   { group: 'Operations', key: 'drying', label: 'Drying' },
-  { group: 'Operations', key: 'suppliers', label: 'Suppliers' },
-  { group: 'Operations', key: 'production', label: 'Production' },
+  { group: 'Operations', key: 'production', label: 'Production runs' },
+  { group: 'Operations', key: 'production_store', label: 'Production store' },
   { group: 'Operations', key: 'qc', label: 'Quality control' },
   { group: 'Operations', key: 'inventory', label: 'Inventory' },
   { group: 'Operations', key: 'sales', label: 'Sales & dispatch' },
@@ -55,23 +54,22 @@ export const ROLE_OPTIONS = [
 ] as const
 
 export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
-  WORKER: ['sorting', 'crushing', 'washing', 'drying'],
-  OPERATOR: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production'],
-  STAFF: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production', 'inventory', 'batches'],
-  PROD_SUPERVISOR: ['receiving', 'sorting', 'crushing', 'washing', 'drying', 'production', 'qc', 'inventory', 'batches', 'machines', 'alerts'],
-  QC_OFFICER: ['qc', 'batches', 'production', 'inventory', 'alerts'],
-  INVENTORY_OFFICER: ['inventory', 'receiving', 'batches', 'suppliers', 'production', 'alerts'],
-  STOREKEEPER: ['inventory', 'receiving', 'production', 'batches'],
-  SALES_OFFICER: ['sales', 'inventory', 'sales_margins', 'alerts'],
+  WORKER: ['crushing', 'washing', 'drying'],
+  OPERATOR: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store'],
+  STAFF: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store', 'inventory', 'batches'],
+  PROD_SUPERVISOR: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store', 'qc', 'inventory', 'batches', 'machines', 'alerts'],
+  QC_OFFICER: ['qc', 'batches', 'production', 'production_store', 'inventory', 'alerts'],
+  INVENTORY_OFFICER: ['inventory', 'receiving', 'batches', 'production', 'production_store', 'alerts'],
+  STOREKEEPER: ['inventory', 'receiving', 'production', 'production_store', 'batches'],
+  SALES_OFFICER: ['sales', 'inventory', 'production_store', 'sales_margins', 'alerts'],
   FINANCE_OFFICER: ['expenses', 'payroll', 'costs', 'overhead', 'sales', 'sales_margins', 'alerts'],
   FACTORY_MANAGER: [
     'receiving',
-    'sorting',
     'crushing',
     'washing',
     'drying',
-    'suppliers',
     'production',
+    'production_store',
     'qc',
     'inventory',
     'sales',
@@ -89,4 +87,5 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
   ],
   ADMIN: SIDEBAR_MENU_ACCESS.map((i) => i.key),
 }
+
 

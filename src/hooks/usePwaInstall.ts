@@ -6,12 +6,16 @@ export interface BeforeInstallPromptEvent extends Event {
 }
 
 const DISMISS_KEY = 'dgn_pwa_install_dismissed_until'
+const INSTALLED_KEY = 'dgn_pwa_installed'
 const SNOOZE_HOURS = 24
 
 export function usePwaInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [isInstallable, setIsInstallable] = useState(false)
-  const [isInstalled, setIsInstalled] = useState(false)
+  // Initialise from localStorage so the button never flickers after install
+  const [isInstalled, setIsInstalled] = useState(
+    () => localStorage.getItem(INSTALLED_KEY) === 'true'
+  )
   const [isIos, setIsIos] = useState(false)
   const [isDismissed, setIsDismissed] = useState(false)
 
@@ -24,6 +28,7 @@ export function usePwaInstall() {
 
     if (isStandalone) {
       setIsInstalled(true)
+      localStorage.setItem(INSTALLED_KEY, 'true')
       return
     }
 
@@ -55,6 +60,7 @@ export function usePwaInstall() {
       setIsInstalled(true)
       setIsInstallable(false)
       setDeferredPrompt(null)
+      localStorage.setItem(INSTALLED_KEY, 'true')
       localStorage.removeItem(DISMISS_KEY)
       console.log('[PWA] App successfully installed!')
     }
@@ -84,6 +90,7 @@ export function usePwaInstall() {
         setIsInstalled(true)
         setIsInstallable(false)
         setDeferredPrompt(null)
+        localStorage.setItem(INSTALLED_KEY, 'true')
         return 'accepted'
       } else {
         dismissPrompt(SNOOZE_HOURS)

@@ -107,7 +107,7 @@ const productionGroup: NavGroup = {
   icon: Cog,
   items: [
     { to: '/production', label: 'Production runs', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
-    { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production', permission: 'batch.view' },
+    { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
   ],
 }
 
@@ -343,16 +343,7 @@ export function AppShell() {
           </p>
           <p className="mt-0.5 text-xs text-zinc-400">{user?.roleCode}</p>
         </div>
-        {!isInstalled && isInstallable && (
-          <button
-            type="button"
-            className="dgn-btn dgn-btn-ghost w-full justify-start text-violet-300 hover:bg-violet-500/10 hover:text-white mb-2 gap-2"
-            onClick={() => promptInstall()}
-          >
-            <Download className="size-4 text-violet-400" />
-            Install DGN App
-          </button>
-        )}
+
         <button
           type="button"
           className="dgn-btn dgn-btn-ghost w-full justify-start text-zinc-300 hover:bg-white/5 hover:text-white"

@@ -1179,7 +1179,6 @@ function NewEmployeeForm({
   onSaved: () => void
 }) {
   const [form, setForm] = useState({
-    employeeCode: '',
     firstname: '',
     lastname: '',
     phone: '',
@@ -1227,10 +1226,6 @@ function NewEmployeeForm({
   return (
     <form onSubmit={submit} className="space-y-4 mt-2">
       <div className="grid gap-3 sm:grid-cols-3">
-        <div>
-          <Label className="text-xs mb-1 block">Employee code</Label>
-          <Input className="h-8 text-xs" required value={form.employeeCode} onChange={set('employeeCode')} />
-        </div>
         <div>
           <Label className="text-xs mb-1 block">First name</Label>
           <Input className="h-8 text-xs" required value={form.firstname} onChange={set('firstname')} />
@@ -1375,10 +1370,8 @@ function NewEmployeeForm({
           className="h-8 text-xs font-semibold"
           disabled={
             saving ||
-            !form.employeeCode ||
             !form.firstname ||
-            !form.lastname ||
-            !(Number(form.payRate) > 0)
+            !form.lastname
           }
         >
           {saving ? 'Saving…' : 'Save staff member'}
