@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Warehouse, RotateCcw, ArrowRight, CheckCircle2 } from 'lucide-react'
+import { Warehouse, RotateCcw, ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, StatPill, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -232,6 +232,7 @@ export function ProcessStageForm({
   const [colorLines, setColorLines] = useState<ColorLine[]>([])
   const [pickColor, setPickColor] = useState('')
   const [pickKg, setPickKg] = useState('')
+  const [colorError, setColorError] = useState('')
   const [editingColor, setEditingColor] = useState<string | null>(null)
   const [editingKg, setEditingKg] = useState('')
 
@@ -346,6 +347,7 @@ export function ProcessStageForm({
     setColorLines([])
     setPickColor('')
     setPickKg('')
+    setColorError('')
     setEditingColor(null)
     setEditingKg('')
     reset(emptyForm(fromUrl || ''))
@@ -362,6 +364,7 @@ export function ProcessStageForm({
     setColorLines([])
     setPickColor('')
     setPickKg('')
+    setColorError('')
     reset(emptyForm(batchNumber))
     setSearchParams({ batch: batchNumber }, { replace: true })
   }
@@ -415,9 +418,28 @@ export function ProcessStageForm({
     [qtyInput, qtyUsable],
   )
 
+  const validateColorAdd = (color: string, kgStr: string): string | null => {
+    if (!color) {
+      return 'Please select a colour first.'
+    }
+    const kg = Number(kgStr)
+    if (!kgStr.trim() || isNaN(kg) || kg <= 0) {
+      return 'Please enter a valid weight in kg (greater than 0).'
+    }
+    if (kg > colorRoomLeft + 0.0001) {
+      return `Cannot allocate ${kg.toFixed(3)} kg. Only ${colorRoomLeft.toFixed(3)} kg remaining in this lot.`
+    }
+    return null
+  }
+
   const addColorLine = () => {
+    const err = validateColorAdd(pickColor, pickKg)
+    if (err) {
+      setColorError(err)
+      return
+    }
+    setColorError('')
     const kg = Number(pickKg)
-    if (!pickColor || !(kg > 0)) return
     if (colorLines.some((l) => l.color === pickColor)) {
       setColorLines((prev) =>
         prev.map((l) => (l.color === pickColor ? { ...l, qtyKg: +(l.qtyKg + kg).toFixed(3) } : l)),
@@ -431,7 +453,19 @@ export function ProcessStageForm({
 
   const saveEditColorLine = (color: string) => {
     const kg = Number(editingKg)
-    if (!(kg > 0)) return
+    if (!editingKg.trim() || isNaN(kg) || kg <= 0) {
+      setColorError('Please enter a valid weight in kg.')
+      return
+    }
+    const otherLinesSum = colorLines
+      .filter((l) => l.color !== color)
+      .reduce((sum, l) => sum + l.qtyKg, 0)
+    const maxAllowed = qtyInput - otherLinesSum
+    if (kg > maxAllowed + 0.0001) {
+      setColorError(`Cannot set ${kg.toFixed(3)} kg. Maximum available for this colour is ${maxAllowed.toFixed(3)} kg.`)
+      return
+    }
+    setColorError('')
     setColorLines((prev) =>
       prev.map((l) => (l.color === color ? { ...l, qtyKg: +kg.toFixed(3) } : l)),
     )
@@ -440,6 +474,7 @@ export function ProcessStageForm({
   }
 
   const removeColorLine = (color: string) => {
+    setColorError('')
     setColorLines((prev) => prev.filter((line) => line.color !== color))
   }
 
@@ -878,37 +913,47 @@ export function ProcessStageForm({
                 {/* Stats strip */}
                 {isCrushing && qtyInput > 0 && (
                   <div
-                    className="mt-3 grid divide-x divide-zinc-100 rounded-xl border border-zinc-100 bg-zinc-50"
-                    style={{
-                      gridTemplateColumns: batchDetail.data?.pricePerKg
-                        ? 'repeat(4, 1fr)'
-                        : 'repeat(3, 1fr)',
-                    }}
+                    className={`mt-3 grid grid-cols-2 gap-2 sm:gap-2.5 ${
+                      batchDetail.data?.pricePerKg ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
+                    }`}
                   >
-                    <div className="py-2.5 text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Allocated</p>
-                      <p className="mt-0.5 text-sm font-bold text-emerald-600">{colorUsable.toFixed(3)} kg</p>
+                    <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-2.5 sm:p-3 text-center transition-colors">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800/90">
+                        Allocated
+                      </p>
+                      <p className="mt-0.5 text-sm sm:text-base font-bold text-emerald-700 font-mono">
+                        {colorUsable.toFixed(3)} <span className="text-xs font-normal text-emerald-600/80">kg</span>
+                      </p>
                     </div>
-                    <div className="py-2.5 text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Remaining</p>
+
+                    <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-2.5 sm:p-3 text-center transition-colors">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/90">
+                        Remaining
+                      </p>
                       <p
-                        className={`mt-0.5 text-sm font-bold ${
-                          colorRoomLeft > 0.001 ? 'text-amber-600' : 'text-zinc-400'
+                        className={`mt-0.5 text-sm sm:text-base font-bold font-mono ${
+                          colorRoomLeft > 0.001 ? 'text-amber-700' : 'text-zinc-400'
                         }`}
                       >
-                        {colorRoomLeft.toFixed(3)} kg
+                        {colorRoomLeft.toFixed(3)} <span className="text-xs font-normal text-zinc-500">kg</span>
                       </p>
                     </div>
-                    <div className="py-2.5 text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Waste</p>
-                      <p className="mt-0.5 text-sm font-bold text-zinc-600">
-                        {qtyInput > 0 ? qtyReject.toFixed(3) : '—'} kg
+
+                    <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-2.5 sm:p-3 text-center">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                        Waste
+                      </p>
+                      <p className="mt-0.5 text-sm sm:text-base font-bold text-zinc-700 font-mono">
+                        {qtyInput > 0 ? qtyReject.toFixed(3) : '—'} <span className="text-xs font-normal text-zinc-400">kg</span>
                       </p>
                     </div>
+
                     {batchDetail.data?.pricePerKg && (
-                      <div className="py-2.5 text-center">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">₦ / kg</p>
-                        <p className="mt-0.5 text-sm font-bold text-zinc-700 font-mono">
+                      <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-2.5 sm:p-3 text-center">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          ₦ / kg
+                        </p>
+                        <p className="mt-0.5 text-sm sm:text-base font-bold text-zinc-800 font-mono">
                           ₦{batchDetail.data.pricePerKg.toLocaleString()}
                         </p>
                       </div>
@@ -917,7 +962,7 @@ export function ProcessStageForm({
                 )}
 
                 {/* Add colour row */}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-end">
                   <div className="flex-1 shrink-0">
                     <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
                       Colour
@@ -926,6 +971,7 @@ export function ProcessStageForm({
                       value={pickColor}
                       onChange={(code) => {
                         setPickColor(code)
+                        setColorError('')
                         setTimeout(() => {
                           document.getElementById('pick-kg-input')?.focus()
                         }, 80)
@@ -947,25 +993,40 @@ export function ProcessStageForm({
                     <input
                       id="pick-kg-input"
                       inputMode="decimal"
-                      className="dgn-input w-full"
+                      className={`dgn-input w-full ${colorError ? 'border-red-400 focus:border-red-500' : ''}`}
                       placeholder="0.000"
                       value={pickKg}
-                      max={colorRoomLeft > 0 ? colorRoomLeft : undefined}
-                      onChange={(e) => setPickKg(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        setPickKg(val)
+                        const n = Number(val)
+                        if (val && !isNaN(n) && n > colorRoomLeft + 0.0001) {
+                          setColorError(`Exceeds remaining lot (max ${colorRoomLeft.toFixed(3)} kg)`)
+                        } else {
+                          setColorError('')
+                        }
+                      }}
                       onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addColorLine())}
                     />
                   </div>
-                  <div className="sm:shrink-0 flex-1">
+                  <div className="sm:shrink-0 sm:w-28">
                     <Button
                       type="button"
-                      className="w-full h-12 mb-1"
-                      disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001 || !pickColor || !(Number(pickKg) > 0)}
+                      className="w-full h-11 font-semibold"
+                      disabled={!(qtyInput > 0) || colorRoomLeft <= 0.001}
                       onClick={addColorLine}
                     >
                       + Add
                     </Button>
                   </div>
                 </div>
+
+                {colorError && (
+                  <div className="mt-2.5 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs font-medium text-red-600 dark:bg-red-950/40 dark:border-red-900/50 dark:text-red-400 animate-in fade-in-0 duration-150">
+                    <AlertCircle className="size-4 shrink-0" />
+                    <span>{colorError}</span>
+                  </div>
+                )}
 
                 {/* Added colours list */}
                 {colorLines.length > 0 && (
@@ -1249,13 +1310,13 @@ export function ProcessStageForm({
             {warning && (
               <Card className="border-amber-200 bg-amber-50 text-amber-950 !p-3">
                 <p className="text-sm">Yield {warning.yieldPercent}% looks unusual. Confirm?</p>
-                <button
+                <Button
                   type="button"
-                  className="dgn-btn dgn-btn-primary mt-2"
+                  className="mt-2 font-semibold"
                   onClick={handleSubmit((values) => submitPayload(values, true))}
                 >
                   Confirm unusual yield
-                </button>
+                </Button>
               </Card>
             )}
 
@@ -1304,18 +1365,26 @@ export function ProcessStageForm({
                 </Button>
               </div>
             ) : (
-              <button
+              <Button
                 type="submit"
+                size="lg"
                 disabled={
                   formState.isSubmitting ||
                   !selected ||
                   (isColorAllocation && (colorsOverLot || !colorLines.length)) ||
                   (!isColorAllocation && showsMeasuredOut && (!(qtyUsable > 0) || measuredOverIn))
                 }
-                className="dgn-btn dgn-btn-primary w-full sm:w-auto"
+                className="w-full sm:w-auto h-11 px-6 font-semibold shadow-sm inline-flex items-center justify-center gap-2 leading-none"
               >
-                {formState.isSubmitting ? 'Saving…' : `Save ${meta.title.toLowerCase()}`}
-              </button>
+                {formState.isSubmitting ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Saving…</span>
+                  </>
+                ) : (
+                  <span>Save {meta.title.toLowerCase()}</span>
+                )}
+              </Button>
             )}
           </form>
         )}
