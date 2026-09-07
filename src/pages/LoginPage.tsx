@@ -76,7 +76,7 @@ export function LoginPage() {
   })
 
   return (
-    <div className="relative min-h-svh flex items-center justify-center p-4 bg-zinc-50/80 dark:bg-zinc-950">
+    <div className="relative min-h-svh flex items-center justify-center p-4 pt-[calc(1rem+env(safe-area-inset-top,0px))] pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pl-[calc(1rem+env(safe-area-inset-left,0px))] pr-[calc(1rem+env(safe-area-inset-right,0px))] bg-zinc-50/80 dark:bg-zinc-950">
       {/* Subtle background grid pattern */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#e4e4e730_1px,transparent_1px),linear-gradient(to_bottom,#e4e4e730_1px,transparent_1px)] dark:bg-[linear-gradient(to_right,#27272a25_1px,transparent_1px),linear-gradient(to_bottom,#27272a25_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
 

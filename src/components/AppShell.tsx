@@ -361,7 +361,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-svh lg:grid lg:grid-cols-[280px_1fr]">
-      <aside className="sticky top-0 hidden h-svh overflow-hidden bg-[var(--bg-sidebar)] lg:block">
+      <aside className="sticky top-0 hidden h-svh overflow-hidden bg-[var(--bg-sidebar)] lg:block pt-safe">
         {sidebar}
       </aside>
 
@@ -373,14 +373,14 @@ export function AppShell() {
             aria-label="Close menu"
             onClick={() => setMobileOpen(false)}
           />
-          <div className="absolute inset-y-0 left-0 w-[86%] max-w-80 overflow-hidden bg-[var(--bg-sidebar)] shadow-2xl">
+          <div className="absolute inset-y-0 left-0 w-[86%] max-w-80 overflow-hidden bg-[var(--bg-sidebar)] shadow-2xl pt-safe pb-safe">
             {sidebar}
           </div>
         </div>
       )}
 
-      <div className="min-w-0">
-        <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white/80 backdrop-blur-md">
+      <div className="min-w-0 pb-safe">
+        <header className="sticky top-0 z-20 border-b border-[var(--line)] bg-white/80 backdrop-blur-md pt-safe">
           <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <div className="flex items-center gap-3">
               <button
