@@ -36,9 +36,9 @@ function getInitialLoginValues(): FormValues {
     console.error('Failed to parse remembered login:', err)
   }
   return {
-    email: 'admin@dgn.factory',
-    password: 'admin123',
-    rememberMe: true,
+    email: '',
+    password: '',
+    rememberMe: false,
   }
 }
 
