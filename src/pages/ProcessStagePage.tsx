@@ -910,54 +910,57 @@ export function ProcessStageForm({
                   </h2>
                 </div>
 
-                {/* Stats strip */}
+                {/* Stats strip on one card */}
                 {isCrushing && qtyInput > 0 && (
-                  <div
-                    className={`mt-3 grid grid-cols-2 gap-2 sm:gap-2.5 ${
-                      batchDetail.data?.pricePerKg ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
-                    }`}
-                  >
-                    <div className="rounded-xl border border-emerald-200/70 bg-emerald-50/60 p-2.5 sm:p-3 text-center transition-colors">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-800/90">
-                        Allocated
-                      </p>
-                      <p className="mt-0.5 text-sm sm:text-base font-bold text-emerald-700 font-mono">
-                        {colorUsable.toFixed(3)} <span className="text-xs font-normal text-emerald-600/80">kg</span>
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-amber-200/70 bg-amber-50/60 p-2.5 sm:p-3 text-center transition-colors">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/90">
-                        Remaining
-                      </p>
-                      <p
-                        className={`mt-0.5 text-sm sm:text-base font-bold font-mono ${
-                          colorRoomLeft > 0.001 ? 'text-amber-700' : 'text-zinc-400'
-                        }`}
-                      >
-                        {colorRoomLeft.toFixed(3)} <span className="text-xs font-normal text-zinc-500">kg</span>
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-2.5 sm:p-3 text-center">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                        Waste
-                      </p>
-                      <p className="mt-0.5 text-sm sm:text-base font-bold text-zinc-700 font-mono">
-                        {qtyInput > 0 ? qtyReject.toFixed(3) : '—'} <span className="text-xs font-normal text-zinc-400">kg</span>
-                      </p>
-                    </div>
-
-                    {batchDetail.data?.pricePerKg && (
-                      <div className="rounded-xl border border-zinc-200/80 bg-zinc-50 p-2.5 sm:p-3 text-center">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                          ₦ / kg
+                  <div className="mt-3 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2.5 sm:p-3">
+                    <div
+                      className={`grid gap-1 sm:gap-2 text-center divide-x divide-zinc-200/60 ${
+                        batchDetail.data?.pricePerKg ? 'grid-cols-4' : 'grid-cols-3'
+                      }`}
+                    >
+                      <div className="px-1">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          Allocated
                         </p>
-                        <p className="mt-0.5 text-sm sm:text-base font-bold text-zinc-800 font-mono">
-                          ₦{batchDetail.data.pricePerKg.toLocaleString()}
+                        <p className="mt-0.5 text-xs sm:text-sm font-bold text-emerald-600 font-mono">
+                          {colorUsable.toFixed(3)} <span className="text-[10px] font-normal text-zinc-400">kg</span>
                         </p>
                       </div>
-                    )}
+
+                      <div className="px-1">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          Remaining
+                        </p>
+                        <p
+                          className={`mt-0.5 text-xs sm:text-sm font-bold font-mono ${
+                            colorRoomLeft > 0.001 ? 'text-amber-600' : 'text-zinc-400'
+                          }`}
+                        >
+                          {colorRoomLeft.toFixed(3)} <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                        </p>
+                      </div>
+
+                      <div className="px-1">
+                        <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          Waste
+                        </p>
+                        <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-700 font-mono">
+                          {qtyInput > 0 ? qtyReject.toFixed(3) : '—'}{' '}
+                          <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                        </p>
+                      </div>
+
+                      {batchDetail.data?.pricePerKg && (
+                        <div className="px-1">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            ₦ / kg
+                          </p>
+                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-800 font-mono">
+                            ₦{batchDetail.data.pricePerKg.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1102,17 +1105,6 @@ export function ProcessStageForm({
                   </ul>
                 )}
 
-                {/* Waste display */}
-                {qtyInput > 0 && colorLines.length > 0 && qtyReject > 0 && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                      Waste / Reject
-                    </span>
-                    <span className="font-mono text-sm font-bold text-amber-800">
-                      {qtyReject.toFixed(3)} kg
-                    </span>
-                  </div>
-                )}
 
                 {colorsOverLot && (
                   <p className="mt-2 text-xs font-semibold text-red-600">
