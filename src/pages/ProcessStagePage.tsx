@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Warehouse, RotateCcw, ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, StatPill, ErrorBanner } from '@/components/ui'
+import { Card, Field, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 
 import { SORT_COLORS } from '@/lib/sortColors'
@@ -1196,16 +1196,25 @@ export function ProcessStageForm({
                   )}
                 </div>
                 {(showsWaste || showsMeasuredOut) && (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <StatPill label="Yield" value={`${yieldPercent}%`} tone="success" />
-                    <StatPill
-                      label={showsMeasuredOut ? 'Measured / in' : 'Accounted'}
-                      value={
-                        showsMeasuredOut
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-teal-50/80 border border-teal-200/60 px-2.5 py-2 sm:px-4 sm:py-3 text-teal-900">
+                      <p className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wider text-teal-800/80">
+                        Yield
+                      </p>
+                      <p className="mt-0.5 text-xs sm:text-base font-bold font-mono text-teal-700">
+                        {yieldPercent}%
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-zinc-50 border border-zinc-200/80 px-2.5 py-2 sm:px-4 sm:py-3 text-zinc-900">
+                      <p className="text-[9px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                        {showsMeasuredOut ? 'Measured / in' : 'Accounted'}
+                      </p>
+                      <p className="mt-0.5 text-xs sm:text-sm font-bold font-mono text-zinc-800 truncate">
+                        {showsMeasuredOut
                           ? `${qtyUsable || 0} / ${qtyInput || 0} kg`
-                          : `${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`
-                      }
-                    />
+                          : `${+(qtyUsable + qtyReject).toFixed(3)} / ${qtyInput || 0} kg`}
+                      </p>
+                    </div>
                   </div>
                 )}
               </Card>
@@ -1244,29 +1253,35 @@ export function ProcessStageForm({
                     <input className="dgn-input" {...register('teamName')} placeholder="Team name" />
                   </Field>
                 )}
-                {meta.showLabourCost !== false && (
-                  <Field label="Labour cost / kg (₦)">
-                    <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
-                  </Field>
-                )}
-                {meta.showEnergyCost !== false && (
-                  <Field label="Energy cost (₦)">
-                    <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
-                  </Field>
-                )}
-                {meta.showWashFields && (
-                  <>
-                    <Field label="Water cost (₦)">
-                      <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
-                    </Field>
-                    <Field label="Detergent cost (₦)">
-                      <input
-                        inputMode="decimal"
-                        className="dgn-input"
-                        {...register('detergentCost')}
-                      />
-                    </Field>
-                  </>
+
+                {/* Cost fields: 2 per row on mobile to conserve space */}
+                {(meta.showLabourCost !== false || meta.showEnergyCost !== false || meta.showWashFields) && (
+                  <div className="col-span-full grid grid-cols-2 gap-2.5 sm:contents">
+                    {meta.showLabourCost !== false && (
+                      <Field label="Labour cost / kg (₦)">
+                        <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
+                      </Field>
+                    )}
+                    {meta.showEnergyCost !== false && (
+                      <Field label="Energy cost (₦)">
+                        <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
+                      </Field>
+                    )}
+                    {meta.showWashFields && (
+                      <>
+                        <Field label="Water cost (₦)">
+                          <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
+                        </Field>
+                        <Field label="Detergent cost (₦)">
+                          <input
+                            inputMode="decimal"
+                            className="dgn-input"
+                            {...register('detergentCost')}
+                          />
+                        </Field>
+                      </>
+                    )}
+                  </div>
                 )}
                 {meta.showDryFields && (
                   <Field label="Moisture %">
