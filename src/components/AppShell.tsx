@@ -62,15 +62,20 @@ export function canAccessNavItem(
   item: NavItem,
 ): boolean {
   if (!user) return false
+  // Overview is the universal home dashboard for all roles and is always accessible
+  if (item.to === '/') return true
   // Admin has full access to everything
   if (user.roleCode === 'ADMIN' || user.permissions?.includes('*')) return true
 
   // If user has specific menuAccess array assigned
   if (user.menuAccess && Array.isArray(user.menuAccess) && user.menuAccess.length > 0) {
     if (item.menuKey) {
-      return user.menuAccess.includes(item.menuKey)
+      if (user.menuAccess.includes(item.menuKey)) return true
+      if (item.menuKey === 'recrushing' && user.menuAccess.includes('crushing')) return true
+      if (item.menuKey === 'distributors' && user.menuAccess.includes('sales')) return true
+      return false
     }
-    // Items without a menuKey (e.g. Overview '/')
+    // Items without a menuKey
     if (item.permission) {
       return hasPermission(user, item.permission)
     }
@@ -97,7 +102,7 @@ const recyclingGroup: NavGroup = {
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
     { to: '/process/drying', label: 'Drying', icon: Flame, menuKey: 'drying', permission: 'batch.create' },
-    { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'crushing', permission: 'batch.create' },
+    { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'recrushing', permission: 'batch.create' },
   ],
 }
 
@@ -119,7 +124,7 @@ const mainNavRest: NavItem[] = [
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, menuKey: 'inventory', permission: 'inventory.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
-  { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'sales', permission: 'sales.view' },
+  { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'distributors', permission: 'sales.view' },
   { to: '/batches', label: 'Batches', icon: Search, menuKey: 'batches', permission: 'batch.view' },
   // { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },
   { to: '/masters', label: 'Masters', icon: Boxes, menuKey: 'masters', permission: 'masters.manage' },
@@ -285,7 +290,7 @@ export function AppShell() {
 
   const intelligenceItems: NavItem[] = [
     ...intelligenceNav,
-    { to: '/alerts', label: 'Alerts', icon: Bell, permission: 'alert.view', badge: openCount },
+    { to: '/alerts', label: 'Alerts', icon: Bell, menuKey: 'alerts', permission: 'alert.view', badge: openCount },
   ]
 
   const sidebar = (
