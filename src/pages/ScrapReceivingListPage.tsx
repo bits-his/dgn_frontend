@@ -120,34 +120,29 @@ export function ScrapReceivingListPage() {
           )
         },
       },
-      {
-        id: 'supplier',
-        header: 'Supplier',
-        accessorKey: 'supplier.name',
-        cell: ({ row }) => (
-          <span className="text-sm text-foreground">
-            {row.original.supplier?.name || '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'pricePerKg',
-        header: 'Rate / kg',
-        accessorKey: 'pricePerKg',
-        cell: ({ row }) => (
-          <span className="text-sm font-medium">
-            ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-        ),
-      },
+      // {
+      //   id: 'supplier',
+      //   header: 'Supplier',
+      //   accessorKey: 'supplier.name',
+      //   cell: ({ row }) => (
+      //     <span className="text-sm text-foreground">
+      //       {row.original.supplier?.name || '—'}
+      //     </span>
+      //   ),
+      // },
       {
         id: 'purchaseCost',
-        header: 'Purchase Cost',
+        header: 'Cost',
         accessorKey: 'purchaseCost',
         cell: ({ row }) => (
-          <span className="text-sm font-semibold text-foreground">
-            ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+          <div>
+            <span className="text-sm font-semibold text-foreground block">
+              ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="text-xs text-[var(--ink-muted)] block mt-0.5">
+              @ ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / kg
+            </span>
+          </div>
         ),
       },
       {

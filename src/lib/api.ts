@@ -7,9 +7,6 @@ export const api = axios.create({
     : 'https://server.brainstorm.ng/dgn_backend/api/v1',
   headers: {
     'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
-    Pragma: 'no-cache',
-    Expires: '0',
   },
 })
 
@@ -21,12 +18,9 @@ api.interceptors.request.use((config) => {
       : `Bearer ${token}`
   }
 
-  // Prevent any browser or mobile proxy from caching GET requests
+  // Prevent any browser or mobile proxy from caching GET requests via query parameter
+  // without triggering restricted CORS preflight request headers.
   if (config.method?.toLowerCase() === 'get') {
-    config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    config.headers['Pragma'] = 'no-cache'
-    config.headers['Expires'] = '0'
-    // Append unique timestamp param to guarantee fresh response
     config.params = {
       ...config.params,
       _t: Date.now(),

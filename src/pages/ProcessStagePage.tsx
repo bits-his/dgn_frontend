@@ -30,6 +30,7 @@ export const STAGE_META: Record<
     showDowntime?: boolean
     showLabourCost?: boolean
     labourHourly?: boolean
+    labourPerKg?: boolean
     showEnergyCost?: boolean
   }
 > = {
@@ -57,7 +58,7 @@ export const STAGE_META: Record<
     machineLabel: 'Crushing Machine',
     showDowntime: true,
     showLabourCost: true,
-    labourHourly: true,
+    labourPerKg: true,
     showEnergyCost: false,
   },
   washing: {
@@ -101,7 +102,7 @@ export const STAGE_META: Record<
     machineLabel: 'Re-crushing Machine',
     showDowntime: false,
     showLabourCost: true,
-    labourHourly: true,
+    labourPerKg: true,
     showEnergyCost: false,
   },
   recycling: {
@@ -130,6 +131,7 @@ export type FormValues = {
   operatorName: string
   teamName: string
   labourCost: string
+  labourRatePerKg?: string
   labourHours?: string
   labourRatePerHour?: string
   energyCost: string
@@ -207,6 +209,7 @@ const emptyForm = (batchNumber = ''): FormValues => ({
   operatorName: '',
   teamName: '',
   labourCost: '0',
+  labourRatePerKg: '',
   labourHours: '',
   labourRatePerHour: '',
   energyCost: '0',
@@ -590,10 +593,14 @@ export function ProcessStageForm({
 
     try {
       const isSplitting = isColorAllocation && colorLines.length > 0
+      const labourRateKgVal = Number(values.labourRatePerKg || 0)
+      const relevantKg = (isSplitting ? colorUsable : (Number(values.qtyUsable) || Number(values.qtyInput))) || 0
       const labourHoursVal = Number(values.labourHours || 0)
       const labourRateVal = Number(values.labourRatePerHour || 0)
-      const calculatedHourlyLabour =
-        meta.labourHourly && labourHoursVal > 0 && labourRateVal > 0
+      const calculatedLabour =
+        meta.labourPerKg && labourRateKgVal > 0
+          ? +(labourRateKgVal * relevantKg).toFixed(2)
+          : meta.labourHourly && labourHoursVal > 0 && labourRateVal > 0
           ? +(labourHoursVal * labourRateVal).toFixed(2)
           : Number(values.labourCost || 0)
 
@@ -605,7 +612,8 @@ export function ProcessStageForm({
         qtyReject: showsWaste ? qtyReject : 0,
         qtyWaste: 0,
         colorLines: isSplitting ? colorLines : undefined,
-        labourCost: meta.showLabourCost !== false ? calculatedHourlyLabour : 0,
+        labourCost: meta.showLabourCost !== false ? calculatedLabour : 0,
+        labourRatePerKg: labourRateKgVal > 0 ? labourRateKgVal : undefined,
         labourHours: labourHoursVal > 0 ? labourHoursVal : undefined,
         labourRatePerHour: labourRateVal > 0 ? labourRateVal : undefined,
         energyCost: meta.showEnergyCost !== false ? Number(values.energyCost || 0) : 0,
@@ -1338,7 +1346,16 @@ export function ProcessStageForm({
                 {(meta.showLabourCost !== false || meta.showEnergyCost !== false || meta.showWashFields) && (
                   <div className="col-span-full grid grid-cols-2 gap-2.5 sm:contents">
                     {meta.showLabourCost !== false && (
-                      meta.labourHourly ? (
+                      meta.labourPerKg ? (
+                        <Field label="Labour rate / kg (₦)">
+                          <input
+                            inputMode="decimal"
+                            placeholder="e.g. 15"
+                            className="dgn-input"
+                            {...register('labourRatePerKg')}
+                          />
+                        </Field>
+                      ) : meta.labourHourly ? (
                         <>
                           <Field label="Labour rate / hr (₦)">
                             <input
@@ -1368,6 +1385,23 @@ export function ProcessStageForm({
                       <Field label="Energy cost (₦)">
                         <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
                       </Field>
+                    )}
+                    {meta.showLabourCost !== false && meta.labourPerKg && Number(watch('labourRatePerKg') || 0) > 0 && (
+                      <div className="col-span-full rounded-md bg-emerald-50/90 border border-emerald-200/80 px-3.5 py-2 text-xs font-medium text-emerald-900 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <span>⚖️</span>
+                          <span>
+                            Calculated crushing labour (₦{Number(watch('labourRatePerKg')).toLocaleString()}/kg × {((isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput) || 0).toLocaleString()} kg):
+                          </span>
+                        </span>
+                        <span className="font-bold text-sm text-emerald-700">
+                          ₦
+                          {(
+                            Number(watch('labourRatePerKg') || 0) *
+                            ((isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput) || 0)
+                          ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     )}
                     {meta.showLabourCost !== false && meta.labourHourly && Number(watch('labourHours') || 0) > 0 && Number(watch('labourRatePerHour') || 0) > 0 && (
                       <div className="col-span-full rounded-md bg-blue-50/90 border border-blue-200/80 px-3.5 py-2 text-xs font-medium text-blue-900 flex items-center justify-between">
