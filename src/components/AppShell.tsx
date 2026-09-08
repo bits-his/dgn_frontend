@@ -30,6 +30,7 @@ import {
   Warehouse,
   Play,
   RotateCcw,
+  Recycle,
   Download,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
@@ -93,13 +94,16 @@ const recyclingGroup: NavGroup = {
   icon: Factory,
   items: [
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
-    // { to: '/process/sorting', label: 'Sorting', icon: Layers, menuKey: 'sorting', permission: 'batch.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
     { to: '/process/drying', label: 'Drying', icon: Flame, menuKey: 'drying', permission: 'batch.create' },
     { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'crushing', permission: 'batch.create' },
   ],
 }
+
+const recyclingNav: NavItem[] = [
+  { to: '/process/recycling', label: 'Recycling', icon: Recycle, menuKey: 'recycling', permission: 'batch.create' },
+]
 
 const productionGroup: NavGroup = {
   id: 'production',
@@ -129,7 +133,7 @@ const financeNav: NavItem[] = [
 
 const intelligenceNav: NavItem[] = [
   { to: '/dashboard', label: 'Command centre', icon: LayoutDashboard, menuKey: 'dashboard', permission: 'dashboard.executive' },
-  { to: '/machines', label: 'Machines & insights', icon: Gauge, menuKey: 'machines', permission: 'batch.view' },
+  { to: '/machines', label: 'Machines & maintenance', icon: Gauge, menuKey: 'machines', permission: 'batch.view' },
   { to: '/sales/margins', label: 'Sales margin', icon: TrendingUp, menuKey: 'sales_margins', permission: 'sales.view' },
   { to: '/costs', label: 'Cost intelligence', icon: Calculator, end: true, menuKey: 'costs', permission: 'costs.view' },
   { to: '/costs/overhead', label: 'Factory overhead', icon: Layers, menuKey: 'overhead', permission: 'costs.view' },
@@ -213,7 +217,7 @@ function CollapsibleNavGroup({
     (item) =>
       location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
   )
-  const [open, setOpen] = useState(childActive)
+  const [open, setOpen] = useState(true)
 
   useEffect(() => {
     if (childActive) setOpen(true)
@@ -309,6 +313,7 @@ export function AppShell() {
             user={user}
             onNavigate={() => setMobileOpen(false)}
           />
+          <NavList items={recyclingNav} user={user} onNavigate={() => setMobileOpen(false)} />
           <CollapsibleNavGroup
             group={productionGroup}
             user={user}

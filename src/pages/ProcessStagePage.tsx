@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Warehouse, RotateCcw, ArrowRight, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { Warehouse, RotateCcw, ArrowRight, CheckCircle2, AlertCircle, Loader2, Recycle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -100,6 +100,20 @@ export const STAGE_META: Record<
     showDowntime: false,
     showLabourCost: true,
     showEnergyCost: false,
+  },
+  recycling: {
+    title: 'Recycling',
+    eyebrow: 'Pelletizing & Granulation',
+    queueTitle: 'Dried lots waiting for recycling',
+    emptyHint: 'No dried lots waiting. Complete drying first.',
+    showMachine: true,
+    machineLabel: 'Pelletizer / Recycling Machine',
+    showTeam: false,
+    showOperator: true,
+    operatorLabel: 'Recycling Lead',
+    showDowntime: true,
+    showLabourCost: true,
+    showEnergyCost: true,
   },
 }
 
@@ -211,9 +225,10 @@ export function ProcessStageForm({
   const isCrushing = stage === 'crushing'
   const isDrying = stage === 'drying'
   const isRecrushing = stage === 'recrushing'
-  /** Crushing / drying / recrushing: weigh after the stage; washing/sorting use waste where applicable. */
+  const isRecycling = stage === 'recycling'
+  /** Crushing / drying / recrushing: weigh after stage; washing / sorting / recycling record waste. */
   const showsMeasuredOut = isCrushing || isDrying || isRecrushing
-  const showsWaste = isSorting || isWashing
+  const showsWaste = isSorting || isWashing || isRecycling
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -225,7 +240,7 @@ export function ProcessStageForm({
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
   const [successBatch, setSuccessBatch] = useState<string | null>(null)
-  const [dryingDestination, setDryingDestination] = useState<'recrushing' | 'production' | null>(null)
+  const [dryingDestination, setDryingDestination] = useState<'recycling' | 'recrushing' | 'production' | null>(null)
   const [submitAction, setSubmitAction] = useState<string | null>(null)
   const [colorLots, setColorLots] = useState<ColorLot[]>([])
   const [scrapTicket, setScrapTicket] = useState<string | null>(null)
@@ -481,7 +496,7 @@ export function ProcessStageForm({
   const submitPayload = async (
     values: FormValues,
     confirmUnusualYield = false,
-    destination?: 'recrushing' | 'production',
+    destination?: 'recycling' | 'recrushing' | 'production',
   ) => {
     setServerErrors([])
     setWarning(null)
@@ -607,8 +622,22 @@ export function ProcessStageForm({
           )
         }
         setDryingDestination('production')
+      } else if (isDrying && destination === 'recycling') {
+        setDryingDestination('recycling')
       } else if (isDrying && destination === 'recrushing') {
         setDryingDestination('recrushing')
+      }
+
+      // If recycling completed, auto-transfer output pellets to Production Store
+      if (isRecycling) {
+        try {
+          await api.post('/production/store/transfer', { batchNumber: resultingBatch })
+          await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+          await queryClient.invalidateQueries({ queryKey: ['production-store-pending'] })
+          await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
+        } catch (transferErr: any) {
+          console.error('Failed to auto-transfer pellets to production store:', transferErr)
+        }
       }
 
       if (Array.isArray(data.colorLots) && data.colorLots.length > 0) {
@@ -654,6 +683,7 @@ export function ProcessStageForm({
       washing: 'drying',
       drying: 'recrushing',
       recrushing: null,
+      recycling: null,
     }
     const next = nextMap[stage]
     const hasLots = colorLots.length > 0
@@ -665,13 +695,17 @@ export function ProcessStageForm({
           description={
             dryingDestination === 'production'
               ? 'Drying completed & transferred to Production Store'
-              : 'Drying completed & ready for Re-crushing'
+              : dryingDestination === 'recycling'
+                ? 'Drying completed & ready for Recycling'
+                : 'Drying completed & ready for Re-crushing'
           }
         >
           <Card className="text-center !p-6 max-w-xl mx-auto space-y-4">
             <div className="mx-auto size-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
               {dryingDestination === 'production' ? (
                 <Warehouse className="size-6" />
+              ) : dryingDestination === 'recycling' ? (
+                <Recycle className="size-6" />
               ) : (
                 <RotateCcw className="size-6" />
               )}
@@ -680,17 +714,21 @@ export function ProcessStageForm({
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
                 Drying Complete
               </p>
-              <p className="mt-1 text-2xl font-bold tracking-tight">{successBatch}</p>
-              <p className="mt-2 text-sm text-[var(--ink-muted)]">
+              <h2 className="text-xl font-bold tracking-tight text-zinc-900 mt-1">
+                Batch {successBatch}
+              </h2>
+              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
                 {dryingDestination === 'production'
                   ? 'Batch has been saved and transferred directly to the Production Store. It is now ready for production extrusion.'
-                  : 'Batch has been saved in the drying area for secondary crushing. It is now available in the Re-crushing queue.'}
+                  : dryingDestination === 'recycling'
+                    ? 'Batch has been saved and is available in the Recycling queue for pelletizing.'
+                    : 'Batch has been saved in the drying area for secondary crushing. It is now available in the Re-crushing queue.'}
               </p>
             </div>
 
             <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2.5">
               {dryingDestination === 'production' ? (
-                <Button asChild className="dgn-btn-primary">
+                <Button asChild size="lg">
                   <Link
                     to="/production/store"
                     className="inline-flex items-center justify-center gap-1.5 leading-none"
@@ -699,8 +737,18 @@ export function ProcessStageForm({
                     <span>Open Production Store</span>
                   </Link>
                 </Button>
+              ) : dryingDestination === 'recycling' ? (
+                <Button asChild size="lg">
+                  <Link
+                    to={`/process/recycling/new?batch=${encodeURIComponent(successBatch)}`}
+                    className="inline-flex items-center justify-center gap-1.5 leading-none"
+                  >
+                    <Recycle className="size-4 shrink-0" />
+                    <span>Process Recycling Now</span>
+                  </Link>
+                </Button>
               ) : (
-                <Button asChild className="dgn-btn-primary">
+                <Button asChild size="lg">
                   <Link
                     to={`/process/recrushing/new?batch=${encodeURIComponent(successBatch)}`}
                     className="inline-flex items-center justify-center gap-1.5 leading-none"
@@ -723,7 +771,7 @@ export function ProcessStageForm({
                   reset(emptyForm())
                 }}
               >
-                Record Another Batch
+                Start another lot
               </Button>
               <Button variant="ghost" asChild>
                 <Link to={`/process/${stage}`}>Back to Drying Queue</Link>
@@ -783,8 +831,18 @@ export function ProcessStageForm({
           </div>
 
           <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2">
-            {next && (
-              <Button asChild className="dgn-btn-primary">
+            {isRecycling ? (
+              <Button asChild size="lg">
+                <Link
+                  to="/production/store"
+                  className="inline-flex items-center justify-center gap-1.5 leading-none"
+                >
+                  <Warehouse className="size-4 shrink-0" />
+                  <span>Open Production Store</span>
+                </Link>
+              </Button>
+            ) : next ? (
+              <Button asChild size="lg">
                 <Link
                   to={`/process/${next}/new`}
                   className="inline-flex items-center justify-center gap-1.5 leading-none"
@@ -793,7 +851,7 @@ export function ProcessStageForm({
                   <ArrowRight className="size-4 shrink-0 ml-0.5" />
                 </Link>
               </Button>
-            )}
+            ) : null}
             {!isSorting && (
               <Button variant="outline" asChild>
                 <Link to={`/batches/${successBatch}`}>Batch 360°</Link>
@@ -1340,14 +1398,14 @@ export function ProcessStageForm({
                     !(qtyUsable > 0) ||
                     measuredOverIn
                   }
-                  className="w-full sm:w-auto h-11 px-5 border-amber-600/40 text-amber-900 hover:bg-amber-50 hover:text-amber-950 font-semibold inline-flex items-center justify-center gap-2 leading-none"
-                  onClick={handleSubmit((values) => submitPayload(values, false, 'recrushing'))}
+                  className="w-full sm:w-auto h-11 px-5 border-emerald-600/40 text-emerald-900 hover:bg-emerald-50 hover:text-emerald-950 font-semibold inline-flex items-center justify-center gap-2 leading-none"
+                  onClick={handleSubmit((values) => submitPayload(values, false, 'recycling'))}
                 >
-                  <RotateCcw className="size-4 shrink-0 text-amber-700" />
+                  <Recycle className="size-4 shrink-0 text-emerald-700" />
                   <span>
-                    {formState.isSubmitting && submitAction === 'recrushing'
-                      ? 'Moving to Re-crushing…'
-                      : 'Move to Re-crushing'}
+                    {formState.isSubmitting && submitAction === 'recycling'
+                      ? 'Moving to Recycling…'
+                      : 'Move to Recycling'}
                   </span>
                 </Button>
 

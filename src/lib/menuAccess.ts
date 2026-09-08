@@ -10,6 +10,7 @@ export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Operations', key: 'crushing', label: 'Crushing' },
   { group: 'Operations', key: 'washing', label: 'Washing' },
   { group: 'Operations', key: 'drying', label: 'Drying' },
+  { group: 'Operations', key: 'recycling', label: 'Recycling' },
   { group: 'Operations', key: 'production', label: 'Production runs' },
   { group: 'Operations', key: 'production_store', label: 'Production store' },
   { group: 'Operations', key: 'qc', label: 'Quality control' },
@@ -54,10 +55,10 @@ export const ROLE_OPTIONS = [
 ] as const
 
 export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
-  WORKER: ['crushing', 'washing', 'drying'],
-  OPERATOR: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store'],
-  STAFF: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store', 'inventory', 'batches'],
-  PROD_SUPERVISOR: ['receiving', 'crushing', 'washing', 'drying', 'production', 'production_store', 'qc', 'inventory', 'batches', 'machines', 'alerts'],
+  WORKER: ['crushing', 'washing', 'drying', 'recycling'],
+  OPERATOR: ['receiving', 'crushing', 'washing', 'drying', 'recycling', 'production', 'production_store'],
+  STAFF: ['receiving', 'crushing', 'washing', 'drying', 'recycling', 'production', 'production_store', 'inventory', 'batches'],
+  PROD_SUPERVISOR: ['receiving', 'crushing', 'washing', 'drying', 'recycling', 'production', 'production_store', 'qc', 'inventory', 'batches', 'machines', 'alerts'],
   QC_OFFICER: ['qc', 'batches', 'production', 'production_store', 'inventory', 'alerts'],
   INVENTORY_OFFICER: ['inventory', 'receiving', 'batches', 'production', 'production_store', 'alerts'],
   STOREKEEPER: ['inventory', 'receiving', 'production', 'production_store', 'batches'],

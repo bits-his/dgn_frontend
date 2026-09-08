@@ -931,6 +931,7 @@ export function ProductionPage() {
           data={filteredRuns}
           columns={runColumns}
           loading={runsQuery.isLoading}
+          card={true}
         />
       </Card>
 

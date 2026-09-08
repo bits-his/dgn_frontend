@@ -314,6 +314,7 @@ export function BatchesPage() {
             data={batches.data || []}
             columns={columns}
             loading={batches.isLoading}
+            card={true}
           />
         </Card>
       </div>

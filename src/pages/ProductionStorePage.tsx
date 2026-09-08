@@ -327,6 +327,7 @@ export function ProductionStorePage() {
             columns={storeColumns}
             filter={false}
             loading={storeQuery.isLoading}
+            card={true}
           />
         </div>
 

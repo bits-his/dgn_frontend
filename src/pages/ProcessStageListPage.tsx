@@ -55,30 +55,30 @@ export function ProcessStageListPage() {
     },
     ...(!isSorting
       ? [
-          {
-            accessorKey: 'sortColor',
-            header: 'Colour',
-            cell: ({ row }: { row: { original: InputBatch } }) => (
-              <span className="text-sm text-[var(--ink-muted)]">
-                {colorName(row.original.sortColor)}
-              </span>
-            ),
-          },
-        ]
+        {
+          accessorKey: 'sortColor',
+          header: 'Colour',
+          cell: ({ row }: { row: { original: InputBatch } }) => (
+            <span className="text-sm text-[var(--ink-muted)]">
+              {colorName(row.original.sortColor)}
+            </span>
+          ),
+        },
+      ]
       : []),
     {
       accessorFn: (row) => row.material?.name ?? '',
       id: 'material',
       header: 'Material',
-      cell: ({ row }) => <span className="text-sm">{row.original.material?.name || '—'}</span>,
-    },
-    {
-      accessorKey: 'qtyRemaining',
-      header: 'Available',
       cell: ({ row }) => (
-        <span className="text-sm font-semibold tabular-nums text-foreground">
-          {qtyLabel(row.original.qtyRemaining, row.original.uom)}
-        </span>
+        <div>
+          <span className="text-sm font-medium text-foreground block">
+            {row.original.material?.name || '—'}
+          </span>
+          <span className="text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 block">
+            {qtyLabel(row.original.qtyRemaining, row.original.uom)}
+          </span>
+        </div>
       ),
     },
     {
@@ -148,6 +148,7 @@ export function ProcessStageListPage() {
           data={inputs.data || []}
           columns={queueColumns}
           loading={inputs.isLoading}
+          card={true}
         />
       </div>
     </PageLayout>

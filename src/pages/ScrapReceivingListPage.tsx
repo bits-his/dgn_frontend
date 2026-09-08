@@ -123,49 +123,39 @@ export function ScrapReceivingListPage() {
         header: 'Material',
         accessorKey: 'material.name',
         cell: ({ row }) => (
-          <span className="text-sm font-medium text-foreground">
-            {row.original.material?.name || 'Scrap Material'}
-          </span>
-        ),
-      },
-      {
-        id: 'netWeight',
-        header: 'Net Qty (kg)',
-        accessorKey: 'netWeight',
-        cell: ({ row }) => (
-          <span className="tabular-nums font-semibold text-sm text-foreground">
-            {Number(row.original.netWeight || 0).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 3,
-            })}{' '}
-            <span className="text-xs font-normal text-muted-foreground">kg</span>
-          </span>
-        ),
-      },
-      {
-        id: 'pricePerKg',
-        header: 'Price / kg',
-        accessorKey: 'pricePerKg',
-        cell: ({ row }) => (
-          <span className="tabular-nums text-xs text-[var(--ink-muted)]">
-            ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </span>
+          <div>
+            <span className="text-sm font-medium text-foreground block">
+              {row.original.material?.name || 'Scrap Material'}
+            </span>
+            <span className="tabular-nums font-semibold text-xs text-muted-foreground">
+              {Number(row.original.netWeight || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 3,
+              })}{' '}
+              kg
+            </span>
+          </div>
         ),
       },
       {
         id: 'purchaseCost',
-        header: 'Purchase Cost',
+        header: 'Total Cost',
         accessorKey: 'purchaseCost',
         cell: ({ row }) => (
-          <span className="tabular-nums font-semibold text-sm text-foreground">
-            ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
-          </span>
+          <div>
+            <span className="tabular-nums font-semibold text-sm text-foreground block">
+              ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+            <span className="tabular-nums text-xs text-[var(--ink-muted)] block">
+              @ ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}/kg
+            </span>
+          </div>
         ),
       },
  
@@ -220,6 +210,7 @@ export function ScrapReceivingListPage() {
           columns={columns}
           // filter={true}
           loading={receiptsQuery.isLoading}
+          card={true}
         />
       </div>
     </PageLayout>

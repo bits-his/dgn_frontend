@@ -57,21 +57,11 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 const STAGE_LABEL: Record<string, string> = {
+  BUY: 'Scrap buying',
   SORTING: 'Sorting',
   CRUSHING: 'Crushing',
   WASHING: 'Washing',
   DRYING: 'Drying',
-}
-
-const COST_CLASS_LABEL: Record<string, string> = {
-  PURCHASE: 'Buy scrap',
-  LOGISTICS: 'Transport / load',
-  LABOUR: 'Labour',
-  PROCESSING: 'Chemical / process',
-  UTILITIES: 'Energy / utilities',
-  MAINTENANCE: 'Maintenance',
-  OVERHEAD: 'Factory overhead',
-  OTHER: 'Other',
 }
 
 type CostSummary = {
@@ -140,7 +130,7 @@ type ProcessRunRow = {
 export function BatchDetailPage() {
   const { batchNumber = '' } = useParams()
   const navigate = useNavigate()
-  const [stockAuditOpen, setStockAuditOpen] = useState(false)
+  const [stockAuditOpen, setStockAuditOpen] = useState(true)
 
   const detail = useQuery({
     queryKey: ['batch', batchNumber],
@@ -340,6 +330,69 @@ export function BatchDetailPage() {
   const costPerKg = isDry ? summary.trueRecycledCostPerKg : summary.costPerKg
   const typeLabel = TYPE_LABEL[batch.batchType] || batch.batchType
   const stageRows = costSummary?.stageBreakdown || []
+  const sortingRun = processRuns.find((r) => r.stage === 'SORTING')
+
+  // Merge any SORTING stage into Scrap Buying ('BUY') stage, as sorting is part of scrap buying
+  const displayStageRows = (() => {
+    const sortingRow = stageRows.find((r) => r.stage === 'SORTING')
+    const buyRow = stageRows.find((r) => r.stage === 'BUY')
+
+    if (!sortingRow) {
+      return stageRows.map((row) =>
+        row.stage === 'BUY' && row.label === 'Buy scrap'
+          ? { ...row, label: 'Scrap buying' }
+          : row
+      )
+    }
+
+    if (buyRow) {
+      return stageRows
+        .filter((r) => r.stage !== 'SORTING')
+        .map((row) => {
+          if (row.stage === 'BUY') {
+            const mergedLines = [...row.lines]
+            if (sortingRow.amount > 0) {
+              const sortingIdx = mergedLines.findIndex((l) =>
+                l.label.toLowerCase().includes('sorting')
+              )
+              if (sortingIdx >= 0) {
+                mergedLines[sortingIdx] = {
+                  ...mergedLines[sortingIdx],
+                  amount: +(mergedLines[sortingIdx].amount + sortingRow.amount).toFixed(2),
+                }
+              } else {
+                mergedLines.push({ label: 'Sorting', amount: sortingRow.amount })
+              }
+            }
+            const mergedAmount = +(row.amount + (sortingRow.amount || 0)).toFixed(2)
+            const mergedReject = +((row.qtyReject || 0) + (sortingRow.qtyReject || 0)).toFixed(2)
+            return {
+              ...row,
+              label: 'Scrap buying',
+              amount: mergedAmount,
+              qtyReject: mergedReject,
+              perKg: row.qtyKg > 0 ? +(mergedAmount / row.qtyKg).toFixed(2) : null,
+              lines: mergedLines,
+            }
+          }
+          return row
+        })
+    }
+
+    // If sortingRow exists but no BUY row, transform sortingRow into Scrap buying
+    return stageRows.map((row) => {
+      if (row.stage === 'SORTING') {
+        return {
+          ...row,
+          stage: 'BUY',
+          label: 'Scrap buying',
+        }
+      }
+      return row
+    })
+  })()
+
+  const displayProcessRuns = processRuns.filter((r) => r.stage !== 'SORTING')
 
   const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
 
@@ -699,31 +752,41 @@ export function BatchDetailPage() {
         </Card>
       ) : null}
 
-      {!isProd && (processRuns.length > 0 || stageRows.length > 0) && (
+      {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0) && (
         <Card className="!p-4">
           <h2 className="text-base font-semibold">Process stages</h2>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Fact
               label="Expenses total"
-              value={money(stageRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}
+              value={money(displayStageRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}
               strong
             />
             <Fact
               label="Total waste"
               value={kg(
-                stageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
-                  processRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
+                displayStageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
+                  displayProcessRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
               )}
               strong
             />
           </div>
           <div className="mt-3 space-y-3">
-            {stageRows.length > 0
-              ? stageRows.map((row) => {
-                  const run = processRuns.find((r) => r.stage === row.stage)
+            {displayStageRows.length > 0
+              ? displayStageRows.map((row) => {
+                  const run =
+                    row.stage === 'BUY'
+                      ? (processRuns.find((r) => r.stage === 'BUY') || sortingRun)
+                      : processRuns.find((r) => r.stage === row.stage)
                   return <StageBlock key={row.key} run={run} cost={row} />
                 })
-              : processRuns.map((run) => {
+              : displayProcessRuns.map((run) => {
+                  const lines = [
+                    Number(run.labourCost || 0) > 0 ? { label: 'Labour', amount: Number(run.labourCost) } : null,
+                    (run.stage !== 'WASHING' && Number(run.energyCost || 0) > 0) ? { label: 'Energy', amount: Number(run.energyCost) } : null,
+                    Number(run.chemicalCost || 0) > 0 ? { label: 'Chemical', amount: Number(run.chemicalCost) } : null,
+                    Number(run.detergentCost || 0) > 0 ? { label: 'Detergent', amount: Number(run.detergentCost) } : null,
+                    Number(run.waterQty || 0) > 0 ? { label: 'Water', amount: Number(run.waterQty) } : null,
+                  ].filter(Boolean) as Array<{ label: string; amount: number }>
                   const naira =
                     Number(run.labourCost || 0) +
                     Number(run.chemicalCost || 0) +
@@ -744,7 +807,7 @@ export function BatchDetailPage() {
                         perKg: qtyKg > 0 ? naira / qtyKg : null,
                         runningTotal: naira,
                         runningPerKg: qtyKg > 0 ? naira / qtyKg : null,
-                        lines: [],
+                        lines,
                         extras: [],
                       }}
                     />
@@ -808,48 +871,6 @@ export function BatchDetailPage() {
 
       <ForwardTracePanel batchNumber={batchNumber} />
 
-      <Card className="!overflow-hidden !p-0">
-        <div className="border-b border-[var(--line)] px-4 py-3">
-          <h2 className="text-base font-semibold">Each cost on this batch</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Date</th>
-                <th className="px-3 py-3 font-semibold">Description</th>
-                <th className="px-3 py-3 font-semibold">Class</th>
-                <th className="px-4 py-3 font-semibold text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(batch.costEntries || []).map((c) => (
-                <tr key={c.id} className="border-b border-[var(--line)]">
-                  <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                    {c.businessDate
-                      ? formatBusinessDate(c.businessDate)
-                      : formatDateTime(c.createdAt)}
-                  </td>
-                  <td className="px-3 py-3">{c.description}</td>
-                  <td className="px-3 py-3 text-[var(--ink-muted)]">
-                    {COST_CLASS_LABEL[c.costClass] || c.costClass}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                    {money(c.amount)}
-                  </td>
-                </tr>
-              ))}
-              {!batch.costEntries?.length && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-[var(--ink-muted)]">
-                    No cost lines yet
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
       {/* Combined Stock & Audit — collapsible */}
       {((batch.inventoryTransactions || []).length > 0 || detail.data.auditLogs.length > 0) && (
@@ -965,6 +986,7 @@ type StageCostRow = {
 function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) {
   const colors = parseColorBreakdown(run?.colorBreakdown)
   const stageName = cost.label || STAGE_LABEL[run?.stage || ''] || run?.stage || cost.stage
+  const buyPriceExtra = cost.extras?.find((e) => e.label === 'Buy price')
 
   return (
     <div className="rounded-lg border border-[var(--line)] p-3">
@@ -1022,15 +1044,34 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
 
       {cost.lines.length > 0 && (
         <ul className="mt-2 divide-y divide-[var(--line)]">
-          {cost.lines.map((row) => (
-            <li key={row.label} className="flex justify-between py-1 text-sm">
-              <span className="text-[var(--ink-muted)]">{row.label}</span>
-              <span className="font-medium tabular-nums">{money(row.amount)}</span>
-            </li>
-          ))}
+          {cost.lines.map((row) => {
+            const isScrapBuy =
+              row.label === 'Scrap buy' || row.label.toLowerCase().includes('scrap buy')
+            const buyPriceText = buyPriceExtra
+              ? buyPriceExtra.text.startsWith('@')
+                ? buyPriceExtra.text
+                : `@ ${buyPriceExtra.text}`
+              : cost.perKg
+              ? `@ ${money(cost.perKg)}/kg`
+              : null
+
+            return (
+              <li key={row.label} className="flex justify-between py-1.5 text-sm items-start">
+                <div>
+                  <span className="text-[var(--ink-muted)] font-medium">{row.label}</span>
+                  {isScrapBuy && buyPriceText && (
+                    <p className="text-xs text-[var(--ink-faint)] font-normal mt-0.5">
+                      Buy price: {buyPriceText}
+                    </p>
+                  )}
+                </div>
+                <span className="font-medium tabular-nums">{money(row.amount)}</span>
+              </li>
+            )
+          })}
         </ul>
       )}
-      {cost.extras.map((ex) => (
+      {cost.extras.filter((ex) => ex.label !== 'Buy price').map((ex) => (
         <p key={ex.label} className="mt-1 text-xs text-[var(--ink-muted)]">
           {ex.label}: {ex.text}
         </p>

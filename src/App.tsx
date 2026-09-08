@@ -20,6 +20,7 @@ import { ProductionStorePage } from '@/pages/ProductionStorePage'
 import { RecordProductionPage } from '@/pages/RecordProductionPage'
 import { CompleteProductionPage } from '@/pages/CompleteProductionPage'
 import { MachinePerformancePage } from '@/pages/MachinePerformancePage'
+import { MachineDetailPage } from '@/pages/MachineDetailPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { StockLedgerPage } from '@/pages/StockLedgerPage'
 import { QcPage } from '@/pages/QcPage'
@@ -99,6 +100,7 @@ function App() {
                 <Route path="/production/:id" element={<ProductionRunRedirect />} />
                 <Route path="/production/:id/complete" element={<CompleteProductionPage />} />
                 <Route path="/machines" element={<MachinePerformancePage />} />
+                <Route path="/machines/:id" element={<MachineDetailPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/ledger" element={<StockLedgerPage />} />
                 <Route path="/qc" element={<QcPage />} />
