@@ -29,6 +29,7 @@ export const STAGE_META: Record<
     machineLabel?: string
     showDowntime?: boolean
     showLabourCost?: boolean
+    labourHourly?: boolean
     showEnergyCost?: boolean
   }
 > = {
@@ -56,7 +57,8 @@ export const STAGE_META: Record<
     machineLabel: 'Crushing Machine',
     showDowntime: true,
     showLabourCost: true,
-    showEnergyCost: true,
+    labourHourly: true,
+    showEnergyCost: false,
   },
   washing: {
     title: 'Washing',
@@ -99,6 +101,7 @@ export const STAGE_META: Record<
     machineLabel: 'Re-crushing Machine',
     showDowntime: false,
     showLabourCost: true,
+    labourHourly: true,
     showEnergyCost: false,
   },
   recycling: {
@@ -127,6 +130,8 @@ export type FormValues = {
   operatorName: string
   teamName: string
   labourCost: string
+  labourHours?: string
+  labourRatePerHour?: string
   energyCost: string
   waterQty: string
   chemicalCost: string
@@ -202,6 +207,8 @@ const emptyForm = (batchNumber = ''): FormValues => ({
   operatorName: '',
   teamName: '',
   labourCost: '0',
+  labourHours: '',
+  labourRatePerHour: '',
   energyCost: '0',
   waterQty: '0',
   chemicalCost: '0',
@@ -341,7 +348,7 @@ export function ProcessStageForm({
     return (inputs.data || []).map((b) => ({
       value: b.batchNumber,
       label: `${b.batchNumber} - ${colorName(b.sortColor)} (${qtyLabel(b.qtyRemaining, b.uom)})`,
-      sublabel: `${b.material?.name || b.batchType} · Loc: ${b.location?.name || 'Processing Area'}`,
+      sublabel: b.material?.name || b.batchType,
     }))
   }, [inputs.data])
 
@@ -583,6 +590,13 @@ export function ProcessStageForm({
 
     try {
       const isSplitting = isColorAllocation && colorLines.length > 0
+      const labourHoursVal = Number(values.labourHours || 0)
+      const labourRateVal = Number(values.labourRatePerHour || 0)
+      const calculatedHourlyLabour =
+        meta.labourHourly && labourHoursVal > 0 && labourRateVal > 0
+          ? +(labourHoursVal * labourRateVal).toFixed(2)
+          : Number(values.labourCost || 0)
+
       const { data } = await api.post(`/process/${stage}`, {
         ...values,
         inputBatchNumber: activeBatch || values.inputBatchNumber,
@@ -591,7 +605,9 @@ export function ProcessStageForm({
         qtyReject: showsWaste ? qtyReject : 0,
         qtyWaste: 0,
         colorLines: isSplitting ? colorLines : undefined,
-        labourCost: meta.showLabourCost !== false ? Number(values.labourCost || 0) : 0,
+        labourCost: meta.showLabourCost !== false ? calculatedHourlyLabour : 0,
+        labourHours: labourHoursVal > 0 ? labourHoursVal : undefined,
+        labourRatePerHour: labourRateVal > 0 ? labourRateVal : undefined,
         energyCost: meta.showEnergyCost !== false ? Number(values.energyCost || 0) : 0,
         waterQty: Number(values.waterQty || 0),
         chemicalCost: Number(values.chemicalCost || 0),
@@ -645,8 +661,15 @@ export function ProcessStageForm({
         setScrapTicket(data.scrapTicket || values.inputBatchNumber)
       }
       setSuccessBatch(resultingBatch)
-      queryClient.invalidateQueries({ queryKey: ['process-inputs', stage] })
-      queryClient.invalidateQueries({ queryKey: ['batches'] })
+      await queryClient.invalidateQueries({ queryKey: ['process-inputs'] })
+      await queryClient.invalidateQueries({ queryKey: ['batches'] })
+      await queryClient.invalidateQueries({ queryKey: ['batch'] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['stock-ledger'] })
+      await queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
+      await queryClient.invalidateQueries()
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: {
@@ -932,8 +955,7 @@ export function ProcessStageForm({
                   <strong>{colorName(selected.sortColor)}</strong> · Available:{' '}
                   <strong className="text-emerald-700">
                     {qtyLabel(selected.qtyRemaining, selected.uom)}
-                  </strong>{' '}
-                  · Location: {selected.location?.name || 'Processing Area'}
+                  </strong>
                 </p>
               </div>
               <Button
@@ -1316,14 +1338,53 @@ export function ProcessStageForm({
                 {(meta.showLabourCost !== false || meta.showEnergyCost !== false || meta.showWashFields) && (
                   <div className="col-span-full grid grid-cols-2 gap-2.5 sm:contents">
                     {meta.showLabourCost !== false && (
-                      <Field label="Labour cost / kg (₦)">
-                        <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
-                      </Field>
+                      meta.labourHourly ? (
+                        <>
+                          <Field label="Labour rate / hr (₦)">
+                            <input
+                              inputMode="decimal"
+                              placeholder="e.g. 1500"
+                              className="dgn-input"
+                              {...register('labourRatePerHour')}
+                            />
+                          </Field>
+                          <Field label="Hours worked (hrs)">
+                            <input
+                              inputMode="decimal"
+                              placeholder="e.g. 2.5"
+                              step="0.1"
+                              className="dgn-input"
+                              {...register('labourHours')}
+                            />
+                          </Field>
+                        </>
+                      ) : (
+                        <Field label="Labour cost (₦)">
+                          <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
+                        </Field>
+                      )
                     )}
                     {meta.showEnergyCost !== false && (
                       <Field label="Energy cost (₦)">
                         <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
                       </Field>
+                    )}
+                    {meta.showLabourCost !== false && meta.labourHourly && Number(watch('labourHours') || 0) > 0 && Number(watch('labourRatePerHour') || 0) > 0 && (
+                      <div className="col-span-full rounded-md bg-blue-50/90 border border-blue-200/80 px-3.5 py-2 text-xs font-medium text-blue-900 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <span>⏱️</span>
+                          <span>
+                            Calculated crushing labour ({watch('labourHours')} hrs × ₦
+                            {Number(watch('labourRatePerHour')).toLocaleString()}/hr):
+                          </span>
+                        </span>
+                        <span className="font-bold text-sm text-blue-700">
+                          ₦
+                          {(
+                            Number(watch('labourHours') || 0) * Number(watch('labourRatePerHour') || 0)
+                          ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
                     )}
                     {meta.showWashFields && (
                       <>

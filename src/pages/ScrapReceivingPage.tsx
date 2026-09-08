@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card, Field, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -43,6 +43,7 @@ function colorName(code: string) {
 
 export function ScrapReceivingPage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ netWeight: number } | null>(null)
   const [isCostBreakdownOpen, setIsCostBreakdownOpen] = useState(false)
@@ -229,6 +230,14 @@ export function ScrapReceivingPage() {
         confirmUnusualNet,
       })
 
+      // Invalidate queries so that navigation back to receiving list, batches, or stages immediately shows fresh data
+      await queryClient.invalidateQueries({ queryKey: ['scrap-receipts'] })
+      await queryClient.invalidateQueries({ queryKey: ['batches'] })
+      await queryClient.invalidateQueries({ queryKey: ['process-inputs'] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      await queryClient.invalidateQueries({ queryKey: ['stock-ledger'] })
+      await queryClient.invalidateQueries()
+
       setSuccess({
         batchNumber: data.batchNumber,
         nextStage: data.nextStage || (values.inboundForm === 'CRUSHED' ? 'washing' : 'crushing'),
@@ -406,12 +415,7 @@ export function ScrapReceivingPage() {
         <Card className="p-3 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold tracking-tight">Supplier & material</h2>
-            <Link
-              to="/suppliers"
-              className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-            >
-              All suppliers →
-            </Link>
+    
           </div>
 
           <div className="mt-3 grid gap-3 sm:grid-cols-2">

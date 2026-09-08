@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Search, ExternalLink, Eye, RotateCcw } from 'lucide-react'
@@ -94,6 +94,7 @@ function getStageBadge(stage?: string) {
 }
 
 export function BatchesPage() {
+  const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
   const [stage, setStage] = useState('ALL')
@@ -219,22 +220,17 @@ export function BatchesPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap"
-              asChild
+              className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap cursor-pointer"
+              onClick={() => navigate(`/batches/${row.original.batchNumber}`)}
             >
-              <Link
-                to={`/batches/${row.original.batchNumber}`}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <Eye className="size-3.5 shrink-0" />
-                <span>View</span>
-              </Link>
+              <Eye className="size-3.5 shrink-0" />
+              <span>View</span>
             </Button>
           </div>
         ),
       },
     ],
-    []
+    [navigate]
   )
 
   const handleSearch = (e: React.FormEvent) => {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Plus, Eye, Play } from 'lucide-react'
@@ -17,10 +17,13 @@ import {
 } from '@/pages/ProcessStagePage'
 
 export function ProcessStageListPage() {
+  const navigate = useNavigate()
   const { stage = 'sorting' } = useParams()
   const [searchParams] = useSearchParams()
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const isSorting = stage === 'sorting'
+  const isCrushing = stage === 'crushing'
+  const showColor = !isSorting && !isCrushing
 
   // If a ?batch= query param is provided, forward directly to the form page
   const batchParam = searchParams.get('batch')
@@ -53,7 +56,7 @@ export function ProcessStageListPage() {
         </div>
       ),
     },
-    ...(!isSorting
+    ...(showColor
       ? [
         {
           accessorKey: 'sortColor',
@@ -82,14 +85,6 @@ export function ProcessStageListPage() {
       ),
     },
     {
-      accessorFn: (row) => row.location?.name ?? '',
-      id: 'location',
-      header: 'Location',
-      cell: ({ row }) => (
-        <span className="text-sm text-[var(--ink-muted)]">{row.original.location?.name || '—'}</span>
-      ),
-    },
-    {
       accessorKey: 'businessDate',
       header: 'Date',
       cell: ({ row }) => (
@@ -104,42 +99,40 @@ export function ProcessStageListPage() {
       enableSorting: false,
       cell: ({ row }) => (
         <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" size="sm" className="h-8 text-xs font-medium" asChild>
-            <Link
-              to={`/batches/${row.original.batchNumber}`}
-              className="inline-flex items-center justify-center gap-1.5 leading-none"
-            >
-              <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-              <span>View</span>
-            </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs font-medium cursor-pointer"
+            onClick={() => navigate(`/batches/${row.original.batchNumber}`)}
+          >
+            <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+            <span>View</span>
           </Button>
-          <Button size="sm" className="h-8 text-xs font-semibold" asChild>
-            <Link
-              to={`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`}
-              className="inline-flex items-center justify-center gap-1.5 leading-none"
-            >
-              <Play className="h-3 w-3 shrink-0 fill-current" />
-              <span>Process</span>
-            </Link>
+          <Button
+            size="sm"
+            className="h-8 text-xs font-semibold cursor-pointer"
+            onClick={() => navigate(`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`)}
+          >
+            <Play className="h-3 w-3 shrink-0 fill-current" />
+            <span>Process</span>
           </Button>
         </div>
       ),
     },
-  ], [isSorting, stage])
+  ], [showColor, stage, navigate])
 
   return (
     <PageLayout
       title={meta.title}
       description={meta.queueTitle}
       actions={
-        <Button asChild size="sm" className="h-8 text-xs font-semibold">
-          <Link
-            to={`/process/${stage}/new`}
-            className="inline-flex items-center justify-center gap-1.5 leading-none"
-          >
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            <span>Record {meta.title}</span>
-          </Link>
+        <Button
+          size="sm"
+          className="h-8 text-xs font-semibold cursor-pointer"
+          onClick={() => navigate(`/process/${stage}/new`)}
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          <span>Record {meta.title}</span>
         </Button>
       }
     >

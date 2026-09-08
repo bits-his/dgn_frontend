@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Plus, Eye } from 'lucide-react'
@@ -52,6 +52,7 @@ function formatDate(raw?: string) {
 }
 
 export function ScrapReceivingListPage() {
+  const navigate = useNavigate()
   const receiptsQuery = useQuery({
     queryKey: ['scrap-receipts'],
     queryFn: async () => {
@@ -89,76 +90,76 @@ export function ScrapReceivingListPage() {
         },
       },
       {
-        id: 'receivedAt',
-        header: 'Received Date',
-        accessorKey: 'receivedAt',
-        cell: ({ row }) => (
-          <span className="text-xs text-[var(--ink-muted)] whitespace-nowrap">
-            {formatDate(row.original.receivedAt)}
-          </span>
-        ),
-      },
-      {
-        id: 'inboundForm',
-        header: 'Form',
-        accessorKey: 'inboundForm',
+        id: 'material',
+        header: 'Material',
+        accessorKey: 'material.name',
         cell: ({ row }) => {
-          const isRaw = row.original.inboundForm === 'RAW'
+          const r = row.original
+          const isRaw = r.inboundForm === 'RAW'
           return (
-            <span
-              className={cn(
-                'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wider',
-                isRaw
-                  ? 'bg-amber-100 text-amber-800'
-                  : 'bg-purple-100 text-purple-800',
-              )}
-            >
-              {row.original.inboundForm || 'RAW'}
-            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm text-foreground">
+                  {r.material?.name || 'Raw Scrap'}
+                </span>
+                <span
+                  className={cn(
+                    'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border tracking-wide uppercase',
+                    isRaw
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-indigo-50 text-indigo-800 border-indigo-300',
+                  )}
+                >
+                  {r.inboundForm || 'RAW'}
+                </span>
+              </div>
+              <p className="text-xs font-semibold text-emerald-700 mt-0.5">
+                {Number(r.netWeight || 0).toLocaleString()} kg
+              </p>
+            </div>
           )
         },
       },
       {
-        id: 'material',
-        header: 'Material',
-        accessorKey: 'material.name',
+        id: 'supplier',
+        header: 'Supplier',
+        accessorKey: 'supplier.name',
         cell: ({ row }) => (
-          <div>
-            <span className="text-sm font-medium text-foreground block">
-              {row.original.material?.name || 'Scrap Material'}
-            </span>
-            <span className="tabular-nums font-semibold text-xs text-muted-foreground">
-              {Number(row.original.netWeight || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 3,
-              })}{' '}
-              kg
-            </span>
-          </div>
+          <span className="text-sm text-foreground">
+            {row.original.supplier?.name || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'pricePerKg',
+        header: 'Rate / kg',
+        accessorKey: 'pricePerKg',
+        cell: ({ row }) => (
+          <span className="text-sm font-medium">
+            ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
         ),
       },
       {
         id: 'purchaseCost',
-        header: 'Total Cost',
+        header: 'Purchase Cost',
         accessorKey: 'purchaseCost',
         cell: ({ row }) => (
-          <div>
-            <span className="tabular-nums font-semibold text-sm text-foreground block">
-              ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
-            <span className="tabular-nums text-xs text-[var(--ink-muted)] block">
-              @ ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}/kg
-            </span>
-          </div>
+          <span className="text-sm font-semibold text-foreground">
+            ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </span>
         ),
       },
- 
+      {
+        id: 'receivedAt',
+        header: 'Date Received',
+        accessorKey: 'receivedAt',
+        cell: ({ row }) => (
+          <span className="text-xs text-[var(--ink-muted)]">
+            {formatDate(row.original.receivedAt)}
+          </span>
+        ),
+      },
       {
         id: 'actions',
         header: 'Action',
@@ -168,15 +169,17 @@ export function ScrapReceivingListPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 text-xs font-medium"
-              asChild
+              className="h-8 text-xs font-medium cursor-pointer"
               disabled={!batchNum}
+              onClick={() => {
+                if (batchNum) navigate(`/batches/${batchNum}`)
+              }}
             >
               {batchNum ? (
-                <Link to={`/batches/${batchNum}`} className="inline-flex items-center justify-center gap-1.5 leading-none">
+                <>
                   <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                   <span>View</span>
-                </Link>
+                </>
               ) : (
                 <span>—</span>
               )}
@@ -185,7 +188,7 @@ export function ScrapReceivingListPage() {
         },
       },
     ],
-    [],
+    [navigate],
   )
 
   return (
@@ -193,11 +196,13 @@ export function ScrapReceivingListPage() {
       title="Scrap Buying"
       description="Inbound scrap receipts and raw material purchasing ledger"
       actions={
-        <Button asChild size="sm" className="h-8 text-xs font-semibold">
-          <Link to="/receiving/new" className="inline-flex items-center justify-center gap-1.5 leading-none">
-            <Plus className="h-3.5 w-3.5 shrink-0" />
-            <span>New Scrap Buying</span>
-          </Link>
+        <Button
+          size="sm"
+          className="h-8 text-xs font-semibold cursor-pointer"
+          onClick={() => navigate('/receiving/new')}
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          <span>New Scrap Buying</span>
         </Button>
       }
     >
