@@ -110,15 +110,10 @@ const recyclingNav: NavItem[] = [
   { to: '/process/recycling', label: 'Recycling', icon: Recycle, menuKey: 'recycling', permission: 'batch.create' },
 ]
 
-const productionGroup: NavGroup = {
-  id: 'production',
-  label: 'Production',
-  icon: Cog,
-  items: [
-    { to: '/production', label: 'Production runs', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
-    { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
-  ],
-}
+const productionNav: NavItem[] = [
+  { to: '/production', label: 'Production runs', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
+  { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
+]
 
 const mainNavRest: NavItem[] = [
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
@@ -319,11 +314,7 @@ export function AppShell() {
             onNavigate={() => setMobileOpen(false)}
           />
           <NavList items={recyclingNav} user={user} onNavigate={() => setMobileOpen(false)} />
-          <CollapsibleNavGroup
-            group={productionGroup}
-            user={user}
-            onNavigate={() => setMobileOpen(false)}
-          />
+          <NavList items={productionNav} user={user} onNavigate={() => setMobileOpen(false)} />
           <NavList items={mainNavRest} user={user} onNavigate={() => setMobileOpen(false)} />
         </div>
 

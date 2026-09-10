@@ -8,19 +8,15 @@ import { PageLayout } from '@/components/PageLayout'
 import { cn } from '@/lib/utils'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { SORT_COLORS } from '@/lib/sortColors'
-import { MATERIAL_BUY_TYPES } from '@/lib/materials'
-import { Truck, Scale, ShoppingCart, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react'
+import { Truck, Scale, ShoppingCart, ChevronDown, ChevronUp } from 'lucide-react'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
-type ColorLot = { batchNumber: string; color: string; qtyKg: number }
 
 type FormValues = {
   inboundForm: 'RAW' | 'CRUSHED'
   supplierName: string
-  materialId: string
-  locationId: string
   kg: string
   pricePerKg: string
   sortingPricePerKg: string
@@ -47,35 +43,19 @@ export function ScrapReceivingPage() {
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ netWeight: number } | null>(null)
   const [isCostBreakdownOpen, setIsCostBreakdownOpen] = useState(false)
-  const [success, setSuccess] = useState<{
-    batchNumber: string
-    nextStage: string
-    inboundForm: string
-    colorLots: ColorLot[]
-  } | null>(null)
   const [colorLines, setColorLines] = useState<ColorLine[]>([])
   const [pickColor, setPickColor] = useState('')
   const [pickKg, setPickKg] = useState('')
 
-  const materials = useQuery({
-    queryKey: ['materials'],
-    queryFn: () => fetchMaster('/masters/materials'),
-  })
   const suppliers = useQuery({
     queryKey: ['suppliers'],
     queryFn: () => fetchMaster('/masters/suppliers'),
-  })
-  const locations = useQuery({
-    queryKey: ['locations'],
-    queryFn: () => fetchMaster('/masters/locations'),
   })
 
   const { register, handleSubmit, watch, setValue, formState } = useForm<FormValues>({
     defaultValues: {
       inboundForm: 'RAW',
       supplierName: '',
-      materialId: '',
-      locationId: '',
       kg: '',
       pricePerKg: '',
       sortingPricePerKg: '0',
@@ -87,36 +67,6 @@ export function ScrapReceivingPage() {
       notes: '',
     },
   })
-
-  const buyMaterials = useMemo(() => {
-    const codes = new Set<string>(MATERIAL_BUY_TYPES.map((m) => m.code))
-    const fromApi = (materials.data || []).filter((m) => m.code && codes.has(m.code))
-    return MATERIAL_BUY_TYPES.map((wanted) => {
-      const hit =
-        fromApi.find((m) => m.code === wanted.code) ||
-        (materials.data || []).find(
-          (m) => m.name.toLowerCase() === wanted.name.toLowerCase(),
-        )
-      return hit
-        ? { id: hit.id, name: wanted.name, code: wanted.code }
-        : { id: 0, name: wanted.name, code: wanted.code }
-    }).filter((m) => m.id > 0)
-  }, [materials.data])
-
-  useEffect(() => {
-    if (!buyMaterials.length) return
-    const current = watch('materialId')
-    if (!current || !buyMaterials.some((m) => String(m.id) === String(current))) {
-      setValue('materialId', String(buyMaterials[0].id))
-    }
-  }, [buyMaterials, setValue, watch])
-
-  useEffect(() => {
-    if (locations.data?.length && !watch('locationId')) {
-      const yard = locations.data.find((l) => l.code === 'RM-YARD') || locations.data[0]
-      setValue('locationId', String(yard.id))
-    }
-  }, [locations.data, setValue, watch])
 
   const inboundForm = watch('inboundForm')
   const isCrushed = inboundForm === 'CRUSHED'
@@ -214,8 +164,6 @@ export function ScrapReceivingPage() {
       const { data } = await api.post('/receiving/scrap', {
         supplierId: matchedSup ? matchedSup.id : undefined,
         supplierName: values.supplierName.trim(),
-        materialId: Number(values.materialId),
-        locationId: Number(values.locationId),
         inboundForm: values.inboundForm,
         kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
         colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
@@ -238,13 +186,7 @@ export function ScrapReceivingPage() {
       await queryClient.invalidateQueries({ queryKey: ['stock-ledger'] })
       await queryClient.invalidateQueries()
 
-      setSuccess({
-        batchNumber: data.batchNumber,
-        nextStage: data.nextStage || (values.inboundForm === 'CRUSHED' ? 'washing' : 'crushing'),
-        inboundForm: data.inboundForm || values.inboundForm,
-        colorLots: Array.isArray(data.colorLots) ? data.colorLots : [],
-      })
-      setColorLines([])
+      navigate('/receiving')
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: {
@@ -272,89 +214,7 @@ export function ScrapReceivingPage() {
     }
   }
 
-  if (success) {
-    const nextLabel = success.nextStage === 'washing' ? 'Washing' : 'Crushing'
-    const crushedLots = success.colorLots.length > 0
-    return (
-      <PageLayout
-        title="Scrap Buying Complete"
-        back={true}
-        backTo="/receiving"
-      >
-        <div className="mx-auto max-w-2xl">
-          <Card className="border-emerald-500/30 bg-emerald-500/5 text-center !p-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-500">
-              {success.inboundForm === 'CRUSHED' ? 'Crushed colour batches created' : 'Scrap ticket recorded'}
-            </p>
-            {!crushedLots && (
-              <p className="mt-3 text-3xl font-bold tracking-tight text-white">{success.batchNumber}</p>
-            )}
-            <p className="mt-2 text-sm text-[var(--ink-muted)]">
-              {success.inboundForm === 'CRUSHED'
-                ? 'Each colour has its own BAT- number and is sent directly to washing.'
-                : 'Sorted from buying and ready for crushing. Proceed to allocate colors & crush.'}
-            </p>
 
-            {crushedLots && (
-              <ul className="mt-5 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)] text-left">
-                {success.colorLots.map((lot) => (
-                  <li key={lot.batchNumber} className="flex items-center justify-between gap-3 px-4 py-3">
-                    <div>
-                      <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
-                      <p className="text-sm text-[var(--ink-muted)]">
-                        {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="dgn-btn dgn-btn-secondary"
-                      onClick={() => navigate(`/batches/${lot.batchNumber}`)}
-                    >
-                      Open
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-primary flex items-center justify-center gap-2"
-                onClick={() => navigate(`/process/${success.nextStage}`)}
-              >
-                <span>Go to {nextLabel}</span>
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              {!crushedLots && (
-                <button
-                  type="button"
-                  className="dgn-btn dgn-btn-secondary"
-                  onClick={() => navigate(`/batches/${success.batchNumber}`)}
-                >
-                  Open batch
-                </button>
-              )}
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-secondary"
-                onClick={() => navigate('/receiving')}
-              >
-                Back to list
-              </button>
-              <button
-                type="button"
-                className="dgn-btn dgn-btn-secondary"
-                onClick={() => setSuccess(null)}
-              >
-                Record new buying
-              </button>
-            </div>
-          </Card>
-        </div>
-      </PageLayout>
-    )
-  }
 
   return (
     <PageLayout
@@ -411,14 +271,13 @@ export function ScrapReceivingPage() {
           </div>
         </Card>
 
-        {/* Section 2: Supplier, Material & Location */}
+        {/* Section 2: Supplier Details */}
         <Card className="p-3 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-base font-semibold tracking-tight">Supplier & material</h2>
-    
+            <h2 className="text-base font-semibold tracking-tight">Supplier details</h2>
           </div>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-3">
             <Field label="Supplier name">
               <input
                 type="text"
@@ -434,32 +293,6 @@ export function ScrapReceivingPage() {
                 ))}
               </datalist>
             </Field>
-
-            <Field label="Material type">
-              <select className="dgn-input w-full" {...register('materialId', { required: true })}>
-                <option value="">Select material type</option>
-                {buyMaterials.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            {!isCrushed && (
-              <div className="sm:col-span-2">
-                <Field label="Store location">
-                  <select className="dgn-input w-full" {...register('locationId', { required: true })}>
-                    <option value="">Select storage location</option>
-                    {locations.data?.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name} ({l.code})
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-            )}
           </div>
         </Card>
 

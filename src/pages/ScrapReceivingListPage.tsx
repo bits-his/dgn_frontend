@@ -90,9 +90,9 @@ export function ScrapReceivingListPage() {
         },
       },
       {
-        id: 'material',
-        header: 'Material',
-        accessorKey: 'material.name',
+        id: 'condition',
+        header: 'Condition / Type',
+        accessorKey: 'inboundForm',
         cell: ({ row }) => {
           const r = row.original
           const isRaw = r.inboundForm === 'RAW'
@@ -100,7 +100,7 @@ export function ScrapReceivingListPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm text-foreground">
-                  {r.material?.name || 'Raw Scrap'}
+                  {isRaw ? 'Raw Scrap' : 'Crushed Scrap'}
                 </span>
                 <span
                   className={cn(

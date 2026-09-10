@@ -278,7 +278,7 @@ export function ProcessStageForm({
   const machines = useQuery({
     queryKey: ['machines'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/machines')
+      const { data } = await api.get('/machines')
       return data.data as Array<{ id: number; name: string; code?: string }>
     },
     enabled: Boolean(STAGE_META[stage]?.showMachine),

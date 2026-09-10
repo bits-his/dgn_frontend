@@ -217,7 +217,7 @@ export function ProductionPage() {
   const machines = useQuery({
     queryKey: ['machines'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/machines')
+      const { data } = await api.get('/machines')
       return (data.data || []) as MasterItem[]
     },
   })

@@ -275,7 +275,7 @@ export function MachinePerformancePage() {
   const machinesQuery = useQuery({
     queryKey: ['masters-machines'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/machines')
+      const { data } = await api.get('/machines')
       return data.data as MachineMaster[]
     },
     initialData: () => {
@@ -300,7 +300,7 @@ export function MachinePerformancePage() {
   const maintenanceQuery = useQuery({
     queryKey: ['masters-maintenance'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/maintenance')
+      const { data } = await api.get('/maintenance')
       return data.data as MaintenanceRecord[]
     },
     initialData: () => {
@@ -426,10 +426,10 @@ export function MachinePerformancePage() {
         throw new Error('Machine and title are required')
       }
       if (editingMaint) {
-        const { data } = await api.patch(`/masters/maintenance/${editingMaint.id}`, payload)
+        const { data } = await api.patch(`/maintenance/${editingMaint.id}`, payload)
         return data.data
       } else {
-        const { data } = await api.post('/masters/maintenance', payload)
+        const { data } = await api.post('/maintenance', payload)
         return data.data
       }
     },
@@ -462,10 +462,10 @@ export function MachinePerformancePage() {
         throw new Error('Machine name is required')
       }
       if (editingMachine) {
-        const { data } = await api.patch(`/masters/machines/${editingMachine.id}`, payload)
+        const { data } = await api.patch(`/machines/${editingMachine.id}`, payload)
         return data.data
       } else {
-        const { data } = await api.post('/masters/machines', payload)
+        const { data } = await api.post('/machines', payload)
         return data.data
       }
     },

@@ -95,7 +95,7 @@ export function NewSalePage() {
   const customers = useQuery({
     queryKey: ['customers'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/customers')
+      const { data } = await api.get('/distributors')
       return data.data as Customer[]
     },
   })
