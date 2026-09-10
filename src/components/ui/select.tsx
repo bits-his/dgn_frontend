@@ -1,4 +1,5 @@
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { ChevronDown, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -9,6 +10,7 @@ interface SelectContextType {
   setOpen: React.Dispatch<React.SetStateAction<boolean>>
   labels: Map<string, React.ReactNode>
   registerLabel: (val: string, label: React.ReactNode) => void
+  triggerRef: React.RefObject<HTMLButtonElement | null>
 }
 
 const SelectContext = React.createContext<SelectContextType>({
@@ -16,6 +18,7 @@ const SelectContext = React.createContext<SelectContextType>({
   setOpen: () => {},
   labels: new Map(),
   registerLabel: () => {},
+  triggerRef: { current: null },
 })
 
 interface SelectProps {
@@ -41,9 +44,9 @@ function extractChildLabels(node: React.ReactNode, map: Map<string, React.ReactN
 export function Select({ value, onValueChange, children, className }: SelectProps) {
   const [open, setOpen] = React.useState(false)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null)
   const [registeredLabels, setRegisteredLabels] = React.useState<Map<string, React.ReactNode>>(() => new Map())
 
-  // Synchronously extract labels from JSX tree on every render
   const syncLabels = React.useMemo(() => {
     const map = new Map<string, React.ReactNode>()
     extractChildLabels(children, map)
@@ -66,21 +69,25 @@ export function Select({ value, onValueChange, children, className }: SelectProp
   }, [])
 
   React.useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
+    function handlePointerOutside(e: MouseEvent | TouchEvent) {
+      const target = e.target as Node
+      if (containerRef.current?.contains(target)) return
+      const portal = document.getElementById("dgn-select-portal")
+      if (portal?.contains(target)) return
+      setOpen(false)
     }
     if (open) {
-      document.addEventListener("mousedown", handleClickOutside)
+      document.addEventListener("mousedown", handlePointerOutside)
+      document.addEventListener("touchstart", handlePointerOutside)
     }
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
+      document.removeEventListener("mousedown", handlePointerOutside)
+      document.removeEventListener("touchstart", handlePointerOutside)
     }
   }, [open])
 
   return (
-    <SelectContext.Provider value={{ value, onValueChange, open, setOpen, labels, registerLabel }}>
+    <SelectContext.Provider value={{ value, onValueChange, open, setOpen, labels, registerLabel, triggerRef }}>
       <div ref={containerRef} className={cn("relative text-left w-full", className)}>
         {children}
       </div>
@@ -92,11 +99,15 @@ export const SelectTrigger = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
 >(({ className, children, ...props }, ref) => {
-  const { open, setOpen } = React.useContext(SelectContext)
+  const { open, setOpen, triggerRef } = React.useContext(SelectContext)
   return (
     <button
       type="button"
-      ref={ref}
+      ref={(node) => {
+        triggerRef.current = node
+        if (typeof ref === "function") ref(node)
+        else if (ref) ref.current = node
+      }}
       onClick={() => setOpen(!open)}
       className={cn(
         "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-900 shadow-xs hover:bg-zinc-50 focus:outline-hidden dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50 cursor-pointer",
@@ -137,19 +148,67 @@ export function SelectContent({
   side?: "top" | "bottom"
   className?: string
 }) {
-  const { open } = React.useContext(SelectContext)
+  const { open, triggerRef } = React.useContext(SelectContext)
+  const [coords, setCoords] = React.useState<{
+    top: number
+    left: number
+    width: number
+    maxHeight: number
+    placeAbove: boolean
+  } | null>(null)
 
-  return (
+  const updatePosition = React.useCallback(() => {
+    const el = triggerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const gap = 4
+    const spaceBelow = window.innerHeight - rect.bottom - gap
+    const spaceAbove = rect.top - gap
+    const preferAbove = side === "top" || (spaceBelow < 180 && spaceAbove > spaceBelow)
+    const maxHeight = Math.min(240, Math.max(120, preferAbove ? spaceAbove : spaceBelow))
+    setCoords({
+      top: preferAbove ? Math.max(8, rect.top - gap) : rect.bottom + gap,
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      placeAbove: preferAbove,
+    })
+  }, [side, triggerRef])
+
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setCoords(null)
+      return
+    }
+    updatePosition()
+    window.addEventListener("resize", updatePosition)
+    window.addEventListener("scroll", updatePosition, true)
+    return () => {
+      window.removeEventListener("resize", updatePosition)
+      window.removeEventListener("scroll", updatePosition, true)
+    }
+  }, [open, updatePosition])
+
+  if (!open || !coords || typeof document === "undefined") return null
+
+  return createPortal(
     <div
+      id="dgn-select-portal"
       className={cn(
-        "absolute z-50 min-w-full w-full max-h-60 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1 text-zinc-950 shadow-md animate-in fade-in-80 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
-        side === "top" ? "bottom-full mb-1" : "top-full mt-1",
-        !open && "hidden pointer-events-none",
+        "fixed z-[100] overflow-y-auto overscroll-contain rounded-md border border-zinc-200 bg-white p-1 text-zinc-950 shadow-md animate-in fade-in-80 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-50",
         className
       )}
+      style={{
+        top: coords.placeAbove ? undefined : coords.top,
+        bottom: coords.placeAbove ? window.innerHeight - coords.top : undefined,
+        left: coords.left,
+        width: coords.width,
+        maxHeight: coords.maxHeight,
+      }}
     >
       {children}
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -173,12 +232,14 @@ export function SelectItem({
 
   return (
     <div
+      role="option"
+      aria-selected={isSelected}
       onClick={() => {
         onValueChange?.(value)
         setOpen(false)
       }}
       className={cn(
-        "relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-xs outline-hidden hover:bg-zinc-100 dark:hover:bg-zinc-800",
+        "relative flex cursor-pointer select-none items-center justify-between gap-2 rounded-sm px-2 py-2.5 sm:py-1.5 text-xs outline-hidden hover:bg-zinc-100 dark:hover:bg-zinc-800 active:bg-zinc-100",
         isSelected && "bg-zinc-100 font-bold text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50",
         className
       )}
@@ -188,4 +249,3 @@ export function SelectItem({
     </div>
   )
 }
-

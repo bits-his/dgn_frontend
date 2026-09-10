@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -7,19 +7,13 @@ import {
   Printer,
   AlertTriangle,
   FileText,
+  ChevronDown,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { CreditBar } from '@/pages/DistributorsPage'
 
 type SellableBatch = {
@@ -45,6 +39,7 @@ type Customer = {
   minOrderQty?: number
   priceTier?: string
   creditLimit?: number
+  paymentTermsDays?: number
 }
 
 type DistributorCreditView = {
@@ -57,6 +52,8 @@ type DistributorCreditView = {
   overdueAmount: number
   minOrderQty?: number
   distributorKind?: string
+  advanceBalance?: number
+  paymentTermsDays?: number
 }
 
 type BatchSaleInput = {
@@ -79,15 +76,18 @@ export function NewSalePage() {
   const initialCustomerParam = searchParams.get('distributor') || searchParams.get('customer') || ''
 
   const [customerId, setCustomerId] = useState(initialCustomerParam)
-  const [saleType, setSaleType] = useState('CASH')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [customerMenuOpen, setCustomerMenuOpen] = useState(false)
   const [discount, setDiscount] = useState('0')
   const [amountPaid, setAmountPaid] = useState('')
+  const [advanceApplied, setAdvanceApplied] = useState('')
   const [notes, setNotes] = useState('')
   const [itemSearch, setItemSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
   const [result, setResult] = useState<{ saleNumber: string; amountPaid: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  const customerPickerRef = useRef<HTMLDivElement>(null)
 
   // Map of batchNumber -> { qty, unitPrice }
   const [batchInputs, setBatchInputs] = useState<Record<string, BatchSaleInput>>({})
@@ -130,15 +130,85 @@ export function NewSalePage() {
       const profile = data.data as {
         minOrderQty?: number
         distributorKind?: string
-        credit: DistributorCreditView
+        advanceBalance?: number
+        paymentTermsDays?: number
+        credit: DistributorCreditView & {
+          available?: number
+          atLimit?: boolean
+          advanceBalance?: number
+          paymentTermsDays?: number
+        }
       }
+      const credit = profile.credit
+      const utilization = Number(credit.utilizationPercent || 0)
       return {
-        ...profile.credit,
+        creditLimit: Number(credit.creditLimit || 0),
+        outstanding: Number(credit.outstanding || 0),
+        availableCredit: Number(credit.available ?? credit.availableCredit ?? 0),
+        utilizationPercent: utilization,
+        status: (credit.atLimit || utilization >= 100
+          ? 'RED'
+          : utilization >= 80
+            ? 'YELLOW'
+            : 'GREEN') as 'GREEN' | 'YELLOW' | 'RED',
+        overdueCount: Number(credit.overdueCount || 0),
+        overdueAmount: Number(credit.overdueAmount || 0),
+        advanceBalance: Number(
+          profile.advanceBalance ?? credit.advanceBalance ?? 0,
+        ),
+        paymentTermsDays: Number(
+          profile.paymentTermsDays ?? credit.paymentTermsDays ?? 14,
+        ),
         minOrderQty: Number(profile.minOrderQty || 0),
         distributorKind: profile.distributorKind,
       } as DistributorCreditView
     },
   })
+
+  useEffect(() => {
+    function handleOutside(e: MouseEvent | TouchEvent) {
+      if (!customerPickerRef.current?.contains(e.target as Node)) {
+        setCustomerMenuOpen(false)
+      }
+    }
+    if (customerMenuOpen) {
+      document.addEventListener('mousedown', handleOutside)
+      document.addEventListener('touchstart', handleOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutside)
+      document.removeEventListener('touchstart', handleOutside)
+    }
+  }, [customerMenuOpen])
+
+  // When switching distributor, clear advance application
+  useEffect(() => {
+    if (!selectedIsDistributor) {
+      setAdvanceApplied('')
+    }
+  }, [selectedIsDistributor, selectedCustomer?.id])
+
+  const filteredCustomers = useMemo(() => {
+    const list = customers.data || []
+    const q = customerSearch.trim().toLowerCase()
+    const filtered = !q
+      ? list
+      : list.filter(
+          (c) =>
+            c.name.toLowerCase().includes(q) ||
+            (c.code && c.code.toLowerCase().includes(q)) ||
+            (c.phone && c.phone.toLowerCase().includes(q)) ||
+            (c.customerType && c.customerType.toLowerCase().includes(q)),
+        )
+    // Keep the selected customer visible even if search excludes them
+    if (customerId) {
+      const selected = list.find((c) => String(c.id) === String(customerId))
+      if (selected && !filtered.some((c) => c.id === selected.id)) {
+        return [selected, ...filtered]
+      }
+    }
+    return filtered
+  }, [customers.data, customerSearch, customerId])
 
   // Pre-fill default price when batches load
   useEffect(() => {
@@ -219,17 +289,23 @@ export function NewSalePage() {
     const disc = Number(discount) || 0
     const total = Math.max(0, subtotal - disc)
     const margin = subtotal - disc - cost
+    const cash = Number(amountPaid) || 0
+    const advance = Number(advanceApplied) || 0
+    const paidNow = cash + advance
     return {
       subtotal,
       cost,
       total,
       margin,
       marginPercent: subtotal - disc > 0 ? (margin / (subtotal - disc)) * 100 : 0,
-      balance: total - (Number(amountPaid) || 0),
+      cash,
+      advance,
+      paidNow,
+      balance: total - paidNow,
       qty: totalQty,
       itemCount: activeLines.length,
     }
-  }, [activeLines, discount, amountPaid])
+  }, [activeLines, discount, amountPaid, advanceApplied])
 
   const filteredSellable = useMemo(() => {
     const q = itemSearch.trim().toLowerCase()
@@ -261,12 +337,33 @@ export function NewSalePage() {
   const canSubmit = Boolean(
     customerId && activeLines.length > 0 && !saving && !creditBlocked && !belowMin,
   )
+  const submitBlockedReason = !customerId
+    ? 'Select a customer first.'
+    : activeLines.length === 0
+      ? 'Enter a quantity on at least one product.'
+      : belowMin
+        ? `This distributor’s minimum is ${fmt(minOrderQty)} units. You currently have ${fmt(computed.qty)}.`
+        : creditBlocked
+          ? 'This sale would exceed their credit limit. Collect more payment or reduce the order.'
+          : saving
+            ? 'Recording sale…'
+            : null
 
   const submit = async (confirmLowMargin: boolean) => {
     setError(null)
     setWarning(null)
     setSaving(true)
     try {
+      const termsDays = Number(
+        credit?.paymentTermsDays ?? selectedCustomer?.paymentTermsDays ?? 14,
+      )
+      const saleType =
+        computed.balance <= 0.001
+          ? 'CASH'
+          : selectedIsDistributor
+            ? `NET_${termsDays}`
+            : 'CREDIT'
+
       const { data } = await api.post('/sales', {
         customerId: Number(customerId),
         saleType,
@@ -277,16 +374,22 @@ export function NewSalePage() {
         })),
         discount: Number(discount) || 0,
         amountPaid: Number(amountPaid) || 0,
+        advanceApplied: Number(advanceApplied) || 0,
         notes,
         confirmLowMargin,
       })
-      setResult({ saleNumber: data.saleNumber, amountPaid: Number(amountPaid) || 0 })
+      setResult({
+        saleNumber: data.saleNumber,
+        amountPaid: (Number(amountPaid) || 0) + (Number(advanceApplied) || 0),
+      })
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['sales-overview'] })
       queryClient.invalidateQueries({ queryKey: ['sellable-batches'] })
       queryClient.invalidateQueries({ queryKey: ['inventory-overview'] })
       queryClient.invalidateQueries({ queryKey: ['distributors'] })
       queryClient.invalidateQueries({ queryKey: ['distributor'] })
+      queryClient.invalidateQueries({ queryKey: ['distributor-credit'] })
+      queryClient.invalidateQueries({ queryKey: ['customers'] })
     } catch (err: unknown) {
       const res = (err as { response?: { data?: Record<string, unknown> } }).response
       const body = res?.data
@@ -363,7 +466,7 @@ export function NewSalePage() {
     >
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-12">
         {/* Left Column: Goods for Sale with Direct Quantity & Price Input */}
-        <div className="lg:col-span-7 xl:col-span-8 space-y-4">
+        <div className="order-2 lg:order-1 lg:col-span-7 xl:col-span-8 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-3.5 rounded-xl border border-zinc-200/80 shadow-xs">
             <div>
               <div className="flex items-center gap-2">
@@ -558,33 +661,106 @@ export function NewSalePage() {
           </div>
         </div>
 
-        {/* Right Column: Checkout & Customer Information */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-4">
-          <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 sm:p-5 shadow-xs space-y-4">
+        {/* Right Column: Checkout & Customer Information — first on mobile so customers are reachable */}
+        <div className="order-1 lg:order-2 lg:col-span-5 xl:col-span-4 space-y-4">
+          <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 sm:p-5 shadow-xs space-y-4 lg:sticky lg:top-20">
             <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-2.5">
               Customer & Checkout
             </h2>
 
-            {/* Customer Select */}
-            <div>
+            {/* Customer combobox: search + select in one field */}
+            <div ref={customerPickerRef}>
               <label className="block text-xs font-medium text-zinc-700 mb-1.5">
                 Customer <span className="text-red-500">*</span>
               </label>
-              <Select value={customerId} onValueChange={(val) => setCustomerId(val)}>
-                <SelectTrigger className="w-full h-8 text-xs font-medium">
-                  <SelectValue placeholder="Select a customer..." />
-                </SelectTrigger>
-                <SelectContent className="w-full">
-                  {customers.data?.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.name} {c.customerType ? `(${c.customerType})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {customers.isLoading ? (
+                <p className="text-xs text-zinc-500 py-2">Loading customers…</p>
+              ) : customers.isError ? (
+                <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-700 space-y-1.5">
+                  <p className="font-medium">Could not load customers.</p>
+                  <p className="text-[11px] text-red-600/90">
+                    If you are on a phone, open the app using your computer&apos;s Wi‑Fi address (not localhost), then retry.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs bg-white"
+                    onClick={() => customers.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
+                  <Input
+                    type="text"
+                    inputMode="search"
+                    placeholder="Search and select a customer…"
+                    value={
+                      customerMenuOpen
+                        ? customerSearch
+                        : selectedCustomer
+                          ? `${selectedCustomer.name}${selectedCustomer.customerType ? ` (${selectedCustomer.customerType})` : ''}`
+                          : customerSearch
+                    }
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value)
+                      setCustomerMenuOpen(true)
+                      if (customerId) setCustomerId('')
+                    }}
+                    onFocus={() => {
+                      setCustomerMenuOpen(true)
+                      if (selectedCustomer && !customerSearch) {
+                        setCustomerSearch('')
+                      }
+                    }}
+                    className="pl-8 pr-8 h-9 text-xs"
+                    autoComplete="off"
+                  />
+                  <ChevronDown
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none transition-transform ${
+                      customerMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                  {customerMenuOpen && (
+                    <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto overscroll-contain rounded-md border border-zinc-200 bg-white p-1 shadow-md dark:border-zinc-800 dark:bg-zinc-950">
+                      {filteredCustomers.length === 0 ? (
+                        <p className="px-2 py-3 text-xs text-zinc-500">No customers match.</p>
+                      ) : (
+                        filteredCustomers.map((c) => {
+                          const selected = String(c.id) === String(customerId)
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              className={`flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2.5 sm:py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                                selected ? 'bg-zinc-100 font-bold dark:bg-zinc-800' : ''
+                              }`}
+                              onClick={() => {
+                                setCustomerId(String(c.id))
+                                setCustomerSearch('')
+                                setAdvanceApplied('')
+                                setCustomerMenuOpen(false)
+                              }}
+                            >
+                              <span className="truncate">
+                                {c.name}
+                                {c.customerType ? ` (${c.customerType})` : ''}
+                              </span>
+                              {selected && <Check className="size-3.5 shrink-0 text-zinc-700" />}
+                            </button>
+                          )
+                        })
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Distributor Credit Information */}
+            {/* Distributor Credit + Advance */}
             {selectedIsDistributor && credit && (
               <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3 space-y-2">
                 <div className="flex items-center justify-between text-xs">
@@ -597,6 +773,12 @@ export function NewSalePage() {
                   percent={credit.utilizationPercent}
                   atLimit={credit.status === 'RED' || credit.utilizationPercent >= 100}
                 />
+                <div className="flex items-center justify-between text-xs pt-1 border-t border-zinc-200/70">
+                  <span className="text-zinc-500">Advance balance</span>
+                  <span className="font-semibold text-teal-800">
+                    {money(Number(credit.advanceBalance || 0))}
+                  </span>
+                </div>
                 {creditBlocked && (
                   <p className="rounded-lg bg-red-50 p-2 text-xs text-red-700 font-medium flex items-center gap-1.5">
                     <AlertTriangle className="size-3.5 shrink-0" />
@@ -605,31 +787,13 @@ export function NewSalePage() {
                 )}
                 {belowMin && (
                   <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 font-medium">
-                    Order volume ({fmt(computed.qty)} kg) is below distributor minimum of {fmt(minOrderQty)} kg
+                    Order volume ({fmt(computed.qty)} units) is below distributor minimum of {fmt(minOrderQty)} units
                   </p>
                 )}
               </div>
             )}
 
-            {/* Payment Terms Select */}
-            <div>
-              <label className="block text-xs font-medium text-zinc-700 mb-1.5">
-                Payment Terms
-              </label>
-              <Select value={saleType} onValueChange={(val) => setSaleType(val)}>
-                <SelectTrigger className="w-full h-8 text-xs font-medium">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="w-full">
-                  <SelectItem value="CASH">Immediate / Cash</SelectItem>
-                  <SelectItem value="NET_7">Net 7 Days</SelectItem>
-                  <SelectItem value="NET_15">Net 15 Days</SelectItem>
-                  <SelectItem value="NET_30">Net 30 Days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Discount and Paid Now */}
+            {/* Discount, Paid Now, Advance */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-zinc-700 mb-1.5">
@@ -658,8 +822,42 @@ export function NewSalePage() {
                   onChange={(e) => setAmountPaid(e.target.value)}
                   className="h-8 text-xs tabular-nums"
                 />
+                <p className="mt-1 text-[10px] text-zinc-400">Cash / transfer collected today</p>
               </div>
             </div>
+
+            {selectedIsDistributor && Number(credit?.advanceBalance || 0) > 0.001 && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-zinc-700">
+                    Use from advance (₦)
+                  </label>
+                  <button
+                    type="button"
+                    className="text-[10px] font-bold text-teal-700 hover:text-teal-800"
+                    onClick={() => {
+                      const available = Number(credit?.advanceBalance || 0)
+                      const remaining = Math.max(0, computed.total - (Number(amountPaid) || 0))
+                      setAdvanceApplied(String(Math.min(available, remaining)))
+                    }}
+                  >
+                    Use max
+                  </button>
+                </div>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0"
+                  value={advanceApplied}
+                  onChange={(e) => setAdvanceApplied(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                />
+                <p className="mt-1 text-[10px] text-zinc-400">
+                  Deducted from their {money(Number(credit?.advanceBalance || 0))} advance wallet
+                </p>
+              </div>
+            )}
 
             {/* Notes */}
             <div>
@@ -702,9 +900,15 @@ export function NewSalePage() {
                 </span>
               </div>
               <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-semibold">
-                <span className="text-zinc-700">Amount Paid Now</span>
-                <span className="tabular-nums text-teal-700">{money(Number(amountPaid) || 0)}</span>
+                <span className="text-zinc-700">Cash paid now</span>
+                <span className="tabular-nums text-teal-700">{money(computed.cash)}</span>
               </div>
+              {computed.advance > 0.001 && (
+                <div className="flex justify-between font-semibold">
+                  <span className="text-zinc-700">From advance</span>
+                  <span className="tabular-nums text-teal-700">{money(computed.advance)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold">
                 <span className="text-zinc-900">Balance Due</span>
                 <span
@@ -739,24 +943,31 @@ export function NewSalePage() {
             )}
 
             {/* Action Buttons arranged horizontally */}
-            <div className="flex flex-row items-center gap-2 pt-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 px-4 font-semibold text-xs whitespace-nowrap inline-flex flex-row items-center justify-center"
-                onClick={() => navigate('/sales')}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="flex-1 h-9 font-semibold text-xs gap-1.5 whitespace-nowrap inline-flex flex-row items-center justify-center"
-                disabled={!canSubmit}
-                onClick={() => submit(false)}
-              >
-                {saving ? 'Recording sale…' : 'Record sale'}
-              </Button>
+            <div className="space-y-2 pt-1">
+              <div className="flex flex-row items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-4 font-semibold text-xs whitespace-nowrap inline-flex flex-row items-center justify-center"
+                  onClick={() => navigate('/sales')}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 h-9 font-semibold text-xs gap-1.5 whitespace-nowrap inline-flex flex-row items-center justify-center"
+                  disabled={!canSubmit}
+                  onClick={() => submit(false)}
+                >
+                  {saving ? 'Recording sale…' : 'Record sale'}
+                </Button>
+              </div>
+              {!canSubmit && submitBlockedReason && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 rounded-lg px-2.5 py-2">
+                  {submitBlockedReason}
+                </p>
+              )}
             </div>
           </div>
         </div>
