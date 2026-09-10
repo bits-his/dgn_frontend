@@ -1,16 +1,21 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, RefreshCw, X } from 'lucide-react'
+import {
+  Bell,
+  RefreshCw,
+  X,
+  DollarSign,
+  TrendingUp,
+  Factory,
+  Gauge,
+} from 'lucide-react'
 import {
   Area,
   AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,10 +23,20 @@ import {
 } from 'recharts'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
+import { StaffDashboard } from '@/components/dashboard/StaffDashboard'
 
 type AlertTop = {
   id: number
@@ -89,12 +104,29 @@ type Dashboard = {
   }
   inventory: { rawKg: number; wipKg: number; fgUnits: number; lowStockCount: number }
   trend: Array<{
-    periodKey: string
     shortLabel: string
     revenue: number
     unitsProduced: number
-    closed: boolean
   }>
+  series: Array<{
+    businessDate: string
+    unitsGood: number
+    unitsReject: number
+    driedKg: number
+  }>
+  machines: MachineRow[]
+  materialFlow: {
+    receivedKg: number
+    sortedKg: number
+    crushedKg: number
+    washedKg: number
+    driedKg: number
+  }
+  quality: {
+    openHolds: number
+    passRatePercent: number | null
+    checksInRange: number
+  }
   alerts: {
     total: number
     unacknowledged: number
@@ -102,44 +134,21 @@ type Dashboard = {
     top: AlertTop[]
   }
   kpis: KpiCard[]
-  machines: MachineRow[]
-  materialFlow: {
-    receivedKg: number
-    sortedKg: number | null
-    crushedKg: number | null
-    washedKg: number | null
-    driedKg: number
-    producedUnits: number
-  }
-  quality: { openHolds: number; checksInRange: number; passRatePercent: number | null }
-  series: Array<{
-    businessDate: string
-    unitsProduced: number
-    unitsGood: number
-    unitsReject: number
-    driedKg: number
-  }>
-  activity: Array<{ at: string; title: string; linkPath: string }>
-  operators: Array<{
-    operatorName: string
-    downtimeMinutes: number
-    events: number
-    good: number
-    rejectPercent: number
-  }>
-  compare: Record<
-    string,
-    { delta: number | null; improved: boolean | null }
-  > | null
+  compare?: Record<string, { current: number; prior: number; delta: number; improved: boolean | null }>
+  activity?: Array<{ at: string; title: string; linkPath: string }>
+  operatorShift?: Array<{ operatorName: string; unitsProduced: number; shiftName?: string }>
 }
 
 type DrillPayload = {
-  formula?: string
+  kpi: string
+  title: string
+  valueFormatted: string
+  formula: string
+  interpretation: string
+  linkPath: string
+  chart?: { label: string; value: number }[]
+  rows?: Record<string, unknown>[]
   message?: string
-  linkPath?: string
-  rows: Array<Record<string, unknown>>
-  byProduct?: Array<{ name: string; value: number }>
-  byMachine?: Array<{ name: string; value: number }>
 }
 
 const RANGE_OPTIONS = [
@@ -150,87 +159,100 @@ const RANGE_OPTIONS = [
   { id: 'this_month', label: 'This month' },
   { id: 'last_month', label: 'Last month' },
   { id: 'this_quarter', label: 'This quarter' },
-  { id: 'this_year', label: 'This year' },
+  { id: 'this_year', label: 'Year to date' },
 ]
 
 const CHART = {
-  ink: '#14191f',
-  muted: '#64748b',
-  grid: '#e8edf2',
-  accent: '#d97706',
   teal: '#0f766e',
-  red: '#b91c1c',
+  red: '#dc2626',
+  accent: '#b45309',
   slate: '#475569',
+  muted: '#64748b',
+  grid: '#e2e8f0',
 }
 
 const COMPARE_KEYS: Record<string, string> = {
-  scrap_in: 'scrapInKg',
-  dried: 'driedKg',
-  units_good: 'unitsGood',
-  reject_rate: 'rejectPercent',
-  avg_oee: 'avgOeePercent',
-  downtime: 'downtimeMinutes',
-  process_yield: 'processYieldPercent',
+  revenue: 'revenue',
+  units_produced: 'unitsProduced',
+  oee: 'oee',
+  process_yield: 'yield',
+  true_margin: 'margin',
+  open_holds: 'holds',
+  receivables: 'receivables',
+  cash_flow: 'cashFlow',
+}
+
+function shortDate(yyyymmdd: string) {
+  if (!yyyymmdd || yyyymmdd.length < 8) return yyyymmdd || ''
+  const m = yyyymmdd.slice(4, 6)
+  const d = yyyymmdd.slice(6, 8)
+  return `${d}/${m}`
+}
+
+function fmt(n: number | null | undefined, decimals = 1) {
+  if (n == null || !Number.isFinite(Number(n))) return '—'
+  return Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimals,
+  })
 }
 
 function money(n: number | null | undefined) {
-  if (n == null) return '—'
-  return `₦${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+  if (n == null || !Number.isFinite(Number(n))) return '—'
+  return `₦${Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`
 }
 
-function fmt(n: number | null | undefined, digits = 1) {
-  if (n == null) return '—'
-  return Number(n).toLocaleString(undefined, { maximumFractionDigits: digits })
-}
-
-function formatMinutes(min: number) {
-  if (!min) return '0m'
-  if (min < 60) return `${min}m`
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return m ? `${h}h ${m}m` : `${h}h`
+function formatMinutes(mins: number) {
+  if (!mins) return '0m'
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  if (h && m) return `${h}h ${m}m`
+  if (h) return `${h}h`
+  return `${m}m`
 }
 
 function formatKpiValue(kpi: KpiCard) {
   if (kpi.value == null) return '—'
   if (kpi.unit === 'NGN') return money(kpi.value)
-  if (kpi.unit === '%') return `${fmt(kpi.value, 1)}%`
-  if (kpi.unit === 'min') return formatMinutes(Number(kpi.value))
-  if (kpi.unit === 'kg') return `${fmt(kpi.value)} kg`
-  if (kpi.unit === 'units') return fmt(kpi.value, 0)
+  if (kpi.unit === '%') return `${kpi.value}%`
+  if (kpi.unit === 'min') return formatMinutes(kpi.value)
   return fmt(kpi.value)
 }
 
 function toneDot(tone: string) {
-  if (tone === 'good') return 'bg-teal-600'
-  if (tone === 'watch') return 'bg-amber-500'
-  if (tone === 'critical') return 'bg-red-600'
-  return 'bg-slate-300'
+  switch (tone) {
+    case 'good':
+      return 'bg-emerald-500'
+    case 'danger':
+      return 'bg-red-500'
+    case 'warning':
+      return 'bg-amber-500'
+    default:
+      return 'bg-zinc-400'
+  }
 }
 
-function shortDate(yyMMdd: string) {
-  if (!/^\d{6}$/.test(yyMMdd)) return yyMMdd
-  return `${yyMMdd.slice(4, 6)}/${yyMMdd.slice(2, 4)}`
-}
-
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean
-  payload?: Array<{ name: string; value: number; color: string }>
-  label?: string
-}) {
+function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-xs shadow-lg">
-      {label ? <p className="mb-1 font-semibold text-[var(--ink)]">{label}</p> : null}
-      {payload.map((p) => (
-        <p key={p.name} className="tabular-nums text-[var(--ink-muted)]">
-          <span style={{ color: p.color }}>●</span> {p.name}: {fmt(p.value, 0)}
-        </p>
-      ))}
+    <div className="rounded-xl border border-zinc-200 bg-white/95 p-3 text-xs shadow-md backdrop-blur-xs dark:border-zinc-800 dark:bg-zinc-950">
+      <p className="font-semibold text-zinc-900 dark:text-zinc-100">{label}</p>
+      <div className="mt-1 space-y-1">
+        {payload.map((p: any) => (
+          <div key={p.name} className="flex items-center justify-between gap-3 text-zinc-600 dark:text-zinc-400">
+            <span className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full" style={{ backgroundColor: p.color }} />
+              {p.name}:
+            </span>
+            <span className="font-semibold tabular-nums text-zinc-900 dark:text-zinc-100">
+              {Number(p.value).toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -244,7 +266,7 @@ export function DashboardPage() {
 
   const [rangePreset, setRangePreset] = useState('this_month')
   const [compare, setCompare] = useState(false)
-  const [floorTab, setFloorTab] = useState<'activity' | 'operators' | 'receivables'>('activity')
+  const [viewMode, setViewMode] = useState<'executive' | 'staff'>('executive')
   const [drillKpi, setDrillKpi] = useState<string | null>(null)
 
   const dash = useQuery({
@@ -291,35 +313,14 @@ export function DashboardPage() {
     [d?.series],
   )
 
-  const qualityPie = useMemo(() => {
-    if (!d) return []
-    const good = d.production.unitsGood || 0
-    const reject = d.production.unitsReject || 0
-    if (good + reject <= 0) return []
-    return [
-      { name: 'Good', value: good },
-      { name: 'Reject', value: reject },
-    ]
-  }, [d])
-
-  const machineChart = useMemo(
-    () =>
-      (d?.machines || []).slice(0, 6).map((m) => ({
-        name: m.machineName.replace(/ machine$/i, ''),
-        OEE: m.oeePercent ?? 0,
-        Downtime: m.downtimeMinutes,
-      })),
-    [d?.machines],
-  )
-
   const flowChart = useMemo(() => {
     if (!d) return []
     return [
-      { name: 'In', kg: d.materialFlow.receivedKg || 0 },
-      { name: 'Sort', kg: d.materialFlow.sortedKg || 0 },
-      { name: 'Crush', kg: d.materialFlow.crushedKg || 0 },
-      { name: 'Wash', kg: d.materialFlow.washedKg || 0 },
-      { name: 'Dry', kg: d.materialFlow.driedKg || 0 },
+      { name: 'Inbound', kg: d.materialFlow.receivedKg || 0 },
+      { name: 'Sorted', kg: d.materialFlow.sortedKg || 0 },
+      { name: 'Crushed', kg: d.materialFlow.crushedKg || 0 },
+      { name: 'Washed', kg: d.materialFlow.washedKg || 0 },
+      { name: 'Dried', kg: d.materialFlow.driedKg || 0 },
     ]
   }, [d])
 
@@ -333,11 +334,50 @@ export function DashboardPage() {
     [d?.trend],
   )
 
-  if (!canExec) {
+  const roleInfo = user?.roleCode ? (
+    {
+      OPERATOR: 'Machine Operator',
+      PROD_SUPERVISOR: 'Production Supervisor',
+      STOREKEEPER: 'Storekeeper',
+      INVENTORY_OFFICER: 'Inventory Officer',
+      QC_OFFICER: 'Quality Control Officer',
+      SALES_OFFICER: 'Sales Officer',
+      FINANCE_OFFICER: 'Finance Officer',
+      MAINTENANCE_OFFICER: 'Maintenance Officer',
+      FACTORY_MANAGER: 'Factory Manager',
+      MANAGEMENT: 'Management',
+      ADMIN: 'System Administrator',
+    } as Record<string, string>
+  )[user.roleCode] : null
+  const roleLabel = roleInfo || user?.roleCode || 'Staff'
+  const todayStr = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+
+  // Non-executive staff or executive toggling to staff view
+  if (!canExec || viewMode === 'staff') {
     return (
-      <div className="py-12 text-center text-sm text-[var(--ink-muted)]">
-        No access on this account.
-      </div>
+      <PageLayout
+        title={`Hello, ${user?.firstname || user?.username || 'Staff'}`}
+        description={`${roleLabel} · Operations Workspace · ${todayStr}`}
+        actions={
+          canExec ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs font-semibold shrink-0"
+              onClick={() => setViewMode('executive')}
+            >
+              Executive View
+            </Button>
+          ) : null
+        }
+      >
+        <StaffDashboard />
+      </PageLayout>
     )
   }
 
@@ -345,616 +385,765 @@ export function DashboardPage() {
   const critical = d?.alerts.bySeverity?.CRITICAL || 0
 
   return (
-    <div className="space-y-3 pb-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {d ? (
-          <span className="mr-auto text-sm tabular-nums text-[var(--ink-muted)]">{d.range.label}</span>
-        ) : null}
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="dgn-input !py-2 w-36"
-            value={rangePreset}
-            onChange={(e) => setRangePreset(e.target.value)}
-          >
-            {RANGE_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <button
+    <PageLayout
+      title="Executive Command Centre"
+      description={d ? `${d.range.label} · Strategic Factory Intelligence` : 'Strategic Factory Intelligence'}
+      actions={
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap shrink-0">
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode('staff')}
+            className="h-8 text-xs font-semibold shrink-0"
+          >
+            Staff View
+          </Button>
+          <Select value={rangePreset} onValueChange={(val) => setRangePreset(val)}>
+            <SelectTrigger className="h-8 w-28 sm:w-36 text-xs bg-white dark:bg-zinc-900 shrink-0">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((o) => (
+                <SelectItem key={o.id} value={o.id} className="text-xs">
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant={compare ? 'default' : 'outline'}
+            size="sm"
             onClick={() => setCompare((v) => !v)}
-            className={cn(
-              'rounded-xl border px-3 py-2 text-sm font-medium transition-colors',
-              compare
-                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-strong)]'
-                : 'border-[var(--line)] bg-white text-[var(--ink-muted)]',
-            )}
+            className="h-8 text-xs font-medium shrink-0"
           >
             Compare
-          </button>
-          <Link to="/alerts" className="dgn-btn dgn-btn-ghost !py-2 relative">
-            <Bell className="h-4 w-4" />
-            {(d?.alerts.unacknowledged || 0) > 0 ? (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
-                {d!.alerts.unacknowledged}
-              </span>
-            ) : null}
-          </Link>
-          <button type="button" className="dgn-btn dgn-btn-ghost !py-2" onClick={() => dash.refetch()}>
-            <RefreshCw className={cn('h-4 w-4', dash.isFetching && 'animate-spin')} />
-          </button>
+          </Button>
+          <Button variant="outline" size="icon" className="h-8 w-8 relative shrink-0" asChild>
+            <Link to="/alerts">
+              <Bell className="h-4 w-4" />
+              {(d?.alerts.unacknowledged || 0) > 0 ? (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                  {d!.alerts.unacknowledged}
+                </span>
+              ) : null}
+            </Link>
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => dash.refetch()}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', dash.isFetching && 'animate-spin')} />
+          </Button>
         </div>
-      </div>
+      }
+    >
+      <div className="space-y-6">
+        {dash.isError && (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+            Could not load executive dashboard.
+          </p>
+        )}
 
-      {dash.isError && (
-        <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">Could not load dashboard.</p>
-      )}
+        {dash.isLoading && !d && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl bg-white/80 dark:bg-zinc-900" />
+            ))}
+          </div>
+        )}
 
-      {dash.isLoading && !d && (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl bg-white/80" />
-          ))}
-        </div>
-      )}
-
-      {d && (
-        <>
-          {/* Alerts — compact */}
-          {d.alerts.total > 0 && (
-            <div
-              className={cn(
-                'flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2',
-                critical > 0 ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/50',
-              )}
-            >
-              <span
+        {d && (
+          <>
+            {/* Critical Alerts Banner */}
+            {d.alerts.total > 0 && (
+              <div
                 className={cn(
-                  'rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white',
-                  critical > 0 ? 'bg-red-600' : 'bg-amber-500 text-[#1a1205]',
+                  'flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xs',
+                  critical > 0
+                    ? 'border-red-200 bg-red-50/70 text-red-900'
+                    : 'border-amber-200 bg-amber-50/60 text-amber-900',
                 )}
               >
-                {critical > 0 ? `${critical} critical` : `${d.alerts.total} alerts`}
-              </span>
-              <div className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1 text-sm">
-                {d.alerts.top.slice(0, 3).map((a) => (
-                  <Link
-                    key={a.id}
-                    to={a.linkPath || '/alerts'}
-                    className="truncate font-medium hover:text-[var(--accent-strong)]"
-                  >
-                    {a.title}
-                  </Link>
-                ))}
-              </div>
-              <Link to="/alerts" className="shrink-0 text-xs font-semibold text-[var(--accent-strong)]">
-                All →
-              </Link>
-            </div>
-          )}
-
-          {/* KPI strip */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
-            {kpis.map((kpi) => {
-              const c = d.compare?.[COMPARE_KEYS[kpi.id]]
-              return (
-                <button
-                  key={kpi.id}
-                  type="button"
-                  onClick={() => setDrillKpi(kpi.id)}
-                  className="group rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                <span
+                  className={cn(
+                    'rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-white shrink-0',
+                    critical > 0 ? 'bg-red-600' : 'bg-amber-600',
+                  )}
                 >
-                  <div className="flex items-center gap-2">
-                    <span className={cn('size-1.5 rounded-full', toneDot(kpi.tone))} />
-                    <span className="truncate text-[11px] font-medium text-[var(--ink-faint)]">
-                      {kpi.label}
+                  {critical > 0 ? `${critical} Critical` : `${d.alerts.total} Alerts`}
+                </span>
+                <div className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
+                  {d.alerts.top.slice(0, 3).map((a) => (
+                    <Link
+                      key={a.id}
+                      to={a.linkPath || '/alerts'}
+                      className="truncate font-medium hover:underline hover:text-[var(--accent-strong)]"
+                    >
+                      {a.title}
+                    </Link>
+                  ))}
+                </div>
+                <Button size="sm" variant="ghost" className="h-7 text-xs font-semibold shrink-0" asChild>
+                  <Link to="/alerts">View all ({d.alerts.total}) →</Link>
+                </Button>
+              </div>
+            )}
+
+            {/* 1. OPERATIONAL KPIS (AT THE TOP) */}
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Operational KPIs</h2>
+                  <p className="text-xs text-muted-foreground">Strategic factory pulse &amp; drivers · Click any card to drill down</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {compare && (
+                    <span className="text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300">
+                      Comparing vs prior period
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 4 Elevated Hero Scorecards */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {/* Card 1: Revenue & Cash */}
+                <div className="rounded-2xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-4 shadow-xs dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Gross Turnover</span>
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                      <DollarSign className="size-4" />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-2xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                    ₦{fmt(d.sales.revenue, 0)}
+                  </p>
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{d.sales.saleCount} sales orders</span>
+                    <span className="font-medium text-amber-600">₦{fmt(d.money.receivables)} due</span>
+                  </div>
+                </div>
+
+                {/* Card 2: True Restated Margin */}
+                <div className="rounded-2xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-4 shadow-xs dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">True Net Margin</span>
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400">
+                      <TrendingUp className="size-4" />
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <p className="text-2xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                      {restated ? `${restated.restatedMarginPercent}%` : '—'}
+                    </p>
+                    {restated && (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        ({money(restated.restatedMargin)})
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Recorded: {restated?.recordedMarginPercent ?? '—'}%</span>
+                    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">
+                      {d.costTruth.overheadAllocated ? 'Overhead closed' : 'Overhead open'}
                     </span>
                   </div>
-                  <p className="mt-1 text-lg font-semibold tracking-tight tabular-nums">
-                    {formatKpiValue(kpi)}
+                </div>
+
+                {/* Card 3: Total Production */}
+                <div className="rounded-2xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-4 shadow-xs dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Production Output</span>
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400">
+                      <Factory className="size-4" />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-2xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                    {fmt(d.production.unitsProduced, 0)} <span className="text-xs font-normal text-muted-foreground">units</span>
                   </p>
-                  {compare && c?.delta != null ? (
-                    <p
-                      className={cn(
-                        'mt-1 text-[11px] font-medium tabular-nums',
-                        c.improved === true
-                          ? 'text-teal-700'
-                          : c.improved === false
-                            ? 'text-red-700'
-                            : 'text-[var(--ink-faint)]',
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="text-emerald-600 font-medium">{fmt(d.production.unitsGood, 0)} good</span>
+                    <span className={d.production.rejectPercent > 5 ? 'text-red-600 font-medium' : ''}>
+                      {d.production.rejectPercent}% reject
+                    </span>
+                  </div>
+                </div>
+
+                {/* Card 4: Factory OEE */}
+                <div className="rounded-2xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-4 shadow-xs dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Plant OEE &amp; Uptime</span>
+                    <div className="flex size-7 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                      <Gauge className="size-4" />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-2xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                    {d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
+                  </p>
+                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Yield: {d.production.processYieldPercent}%</span>
+                    <span className="text-amber-600">{formatMinutes(d.production.downtimeMinutes || 0)} down</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* KPI Matrix Grid */}
+              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+                {kpis.map((kpi) => {
+                  const c = d.compare?.[COMPARE_KEYS[kpi.id]]
+                  return (
+                    <button
+                      key={kpi.id}
+                      type="button"
+                      onClick={() => setDrillKpi(kpi.id)}
+                      className="group rounded-xl border border-zinc-200/80 bg-white p-3 text-left shadow-2xs transition hover:border-[var(--accent)] hover:shadow-xs dark:border-zinc-800 dark:bg-zinc-900"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn('size-2 rounded-full shrink-0', toneDot(kpi.tone))} />
+                        <span className="truncate text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          {kpi.label}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                        {formatKpiValue(kpi)}
+                      </p>
+                      {compare && c?.delta != null ? (
+                        <p
+                          className={cn(
+                            'mt-0.5 text-xs font-semibold tabular-nums',
+                            c.improved === true
+                              ? 'text-teal-700'
+                              : c.improved === false
+                                ? 'text-red-700'
+                                : 'text-zinc-500',
+                          )}
+                        >
+                          {c.delta > 0 ? '+' : ''}
+                          {fmt(c.delta)} vs prior
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 text-[10px] text-zinc-400 truncate">{kpi.formula}</p>
                       )}
-                    >
-                      {c.delta > 0 ? '+' : ''}
-                      {fmt(c.delta)}
-                    </p>
-                  ) : null}
-                </button>
-              )
-            })}
-          </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
 
-          {/* Charts row */}
-          <div className="grid gap-2.5 xl:grid-cols-3">
-            <Card className="xl:col-span-2">
-              <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-sm font-semibold tracking-tight">Output</h2>
-                <Link to="/production" className="text-xs font-medium text-[var(--accent-strong)]">
-                  Production →
-                </Link>
-              </div>
-              <div className="mb-2 flex flex-wrap gap-3 text-xs">
-                <Metric label="Good" value={fmt(d.production.unitsGood, 0)} />
-                <Metric label="Reject" value={`${d.production.rejectPercent}%`} danger={d.production.rejectPercent > 5} />
-                <Metric
-                  label="OEE"
-                  value={d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
-                />
-                <Metric label="Yield" value={`${d.production.processYieldPercent}%`} />
-                <Metric label="Downtime" value={formatMinutes(d.production.downtimeMinutes || 0)} />
-              </div>
-              <div className="h-36">
-                {seriesData.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={seriesData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="goodFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={CHART.teal} stopOpacity={0.35} />
-                          <stop offset="100%" stopColor={CHART.teal} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke={CHART.grid} vertical={false} />
-                      <XAxis
-                        dataKey="label"
-                        tick={{ fill: CHART.muted, fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="Good"
-                        stroke={CHART.teal}
-                        fill="url(#goodFill)"
-                        strokeWidth={2}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="Reject"
-                        stroke={CHART.red}
-                        fill="transparent"
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart />
-                )}
-              </div>
-            </Card>
-
-            <Card>
-              <h2 className="mb-3 text-sm font-semibold tracking-tight">Good vs reject</h2>
-              <div className="h-36">
-                {qualityPie.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={qualityPie}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={58}
-                        outerRadius={82}
-                        paddingAngle={3}
-                        strokeWidth={0}
-                      >
-                        <Cell fill={CHART.teal} />
-                        <Cell fill={CHART.red} />
-                      </Pie>
-                      <Tooltip content={<ChartTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart />
-                )}
-              </div>
-              <div className="mt-1 flex justify-center gap-4 text-xs">
-                <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-teal-700" /> Good
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-red-700" /> Reject
-                </span>
-              </div>
-            </Card>
-          </div>
-
-          {/* Machines + material */}
-          <div className="grid gap-2.5 lg:grid-cols-2">
-            <Card>
-              <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-sm font-semibold tracking-tight">Machine OEE</h2>
-                <Link to="/machines" className="text-xs font-medium text-[var(--accent-strong)]">
-                  All →
-                </Link>
-              </div>
-              <div className="h-32">
-                {machineChart.length ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={machineChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                      <CartesianGrid stroke={CHART.grid} vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: CHART.muted, fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        domain={[0, 100]}
-                        tick={{ fill: CHART.muted, fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Bar dataKey="OEE" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={40} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart />
-                )}
-              </div>
-              {d.machines.length > 0 && (
-                <ul className="mt-3 divide-y divide-[var(--line)]">
-                  {d.machines.slice(0, 4).map((m) => (
-                    <li key={m.machineId} className="flex items-center justify-between py-2 text-sm">
-                      <span className="truncate font-medium">{m.machineName}</span>
-                      <span className="tabular-nums text-[var(--ink-muted)]">
-                        {m.oeePercent != null ? `${m.oeePercent}%` : '—'}
-                        {m.downtimeMinutes > 0 ? ` · ${formatMinutes(m.downtimeMinutes)}` : ''}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-
-            <Card>
-              <h2 className="mb-3 text-sm font-semibold tracking-tight">Material flow (kg)</h2>
-              <div className="h-32">
-                {flowChart.some((x) => x.kg > 0) ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={flowChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                      <CartesianGrid stroke={CHART.grid} vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: CHART.muted, fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Bar dataKey="kg" name="kg" fill={CHART.slate} radius={[6, 6, 0, 0]} maxBarSize={36} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart />
-                )}
-              </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs sm:grid-cols-3">
-                <div className="rounded-xl bg-zinc-50 py-2">
-                  <p className="text-[var(--ink-faint)]">FG</p>
-                  <p className="font-semibold tabular-nums">{fmt(d.inventory.fgUnits, 0)}</p>
+            {/* 2. PRODUCTION & OPERATIONS (UNDERNEATH, NOT TABS, MINIMAL) */}
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Production &amp; Machine Operations</h2>
+                  <p className="text-xs text-muted-foreground">Output throughput, stage conversion yields, and active machine performance</p>
                 </div>
-                <div className="rounded-xl bg-zinc-50 py-2">
-                  <p className="text-[var(--ink-faint)]">WIP</p>
-                  <p className="font-semibold tabular-nums">{fmt(d.inventory.wipKg)} kg</p>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                    <Link to="/production">Open Production →</Link>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                    <Link to="/machines">View All Machines ({d.machines.length}) →</Link>
+                  </Button>
                 </div>
-                <div className="rounded-xl bg-zinc-50 py-2">
-                  <p className="text-[var(--ink-faint)]">Low stock</p>
-                  <p
-                    className={cn(
-                      'font-semibold tabular-nums',
-                      (d.inventory.lowStockCount || 0) > 0 ? 'text-red-700' : '',
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-3">
+                {/* Production Velocity Mini Card */}
+                <Card className="xl:col-span-2 p-4 sm:p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold tracking-tight text-foreground">Production Velocity</h3>
+                      <p className="text-xs text-muted-foreground">Good vs reject units trend</p>
+                    </div>
+                    <span className="text-xs text-muted-foreground font-medium">{d.production.processYieldPercent}% Yield</span>
+                  </div>
+                  <div className="mb-3 flex flex-wrap gap-4 text-xs">
+                    <Metric label="Good Units" value={fmt(d.production.unitsGood, 0)} />
+                    <Metric label="Reject Rate" value={`${d.production.rejectPercent}%`} danger={d.production.rejectPercent > 5} />
+                    <Metric label="OEE" value={d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'} />
+                    <Metric label="Downtime" value={formatMinutes(d.production.downtimeMinutes || 0)} />
+                  </div>
+                  <div className="h-48">
+                    {seriesData.length ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={seriesData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="goodFill" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={CHART.teal} stopOpacity={0.35} />
+                              <stop offset="100%" stopColor={CHART.teal} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke={CHART.grid} vertical={false} />
+                          <XAxis dataKey="label" tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <Tooltip content={<ChartTooltip />} />
+                          <Area type="monotone" dataKey="Good" stroke={CHART.teal} fill="url(#goodFill)" strokeWidth={2} />
+                          <Area type="monotone" dataKey="Reject" stroke={CHART.red} fill="transparent" strokeWidth={2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <EmptyChart />
                     )}
-                  >
-                    {d.inventory.lowStockCount || 0}
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </div>
+                  </div>
+                </Card>
 
-          {/* Quality + money + trend */}
-          <div className="grid gap-2.5 lg:grid-cols-3">
-            <Card>
-              <div className="mb-1.5 flex items-center justify-between">
-                <h2 className="text-sm font-semibold tracking-tight">Quality</h2>
-                <Link to="/qc" className="text-xs font-medium text-[var(--accent-strong)]">
-                  QC →
-                </Link>
+                {/* Stage Conversion Yields Mini Card */}
+                <Card className="p-4 sm:p-5 flex flex-col justify-between">
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">Stage Conversion Yields</h3>
+                    <div className="space-y-2.5 divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {d.production.byStage?.map((s) => (
+                        <div key={s.stage} className="pt-2 first:pt-0">
+                          <div className="flex items-center justify-between text-xs font-semibold">
+                            <span className="uppercase text-foreground">{s.stage}</span>
+                            <span className={cn('tabular-nums', s.yieldPercent < 90 ? 'text-amber-600' : 'text-emerald-600')}>
+                              {s.yieldPercent}% yield
+                            </span>
+                          </div>
+                          <div className="mt-0.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                            <span>Input: {fmt(s.inputKg)} kg</span>
+                            <span>Usable: {fmt(s.usableKg)} kg</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="mt-3 w-full h-7 text-xs font-semibold text-primary" asChild>
+                    <Link to="/production">View Stage Details →</Link>
+                  </Button>
+                </Card>
               </div>
-              <div className="space-y-3">
-                <BigStat
-                  label="Holds"
-                  value={String(d.quality.openHolds)}
-                  danger={d.quality.openHolds > 0}
-                />
-                <BigStat
-                  label="Pass rate"
-                  value={
-                    d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'
-                  }
-                />
-                <BigStat label="Checks" value={String(d.quality.checksInRange)} />
-              </div>
-            </Card>
 
-            {(canCosts || canSales || canExpense) && (
-              <Card>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold tracking-tight">{d.periodLabel}</h2>
-                  {canCosts ? (
-                    <Link to="/costs" className="text-xs font-medium text-[var(--accent-strong)]">
-                      Costs →
-                    </Link>
-                  ) : null}
+              {/* Minimal Active Machine Roster */}
+              <Card className="p-0 overflow-hidden">
+                <div className="border-b border-zinc-200/80 px-4 py-2.5 sm:px-5 flex items-center justify-between dark:border-zinc-800">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">Active Machine Roster</h3>
+                    <p className="text-xs text-muted-foreground">Efficiency &amp; operator status</p>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs font-semibold text-primary" asChild>
+                    <Link to="/machines">View All ({d.machines.length}) →</Link>
+                  </Button>
                 </div>
-                <div className="space-y-3">
-                  {canCosts && restated ? (
-                    <BigStat
-                      label="True margin"
-                      value={`${money(restated.restatedMargin)} · ${restated.restatedMarginPercent}%`}
-                      danger={restated.restatedMargin < 0}
-                    />
-                  ) : null}
-                  {canSales ? <BigStat label="Cash in" value={money(d.money.cashIn)} /> : null}
-                  {(canSales || canExpense) && (
-                    <BigStat
-                      label="Net cash"
-                      value={money(d.money.netCash)}
-                      danger={d.money.netCash < 0}
-                    />
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[600px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-100 bg-zinc-50/70 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+                        <th className="px-4 py-2 font-semibold">Machine</th>
+                        <th className="px-3 py-2 font-semibold text-right">OEE</th>
+                        <th className="px-3 py-2 font-semibold text-right">Produced</th>
+                        <th className="px-3 py-2 font-semibold text-right">Good</th>
+                        <th className="px-3 py-2 font-semibold text-right">Reject %</th>
+                        <th className="px-3 py-2 font-semibold text-right">Downtime</th>
+                        <th className="px-4 py-2 font-semibold">Operator</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {d.machines.slice(0, 4).map((m) => (
+                        <tr key={m.machineId} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+                          <td className="px-4 py-2.5 font-medium text-foreground">{m.machineName}</td>
+                          <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                            {m.oeePercent != null ? `${m.oeePercent}%` : '—'}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-foreground">{fmt(m.produced, 0)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 font-medium">{fmt(m.good, 0)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums font-medium">
+                            <span className={m.rejectPercent > 5 ? 'text-red-600' : 'text-zinc-600'}>
+                              {m.rejectPercent}%
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-zinc-500">
+                            {formatMinutes(m.downtimeMinutes)}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                            {m.lastOperator || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {d.machines.length > 4 && (
+                  <div className="border-t border-zinc-100 px-4 py-2 flex items-center justify-between text-xs text-muted-foreground dark:border-zinc-800">
+                    <span>Showing top 4 of {d.machines.length} active machines</span>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                      <Link to="/machines">View all {d.machines.length} machines →</Link>
+                    </Button>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* 3. MATERIAL FLOW & STOCK BALANCE (MINIMAL) */}
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Material Flow &amp; Store Balance</h2>
+                  <p className="text-xs text-muted-foreground">Volume throughput across all processing stages (kg)</p>
+                </div>
+                <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                  <Link to="/inventory">View Inventory Store →</Link>
+                </Button>
+              </div>
+
+              <Card className="p-4 sm:p-5">
+                <div className="h-40">
+                  {flowChart.some((x) => x.kg > 0) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={flowChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                        <CartesianGrid stroke={CHART.grid} vertical={false} />
+                        <XAxis dataKey="name" tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltip />} />
+                        <Bar dataKey="kg" name="Volume (kg)" fill={CHART.slate} radius={[6, 6, 0, 0]} maxBarSize={44} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <EmptyChart />
                   )}
-                  {canSales ? (
-                    <BigStat
-                      label="Receivables"
-                      value={money(d.money.receivables)}
-                      danger={d.money.receivables > 0}
-                    />
-                  ) : null}
-                  {!d.costTruth.overheadAllocated && canCosts ? (
-                    <Link
-                      to="/costs/overhead"
-                      className="block rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"
-                    >
-                      Close month →
-                    </Link>
-                  ) : null}
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900">
+                    <p className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Finished Goods Store</p>
+                    <p className="mt-0.5 font-bold text-sm text-foreground tabular-nums">{fmt(d.inventory.fgUnits, 0)} units</p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900">
+                    <p className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Work In Progress (WIP)</p>
+                    <p className="mt-0.5 font-bold text-sm text-foreground tabular-nums">{fmt(d.inventory.wipKg)} kg</p>
+                  </div>
+                  <div className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900">
+                    <p className="text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">Low Stock Flags</p>
+                    <p className={cn('mt-0.5 font-bold text-sm tabular-nums', (d.inventory.lowStockCount || 0) > 0 ? 'text-red-600' : 'text-foreground')}>
+                      {d.inventory.lowStockCount || 0} items
+                    </p>
+                  </div>
                 </div>
               </Card>
-            )}
-
-            <Card>
-              <h2 className="mb-3 text-sm font-semibold tracking-tight">6-month revenue</h2>
-              <div className="h-28">
-                {trendChart.some((t) => t.Revenue > 0) ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={trendChart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                      <CartesianGrid stroke={CHART.grid} vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: CHART.muted, fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis hide />
-                      <Tooltip
-                        formatter={(v) => money(Number(v))}
-                        contentStyle={{
-                          borderRadius: 8,
-                          border: '1px solid #d7dee6',
-                          fontSize: 12,
-                        }}
-                      />
-                      <Bar dataKey="Revenue" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={28} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <EmptyChart />
-                )}
-              </div>
-            </Card>
-          </div>
-
-          {/* Floor */}
-          <Card className="!p-0 overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2">
-              <h2 className="text-sm font-semibold tracking-tight">Floor</h2>
-              <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
-                {(
-                  [
-                    ['activity', 'Activity'],
-                    ['operators', 'Operators'],
-                    ...(canSales ? ([['receivables', 'Owed']] as const) : []),
-                  ] as Array<['activity' | 'operators' | 'receivables', string]>
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setFloorTab(id)}
-                    className={cn(
-                      'rounded-md px-3 py-1.5 text-xs font-semibold transition',
-                      floorTab === id ? 'bg-white shadow-sm' : 'text-[var(--ink-muted)]',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
             </div>
 
-            <div className="max-h-48 overflow-y-auto px-4 sm:px-5">
-              {floorTab === 'activity' &&
-                (d.activity?.length ? (
-                  d.activity.map((row, i) => (
-                    <Link
-                      key={`${row.at}-${i}`}
-                      to={row.linkPath}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0 hover:text-[var(--accent-strong)]"
-                    >
-                      <span className="min-w-0 truncate font-medium">{row.title}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-[var(--ink-faint)]">
-                        {formatDateTime(row.at)}
-                      </span>
-                    </Link>
-                  ))
-                ) : (
-                  <p className="py-8 text-sm text-[var(--ink-muted)]">No activity yet.</p>
-                ))}
-
-              {floorTab === 'operators' &&
-                (d.operators?.length ? (
-                  d.operators.map((op) => (
-                    <div
-                      key={op.operatorName}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium">{op.operatorName}</p>
-                        <p className="text-[11px] text-[var(--ink-faint)]">
-                          {fmt(op.good, 0)} good
-                          {op.events ? ` · ${op.events} stops` : ''}
-                        </p>
-                      </div>
-                      <p
-                        className={cn(
-                          'tabular-nums',
-                          op.downtimeMinutes > 0 ? 'font-semibold text-red-700' : 'text-[var(--ink-muted)]',
-                        )}
-                      >
-                        {formatMinutes(op.downtimeMinutes)}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <p className="py-8 text-sm text-[var(--ink-muted)]">No operator data.</p>
-                ))}
-
-              {floorTab === 'receivables' &&
-                canSales &&
-                (d.receivables.rows?.length ? (
-                  d.receivables.rows.slice(0, 12).map((row) => (
-                    <Link
-                      key={row.saleNumber}
-                      to={`/sales/${row.saleNumber}`}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0 hover:underline"
-                    >
-                      <span>
-                        {row.customerName || row.saleNumber}
-                        <span className="ml-2 text-[11px] text-[var(--ink-faint)]">{row.ageDays}d</span>
-                      </span>
-                      <span className="font-semibold tabular-nums">{money(row.balanceDue)}</span>
-                    </Link>
-                  ))
-                ) : (
-                  <p className="py-8 text-sm text-[var(--ink-muted)]">Nothing outstanding.</p>
-                ))}
-            </div>
-          </Card>
-        </>
-      )}
-
-      {/* Drill sheet */}
-      {drillKpi && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-6"
-          onClick={() => setDrillKpi(null)}
-        >
-          <div
-            className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold tracking-tight">
-                {kpis.find((k) => k.id === drillKpi)?.label || drillKpi}
-              </h2>
-              <button type="button" className="rounded-lg p-1 hover:bg-zinc-100" onClick={() => setDrillKpi(null)}>
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {drill.isLoading && <p className="mt-6 text-sm text-[var(--ink-muted)]">Loading…</p>}
-
-            {drill.data?.byProduct?.length ? (
-              <div className="mt-5 h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={drill.data.byProduct.slice(0, 6)}
-                    layout="vertical"
-                    margin={{ left: 4, right: 8 }}
-                  >
-                    <XAxis type="number" hide />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={88}
-                      tick={{ fontSize: 11, fill: CHART.muted }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="value" name="Good" fill={CHART.teal} radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : null}
-
-            {(drill.data?.rows || []).slice(0, 15).map((row, i) => {
-              const link = String(row.linkPath || '')
-              const title = String(row.batchNumber || row.productName || row.machineName || `#${i + 1}`)
-              const sub = [
-                row.productName && row.batchNumber ? String(row.productName) : null,
-                row.machineName ? String(row.machineName) : null,
-                row.qtyGood != null ? `${fmt(Number(row.qtyGood), 0)} good` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-              const inner = (
-                <>
-                  <p className="text-sm font-medium">{title}</p>
-                  {sub ? <p className="text-xs text-[var(--ink-muted)]">{sub}</p> : null}
-                </>
-              )
-              return (
-                <div key={i} className="border-b border-[var(--line)] py-3">
-                  {link ? (
-                    <Link to={link} onClick={() => setDrillKpi(null)} className="block hover:text-[var(--accent-strong)]">
-                      {inner}
-                    </Link>
-                  ) : (
-                    inner
+            {/* 4. FINANCIAL TRUTH & MARGINS (UNDERNEATH, NOT TABS, MINIMAL) */}
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Financial Truth &amp; Cash Flow</h2>
+                  <p className="text-xs text-muted-foreground">True net margins, liquidity movements, and customer credit exposure</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {canCosts && (
+                    <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                      <Link to="/costs">Cost Intelligence →</Link>
+                    </Button>
+                  )}
+                  {canSales && (
+                    <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                      <Link to="/distributors">Distributors &amp; Receivables →</Link>
+                    </Button>
                   )}
                 </div>
-              )
-            })}
+              </div>
 
-            {drill.data?.message && !(drill.data.rows || []).length && (
-              <p className="mt-4 text-sm text-[var(--ink-muted)]">{drill.data.message}</p>
-            )}
+              <div className="grid gap-4 lg:grid-cols-3">
+                {/* Margin Restatement Card */}
+                <Card className="p-4 sm:p-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">Margin Restatement</h3>
+                    {canCosts && (
+                      <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                        <Link to="/costs">Details →</Link>
+                      </Button>
+                    )}
+                  </div>
+                  {restated ? (
+                    <div className="space-y-2.5">
+                      <div className="rounded-xl bg-teal-50 border border-teal-200 p-3 dark:bg-teal-950 dark:border-teal-800">
+                        <p className="text-xs font-semibold uppercase text-teal-800 dark:text-teal-300">True Net Margin</p>
+                        <p className="mt-0.5 text-2xl font-bold text-teal-900 tabular-nums dark:text-teal-100">
+                          {money(restated.restatedMargin)}
+                        </p>
+                        <p className="text-xs text-teal-700 font-medium mt-0.5">
+                          {restated.restatedMarginPercent}% after full overhead allocation
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between text-xs py-1 border-b border-zinc-100 dark:border-zinc-800">
+                        <span className="text-muted-foreground">Recorded Gross Margin</span>
+                        <span className="font-semibold tabular-nums text-foreground">{restated.recordedMarginPercent}%</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs py-1">
+                        <span className="text-muted-foreground">Overhead Absorption</span>
+                        <span className="font-semibold text-foreground">
+                          {d.costTruth.overheadAllocated ? 'Allocated' : 'Pending'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Restatement not available for period.</p>
+                  )}
+                </Card>
 
-            <Link
-              to={drill.data?.linkPath || kpis.find((k) => k.id === drillKpi)?.href || '/'}
-              className="dgn-btn dgn-btn-secondary mt-5 w-full justify-center"
-              onClick={() => setDrillKpi(null)}
-            >
-              Open page
-            </Link>
+                {/* Cash Flow Card */}
+                <Card className="p-4 sm:p-5">
+                  <h3 className="mb-3 text-sm font-semibold tracking-tight text-foreground">Cash Flow &amp; Liabilities</h3>
+                  <div className="space-y-2.5">
+                    <BigStat label="Cash Inflow" value={money(d.money.cashIn)} />
+                    <BigStat label="Cash Outflow" value={money(d.money.cashOut)} />
+                    <BigStat label="Net Cash Movement" value={money(d.money.netCash)} danger={d.money.netCash < 0} />
+                    <BigStat label="Wages Outstanding" value={money(d.spend.wagesOutstanding)} danger={d.spend.wagesOutstanding > 0} />
+                  </div>
+                </Card>
+
+                {/* Revenue Trend Mini Chart */}
+                <Card className="p-4 sm:p-5">
+                  <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">6-Month Turnover Trend</h3>
+                  <div className="h-40">
+                    {trendChart.some((t) => t.Revenue > 0) ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={trendChart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                          <CartesianGrid stroke={CHART.grid} vertical={false} />
+                          <XAxis dataKey="name" tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
+                          <YAxis hide />
+                          <Tooltip formatter={(v) => money(Number(v))} />
+                          <Bar dataKey="Revenue" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={28} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <EmptyChart />
+                    )}
+                  </div>
+                </Card>
+              </div>
+
+              {/* Minimal Receivables Aging Table */}
+              {canSales && (d.receivables.rows || []).length > 0 && (
+                <Card className="p-0 overflow-hidden">
+                  <div className="border-b border-zinc-200/80 px-4 py-2.5 sm:px-5 flex items-center justify-between dark:border-zinc-800">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">Outstanding Customer Receivables</h3>
+                      <p className="text-xs text-muted-foreground">Unpaid sales balances with overdue age</p>
+                    </div>
+                    <Button variant="ghost" size="sm" className="h-7 text-xs font-semibold text-primary" asChild>
+                      <Link to="/distributors">View All Receivables →</Link>
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[540px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-100 bg-zinc-50/70 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+                          <th className="px-4 py-2 font-semibold">Sale #</th>
+                          <th className="px-4 py-2 font-semibold">Customer / Distributor</th>
+                          <th className="px-4 py-2 font-semibold text-right">Balance Due</th>
+                          <th className="px-4 py-2 font-semibold text-right">Age (Days)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {d.receivables.rows.slice(0, 4).map((r) => (
+                          <tr key={r.saleNumber} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50">
+                            <td className="px-4 py-2.5 font-semibold text-xs text-[var(--accent-strong)]">
+                              <Link to={`/sales/${r.saleNumber}`} className="hover:underline">
+                                {r.saleNumber}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-2.5 text-foreground">{r.customerName || '—'}</td>
+                            <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-foreground">
+                              {money(r.balanceDue)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums">
+                              <span className={cn('rounded-md px-2 py-0.5 text-xs font-semibold', r.ageDays > 30 ? 'bg-red-100 text-red-700' : 'bg-zinc-100 text-zinc-700')}>
+                                {r.ageDays}d
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {d.receivables.rows.length > 4 && (
+                    <div className="border-t border-zinc-100 px-4 py-2 flex items-center justify-between text-xs text-muted-foreground dark:border-zinc-800">
+                      <span>Showing 4 of {d.receivables.rows.length} overdue customer balances</span>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                        <Link to="/distributors">View all {d.receivables.rows.length} balances →</Link>
+                      </Button>
+                    </div>
+                  )}
+                </Card>
+              )}
+            </div>
+
+            {/* 5. QUALITY & INVENTORY SUMMARY (UNDERNEATH, NOT TABS, MINIMAL) */}
+            <div className="space-y-4 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">Quality &amp; Inventory Health</h2>
+                  <p className="text-xs text-muted-foreground">Inspection pass rates, quarantine holds, stock levels and floor activity logs</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                    <Link to="/qc">View Quality →</Link>
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                    <Link to="/inventory">View Inventory →</Link>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* QC Health Card */}
+                <Card className="p-4 sm:p-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">Quality Control Health</h3>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                      <Link to="/qc">Open QC →</Link>
+                    </Button>
+                  </div>
+                  <div className="space-y-2.5">
+                    <BigStat
+                      label="Pass Rate"
+                      value={d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'}
+                    />
+                    <BigStat
+                      label="Open Quarantine / Holds"
+                      value={String(d.quality.openHolds)}
+                      danger={d.quality.openHolds > 0}
+                    />
+                    <BigStat label="Inspections Completed" value={String(d.quality.checksInRange)} />
+                  </div>
+                </Card>
+
+                {/* Inventory Summary Card */}
+                <Card className="p-4 sm:p-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">Inventory Summary</h3>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                      <Link to="/inventory">Inventory →</Link>
+                    </Button>
+                  </div>
+                  <div className="space-y-2.5">
+                    <BigStat label="Finished Goods" value={`${fmt(d.inventory.fgUnits, 0)} units`} />
+                    <BigStat label="Work In Progress (WIP)" value={`${fmt(d.inventory.wipKg)} kg`} />
+                    <BigStat label="Raw Material (Yard)" value={`${fmt(d.inventory.rawKg)} kg`} />
+                    <BigStat label="Low Stock Items" value={String(d.inventory.lowStockCount)} danger={d.inventory.lowStockCount > 0} />
+                  </div>
+                </Card>
+
+                {/* Floor Activity Card */}
+                <Card className="p-4 sm:p-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">Floor Activity Log</h3>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs font-semibold text-primary" asChild>
+                      <Link to="/staff">Staff Directory →</Link>
+                    </Button>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto space-y-2">
+                    {d.activity?.slice(0, 4).map((act, i) => (
+                      <div key={i} className="flex items-center justify-between py-1.5 border-b border-zinc-100 last:border-0 text-xs dark:border-zinc-800">
+                        <Link to={act.linkPath} className="truncate font-medium text-foreground hover:text-[var(--accent-strong)]">
+                          {act.title}
+                        </Link>
+                        <span className="text-[10px] text-zinc-400 tabular-nums shrink-0 ml-2">
+                          {formatDateTime(act.at)}
+                        </span>
+                      </div>
+                    ))}
+                    {(!d.activity || d.activity.length === 0) && (
+                      <p className="text-xs text-muted-foreground">No recent floor activity logs.</p>
+                    )}
+                  </div>
+                </Card>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Drilldown Drawer */}
+        {drillKpi && (
+          <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-2xs">
+            <div className="h-full w-full max-w-md overflow-y-auto border-l border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex items-center justify-between border-b border-zinc-100 pb-3 dark:border-zinc-800">
+                <div>
+                  <h3 className="text-lg font-bold tracking-tight text-foreground">
+                    {drill.data?.title || drillKpi}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">{drill.data?.formula}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => setDrillKpi(null)}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+
+              {drill.isLoading ? (
+                <div className="py-12 text-center text-sm text-muted-foreground">Loading breakdown…</div>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <div className="rounded-xl bg-zinc-50 p-4 dark:bg-zinc-900">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Period Value</span>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-foreground tabular-nums">
+                      {drill.data?.valueFormatted}
+                    </p>
+                    <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-400">
+                      {drill.data?.interpretation}
+                    </p>
+                  </div>
+
+                  {drill.data?.chart && drill.data.chart.length > 0 && (
+                    <div className="h-44">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={drill.data.chart} layout="vertical" margin={{ left: 24, right: 8 }}>
+                          <XAxis type="number" hide />
+                          <YAxis dataKey="label" type="category" tick={{ fontSize: 11 }} width={80} />
+                          <Tooltip />
+                          <Bar dataKey="value" name="Qty" fill={CHART.teal} radius={[0, 4, 4, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Contributors</h4>
+                    {(drill.data?.rows || []).slice(0, 15).map((row, i) => {
+                      const link = String(row.linkPath || '')
+                      const title = String(row.batchNumber || row.productName || row.machineName || `#${i + 1}`)
+                      const sub = [
+                        row.productName && row.batchNumber ? String(row.productName) : null,
+                        row.machineName ? String(row.machineName) : null,
+                        row.qtyGood != null ? `${fmt(Number(row.qtyGood), 0)} good` : null,
+                      ].filter(Boolean).join(' · ')
+
+                      return (
+                        <div key={i} className="border-b border-zinc-100 py-2.5 text-xs dark:border-zinc-800 last:border-0">
+                          {link ? (
+                            <Link to={link} onClick={() => setDrillKpi(null)} className="font-semibold text-foreground hover:text-[var(--accent-strong)] hover:underline">
+                              {title}
+                            </Link>
+                          ) : (
+                            <p className="font-semibold text-foreground">{title}</p>
+                          )}
+                          {sub && <p className="text-muted-foreground mt-0.5">{sub}</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <Button className="w-full mt-4" asChild onClick={() => setDrillKpi(null)}>
+                    <Link to={drill.data?.linkPath || kpis.find((k) => k.id === drillKpi)?.href || '/'}>
+                      Open Full Module
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </PageLayout>
   )
 }
 
@@ -969,8 +1158,8 @@ function Metric({
 }) {
   return (
     <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-faint)]">{label}</p>
-      <p className={cn('text-sm font-semibold tabular-nums', danger && 'text-red-700')}>{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className={cn('text-sm font-semibold tabular-nums', danger ? 'text-red-600' : 'text-foreground')}>{value}</p>
     </div>
   )
 }
@@ -985,15 +1174,15 @@ function BigStat({
   danger?: boolean
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-sm text-[var(--ink-muted)]">{label}</span>
-      <span className={cn('text-sm font-semibold tabular-nums', danger && 'text-red-700')}>{value}</span>
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn('font-semibold tabular-nums', danger ? 'text-red-600' : 'text-foreground')}>{value}</span>
     </div>
   )
 }
 
 function EmptyChart() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-[var(--ink-faint)]">No data</div>
+    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No data available</div>
   )
 }

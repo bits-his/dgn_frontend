@@ -1,7 +1,17 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import {
+  DollarSign,
+  ShoppingBag,
+  Percent,
+  RotateCcw,
+  TrendingDown,
+  Package,
+  AlertCircle,
+} from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, PageHeader, StatPill } from '@/components/ui'
+import { Card } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
 
 type Slice = {
   key: string
@@ -66,58 +76,198 @@ export function SalesMarginPage() {
   const t = d.totals
 
   return (
-    <div>
-      <PageHeader
-        eyebrow="Management analytics"
-        title="Sales margin"
-      />
-
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatPill label="Net revenue" value={money(t.revenue)} tone="accent" />
-        <StatPill label="Cost of goods sold" value={money(t.cost)} />
-        <StatPill
-          label="Gross margin"
-          value={`${money(t.grossMargin)} · ${t.grossMarginPercent}%`}
-          tone={t.grossMargin > 0 ? 'success' : 'danger'}
-        />
-        <StatPill
-          label="Return rate"
-          value={`${t.returnRatePercent}%`}
-          tone={t.returnRatePercent > 5 ? 'danger' : 'success'}
-        />
-      </div>
-
-      <Card className="mb-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <p className="dgn-label">Discounts given</p>
-            <p className="mt-1 text-lg font-semibold">{money(t.discounts)}</p>
-            <p className="text-xs text-[var(--ink-faint)]">
-              Margin after discounts {money(t.netMargin)}
+    <PageLayout
+      title="Sales margin"
+      description="Management analytics · Gross margins, discounts, returns, and profitability"
+      back={true}
+      backTo="/sales"
+      backLabel="Back to sales"
+    >
+      <div className="space-y-4">
+        {/* Primary Profitability Cards: Compact 2 per row on mobile, 4 on desktop */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+          {/* Net Revenue */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Net Revenue
+                </span>
+                <div className="size-5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <DollarSign className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                  {money(t.revenue)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Total invoiced sales
             </p>
           </div>
-          <div>
-            <p className="dgn-label">Units sold</p>
-            <p className="mt-1 text-lg font-semibold">{fmt(t.qtySold)}</p>
-            <p className="text-xs text-[var(--ink-faint)]">{fmt(t.qtyNet)} net of returns</p>
+
+          {/* Cost of Goods Sold */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Cost of Goods Sold
+                </span>
+                <div className="size-5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 flex items-center justify-center shrink-0">
+                  <ShoppingBag className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                  {money(t.cost)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Material & lot expenses
+            </p>
           </div>
-          <div>
-            <p className="dgn-label">Units returned</p>
-            <p className="mt-1 text-lg font-semibold">{fmt(t.qtyReturned)}</p>
+
+          {/* Gross Margin */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Gross Margin
+                </span>
+                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${t.grossMargin >= 0 ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400'}`}>
+                  <Percent className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1 flex flex-wrap items-baseline gap-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate">
+                  {money(t.grossMargin)}
+                </span>
+                <span className={`text-[9px] font-extrabold rounded px-1 py-0.2 ${t.grossMargin >= 0 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300'}`}>
+                  {t.grossMarginPercent}%
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Gross profit & yield
+            </p>
           </div>
-          <div>
-            <p className="dgn-label">Outstanding receivables</p>
-            <p
-              className={
-                'mt-1 text-lg font-semibold ' +
-                (t.receivablesTotal > 0 ? 'text-red-700' : 'text-teal-700')
-              }
-            >
-              {money(t.receivablesTotal)}
+
+          {/* Return Rate */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Return Rate
+                </span>
+                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${t.returnRatePercent > 5 ? 'bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400'}`}>
+                  <RotateCcw className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate block ${t.returnRatePercent > 5 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-white'}`}>
+                  {t.returnRatePercent}%
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              {fmt(t.qtyReturned)} units returned
             </p>
           </div>
         </div>
-      </Card>
+
+        {/* Secondary Operational Metrics: Compact 2 per row on mobile, 4 on desktop */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+          {/* Discounts Given */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Discounts Given
+                </span>
+                <div className="size-5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center justify-center shrink-0">
+                  <TrendingDown className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                  {money(t.discounts)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Net margin {money(t.netMargin)}
+            </p>
+          </div>
+
+          {/* Units Sold */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Volume Sold
+                </span>
+                <div className="size-5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                  <Package className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                  {fmt(t.qtySold)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              {fmt(t.qtyNet)} net of returns
+            </p>
+          </div>
+
+          {/* Units Returned */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Volume Returned
+                </span>
+                <div className="size-5 rounded-md bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+                  <RotateCcw className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
+                  {fmt(t.qtyReturned)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Customer returns & RMAs
+            </p>
+          </div>
+
+          {/* Receivables */}
+          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
+                  Receivables Due
+                </span>
+                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${t.receivablesTotal > 0 ? 'bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400'}`}>
+                  <AlertCircle className="size-3" />
+                </div>
+              </div>
+              <div className="mt-1">
+                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate block ${t.receivablesTotal > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-white'}`}>
+                  {money(t.receivablesTotal)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
+              Unpaid credit balances
+            </p>
+          </div>
+        </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SliceTable title="By product" caption="Which products earn the most" rows={d.byProduct} />
@@ -177,7 +327,8 @@ export function SalesMarginPage() {
           </table>
         </div>
       </Card>
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 

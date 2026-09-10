@@ -1,7 +1,10 @@
 import axios from 'axios'
+import { queryClient } from './queryClient'
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:34567/api/v1',
+  baseURL: import.meta.env.DEV
+    ? 'http://localhost:34567/api/v1'
+    : 'https://server.brainstorm.ng/dgn_backend/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -14,11 +17,29 @@ api.interceptors.request.use((config) => {
       ? token
       : `Bearer ${token}`
   }
+
+  // Prevent any browser or mobile proxy from caching GET requests via query parameter
+  // without triggering restricted CORS preflight request headers.
+  if (config.method?.toLowerCase() === 'get') {
+    config.params = {
+      ...config.params,
+      _t: Date.now(),
+    }
+  }
+
   return config
 })
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Whenever a mutation succeeds, automatically invalidate all queries so every screen
+    // across mobile and desktop immediately gets fresh data without manual page refresh.
+    const method = response.config.method?.toLowerCase()
+    if (method && ['post', 'put', 'patch', 'delete'].includes(method)) {
+      queryClient.invalidateQueries()
+    }
+    return response
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('dgn_token')

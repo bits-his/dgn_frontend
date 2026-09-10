@@ -1,8 +1,21 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Search, ExternalLink, Eye, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, PageHeader } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import CustomTable1 from '@/components/CustomTable1'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { SORT_COLORS } from '@/lib/sortColors'
 
 type BatchRow = {
@@ -22,7 +35,7 @@ type BatchRow = {
 }
 
 const STAGE_FILTERS = [
-  { value: '', label: 'All stages' },
+  { value: 'ALL', label: 'All stages' },
   { value: 'SCRAP', label: 'Scrap (buy)' },
   { value: 'SORT', label: 'Sorted' },
   { value: 'CRUSH', label: 'Crushed' },
@@ -64,15 +77,27 @@ function formatCreatedAt(raw?: string) {
   })
 }
 
-function qty(value: string | number | undefined, uom: string) {
+function fmtQty(value: string | number | undefined, uom: string) {
   if (value == null || value === '') return '—'
   return `${Number(value).toLocaleString()} ${uom || 'kg'}`
 }
 
+function getStageBadge(stage?: string) {
+  const s = (stage || '').toUpperCase()
+  if (s === 'SCRAP') return 'bg-amber-50 text-amber-800 border-amber-200'
+  if (s === 'SORT') return 'bg-blue-50 text-blue-800 border-blue-200'
+  if (s === 'CRUSH') return 'bg-purple-50 text-purple-800 border-purple-200'
+  if (s === 'WASH') return 'bg-cyan-50 text-cyan-800 border-cyan-200'
+  if (s === 'DRY') return 'bg-orange-50 text-orange-800 border-orange-200'
+  if (s === 'PROD') return 'bg-emerald-50 text-emerald-800 border-emerald-200'
+  return 'bg-zinc-100 text-zinc-800 border-zinc-200'
+}
+
 export function BatchesPage() {
+  const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
-  const [stage, setStage] = useState('')
+  const [stage, setStage] = useState('ALL')
 
   const batches = useQuery({
     queryKey: ['batches', search, stage],
@@ -80,143 +105,216 @@ export function BatchesPage() {
       const { data } = await api.get('/batches', {
         params: {
           q: search || undefined,
-          batchType: stage || undefined,
+          batchType: stage === 'ALL' ? undefined : stage,
         },
       })
       return data.data as BatchRow[]
     },
   })
 
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Traceability"
-        title="Batches"
-      />
-
-      <Card className="mb-4 !p-4">
-        <form
-          className="flex flex-col gap-3 sm:flex-row sm:items-end"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setSearch(q.trim())
-          }}
-        >
-          <label className="block min-w-0 flex-1">
-            <span className="dgn-label">Search</span>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Batch number e.g. BAT-… or SCR-…"
-              className="dgn-input"
-            />
-          </label>
-          <label className="block sm:w-48">
-            <span className="dgn-label">Stage</span>
-            <select
-              className="dgn-input"
-              value={stage}
-              onChange={(e) => setStage(e.target.value)}
+  const columns: ColumnDef<BatchRow>[] = useMemo(
+    () => [
+      {
+        id: 'batchNumber',
+        header: 'Batch #',
+        accessorKey: 'batchNumber',
+        cell: ({ row }) => {
+          const b = row.original
+          return (
+            <div>
+              <Link
+                to={`/batches/${b.batchNumber}`}
+                className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 font-mono"
+              >
+                {b.batchNumber}
+                <ExternalLink className="size-3 text-zinc-400" />
+              </Link>
+              {b.location?.name && (
+                <p className="text-[10px] text-zinc-400">{b.location.name}</p>
+              )}
+            </div>
+          )
+        },
+      },
+      {
+        id: 'stage',
+        header: 'Stage',
+        cell: ({ row }) => {
+          const s = row.original.stage || row.original.batchType
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getStageBadge(
+                s
+              )}`}
             >
-              {STAGE_FILTERS.map((opt) => (
-                <option key={opt.value || 'all'} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="submit" className="dgn-btn dgn-btn-primary sm:min-w-28">
-            Search
-          </button>
-        </form>
-      </Card>
+              {s}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'sortColor',
+        header: 'Colour',
+        cell: ({ row }) => {
+          const c = colorName(row.original.sortColor)
+          return c !== '—' ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80">
+              {c}
+            </span>
+          ) : (
+            <span className="text-zinc-400">—</span>
+          )
+        },
+      },
+      {
+        id: 'material',
+        header: 'Material / Product',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-800">
+            {row.original.product?.name || row.original.material?.name || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'qtyIn',
+        header: 'Qty In',
+        cell: ({ row }) => (
+          <span className="tabular-nums text-xs text-zinc-600 font-medium">
+            {fmtQty(row.original.qtyIn, row.original.uom)}
+          </span>
+        ),
+      },
+      {
+        id: 'qtyRemaining',
+        header: 'Available',
+        cell: ({ row }) => {
+          const rem = Number(row.original.qtyRemaining || 0)
+          return (
+            <span
+              className={`tabular-nums font-semibold text-xs ${
+                rem > 0 ? 'text-emerald-700' : 'text-zinc-400'
+              }`}
+            >
+              {fmtQty(row.original.qtyRemaining, row.original.uom)}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        cell: ({ row }) => {
+          const biz = formatBusinessDate(row.original.businessDate)
+          return (
+            <span className="text-xs text-zinc-500 tabular-nums">
+              {biz || formatCreatedAt(row.original.createdAt)}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap cursor-pointer"
+              onClick={() => navigate(`/batches/${row.original.batchNumber}`)}
+            >
+              <Eye className="size-3.5 shrink-0" />
+              <span>View</span>
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [navigate]
+  )
 
-      <Card className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Batch</th>
-                <th className="px-3 py-3 font-semibold">Stage</th>
-                <th className="px-3 py-3 font-semibold">Colour</th>
-                <th className="px-3 py-3 font-semibold">Material / product</th>
-                <th className="px-3 py-3 font-semibold text-right">Qty in</th>
-                <th className="px-3 py-3 font-semibold text-right">Available</th>
-                <th className="px-3 py-3 font-semibold">Date</th>
-                <th className="px-4 py-3 font-semibold text-right"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {batches.isLoading && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    setSearch(q.trim())
+  }
+
+  const handleReset = () => {
+    setQ('')
+    setSearch('')
+    setStage('ALL')
+  }
+
+  return (
+    <PageLayout
+      title="Batches"
+      description="Complete trace and lifecycle of all lots from raw scrap to finished goods."
+    >
+      <div className="space-y-3">
+        {/* Card Toolbar with Search and Filters */}
+        <Card className="!p-0 overflow-hidden shadow-xs border border-zinc-200">
+          <form
+            onSubmit={handleSearch}
+            className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2.5 sm:p-3 border-b border-zinc-200/80 bg-zinc-50/70"
+          >
+            {/* Search Input */}
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+              <Input
+                type="text"
+                className="pl-8 h-8 text-xs bg-white"
+                placeholder="Batch number e.g. BAT-… or SCR-…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+
+            {/* Stage filter and Action Buttons */}
+            <div className="flex items-center gap-2">
+              <Select value={stage} onValueChange={setStage}>
+                <SelectTrigger className="w-full sm:w-[150px] h-8 text-xs bg-white font-medium">
+                  <SelectValue placeholder="All stages">
+                    {STAGE_FILTERS.find((f) => f.value === stage)?.label || 'All stages'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {STAGE_FILTERS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button type="submit" size="sm" className="h-8 px-3 text-xs font-semibold">
+                Filter
+              </Button>
+
+              {(q || stage !== 'ALL' || search) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReset}
+                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
+                  title="Reset filters"
+                >
+                  <RotateCcw className="size-3.5 shrink-0" />
+                  <span>Reset</span>
+                </Button>
               )}
-              {!batches.isLoading &&
-                batches.data?.map((batch) => {
-                  const biz = formatBusinessDate(batch.businessDate)
-                  return (
-                    <tr
-                      key={batch.id}
-                      className="border-b border-[var(--line)] hover:bg-zinc-50/80"
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/batches/${batch.batchNumber}`}
-                          className="font-semibold text-[var(--accent-strong)] hover:underline"
-                        >
-                          {batch.batchNumber}
-                        </Link>
-                        {batch.location?.name && (
-                          <p className="mt-0.5 text-xs text-[var(--ink-faint)]">
-                            {batch.location.name}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex rounded-full bg-[var(--accent-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--accent-strong)]">
-                          {batch.stage || batch.batchType}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-[var(--ink-muted)]">
-                        {colorName(batch.sortColor)}
-                      </td>
-                      <td className="px-3 py-3">
-                        {batch.product?.name || batch.material?.name || '—'}
-                      </td>
-                      <td className="px-3 py-3 text-right tabular-nums">
-                        {qty(batch.qtyIn, batch.uom)}
-                      </td>
-                      <td className="px-3 py-3 text-right font-medium tabular-nums">
-                        {qty(batch.qtyRemaining, batch.uom)}
-                      </td>
-                      <td className="px-3 py-3 text-[var(--ink-muted)] tabular-nums">
-                        {biz || formatCreatedAt(batch.createdAt)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Link
-                          to={`/batches/${batch.batchNumber}`}
-                          className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
-                        >
-                          Open
-                        </Link>
-                      </td>
-                    </tr>
-                  )
-                })}
-              {!batches.isLoading && batches.data?.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    No batches found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
+            </div>
+          </form>
+
+          {/* Custom Table with 50 rows default */}
+          <CustomTable1
+            data={batches.data || []}
+            columns={columns}
+            loading={batches.isLoading}
+            card={true}
+          />
+        </Card>
+      </div>
+    </PageLayout>
   )
 }
+export default BatchesPage

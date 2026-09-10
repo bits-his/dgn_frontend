@@ -1,9 +1,29 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { RefreshCw, SlidersHorizontal, ExternalLink } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
+import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { formatDateTime } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
@@ -44,28 +64,32 @@ type Threshold = {
   isCustom: boolean
 }
 
-const SEV: Record<string, string> = {
-  CRITICAL: 'bg-red-600 text-white',
-  WARNING: 'bg-amber-500 text-[#1a1205]',
-  INFO: 'bg-slate-600 text-white',
+const SEV_BADGE: Record<string, string> = {
+  CRITICAL: 'bg-red-50 text-red-700 border border-red-200',
+  WARNING: 'bg-amber-50 text-amber-800 border border-amber-200',
+  INFO: 'bg-blue-50 text-blue-700 border border-blue-200',
 }
 
 export function AlertsPage() {
   const user = useAuthStore((s) => s.user)
   const canManage = hasPermission(user, 'alert.manage')
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState('')
-  const [severity, setSeverity] = useState('')
+  const [status, setStatus] = useState('OPEN_ALL')
+  const [severity, setSeverity] = useState('ALL')
   const [tuning, setTuning] = useState(false)
   const [evaluating, setEvaluating] = useState(false)
+  const [ackAlert, setAckAlert] = useState<AlertRow | null>(null)
+  const [ackNote, setAckNote] = useState('')
+  const [ackBusy, setAckBusy] = useState(false)
+  const [ackError, setAckError] = useState<string | null>(null)
 
   const alerts = useQuery({
     queryKey: ['alerts', status, severity],
     queryFn: async () => {
       const { data } = await api.get('/alerts', {
         params: {
-          status: status || undefined,
-          severity: severity || undefined,
+          status: status === 'OPEN_ALL' ? undefined : status,
+          severity: severity === 'ALL' ? undefined : severity,
         },
       })
       return {
@@ -93,227 +117,300 @@ export function AlertsPage() {
     }
   }
 
-  const s = alerts.data?.summary
-
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Intelligence"
-        title="Alerts"
-        actions={
-          <div className="flex flex-wrap gap-2">
-            {canManage && (
-              <button className="dgn-btn dgn-btn-ghost" onClick={() => setTuning((v) => !v)}>
-                <SlidersHorizontal className="h-4 w-4" /> Thresholds
-              </button>
-            )}
-            <button className="dgn-btn dgn-btn-secondary" disabled={evaluating} onClick={evaluate}>
-              <RefreshCw className="h-4 w-4" />
-              {evaluating ? 'Checking…' : 'Check now'}
-            </button>
-          </div>
-        }
-      />
-
-      {s && (
-        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatPill label="Open now" value={String(s.total)} tone="accent" />
-          <StatPill
-            label="Cannot wait"
-            value={String(s.bySeverity.CRITICAL || 0)}
-            tone={(s.bySeverity.CRITICAL || 0) > 0 ? 'danger' : 'default'}
-          />
-          <StatPill label="Warnings" value={String(s.bySeverity.WARNING || 0)} />
-          <StatPill
-            label="Not yet acknowledged"
-            value={String(s.unacknowledged)}
-            tone={s.unacknowledged > 0 ? 'danger' : 'success'}
-          />
-        </div>
-      )}
-
-      {tuning && <ThresholdsCard onChanged={refresh} />}
-
-      <Card className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          {[
-            ['', 'Open'],
-            ['OPEN', 'Unacknowledged'],
-            ['ACKNOWLEDGED', 'Being dealt with'],
-            ['RESOLVED', 'Closed'],
-          ].map(([value, label]) => (
-            <button
-              key={value || 'open'}
-              onClick={() => setStatus(value)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                status === value ? 'bg-[var(--bg-sidebar)] text-white' : 'bg-zinc-100'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-          <span className="mx-1 w-px bg-[var(--line)]" />
-          {['', 'CRITICAL', 'WARNING', 'INFO'].map((value) => (
-            <button
-              key={value || 'all-sev'}
-              onClick={() => setSeverity(value)}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold ${
-                severity === value ? 'bg-[var(--bg-sidebar)] text-white' : 'bg-zinc-100'
-              }`}
-            >
-              {value || 'All levels'}
-            </button>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1200px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Last seen</th>
-                <th className="px-3 py-3 font-semibold">Severity</th>
-                <th className="px-3 py-3 font-semibold">Category</th>
-                <th className="px-3 py-3 font-semibold">Title / message</th>
-                <th className="px-3 py-3 font-semibold">Entity</th>
-                <th className="px-3 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {alerts.isLoading && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {!alerts.isLoading &&
-                (alerts.data?.rows ?? []).map((row) => (
-                  <AlertTableRow
-                    key={row.id}
-                    row={row}
-                    canManage={canManage}
-                    onChanged={refresh}
-                  />
-                ))}
-              {!alerts.isLoading && alerts.data?.rows.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-[var(--ink-muted)]">
-                    <span className="inline-flex items-center gap-3">
-                      <Bell className="h-5 w-5" />
-                      {status === 'RESOLVED'
-                        ? 'Nothing has been closed yet.'
-                        : 'Nothing is wrong right now that the factory knows how to detect.'}
-                    </span>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  )
-}
-
-function AlertTableRow({
-  row,
-  canManage,
-  onChanged,
-}: {
-  row: AlertRow
-  canManage: boolean
-  onChanged: () => void
-}) {
-  const [note, setNote] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const ack = async () => {
-    setError(null)
-    setBusy(true)
+  const handleConfirmAck = async () => {
+    if (!ackAlert) return
+    setAckError(null)
+    setAckBusy(true)
     try {
-      await api.post(`/alerts/${row.id}/acknowledge`, { note })
-      onChanged()
+      await api.post(`/alerts/${ackAlert.id}/acknowledge`, { note: ackNote })
+      setAckAlert(null)
+      setAckNote('')
+      refresh()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
-      setError(String((body && body.err) || 'Could not acknowledge'))
+      setAckError(String((body && body.err) || 'Could not acknowledge alert'))
     } finally {
-      setBusy(false)
+      setAckBusy(false)
     }
   }
 
-  return (
-    <tr className="border-b border-[var(--line)] align-top hover:bg-zinc-50/80">
-      <td className="whitespace-nowrap px-4 py-3 text-[var(--ink-muted)] tabular-nums">
-        {formatDateTime(row.lastSeenAt)}
-        <p className="mt-1 text-xs text-[var(--ink-faint)]">
-          {row.occurrenceCount} occurrence{row.occurrenceCount === 1 ? '' : 's'}
-        </p>
-      </td>
-      <td className="px-3 py-3">
-        <span className={`inline-flex rounded-lg px-2 py-0.5 text-[10px] font-bold ${SEV[row.severity]}`}>
-          {row.severity}
-        </span>
-      </td>
-      <td className="px-3 py-3">{row.category}</td>
-      <td className="max-w-md px-3 py-3">
-        <p className="font-semibold">{row.title}</p>
-        <p className="mt-1 text-sm text-[var(--ink-muted)]">{row.message}</p>
-        {row.metricValue != null && (
-          <p className="mt-1 text-xs text-[var(--ink-faint)]">
-            {row.metricValue}
-            {row.unit ? ` ${row.unit}` : ''}
-            {row.thresholdValue != null ? ` against ${row.thresholdValue}` : ''}
-          </p>
-        )}
-        {row.acknowledgeNote && (
-          <p className="mt-2 text-xs text-[var(--ink-muted)]">Note: {row.acknowledgeNote}</p>
-        )}
-        {row.resolutionNote && (
-          <p className="mt-2 text-xs text-teal-700">{row.resolutionNote}</p>
-        )}
-      </td>
-      <td className="px-3 py-3 font-mono text-xs text-[var(--ink-muted)]">
-        {row.entityLabel || '—'}
-      </td>
-      <td className="px-3 py-3">
-        <span className="inline-flex rounded-lg bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold">
-          {row.status}
-        </span>
-        {row.acknowledgedBy && (
-          <p className="mt-1 text-xs text-[var(--ink-faint)]">by {row.acknowledgedBy}</p>
-        )}
-      </td>
-      <td className="w-72 px-4 py-3">
-        <div className="flex flex-wrap gap-2">
-          {row.linkPath && (
-            <Link to={row.linkPath} className="dgn-btn dgn-btn-secondary">
-              Go there
-            </Link>
-          )}
-        </div>
+  const s = alerts.data?.summary
 
-        {canManage && row.status === 'OPEN' && (
-          <div className="mt-3">
-            <Field label="What are you doing about it?" hint="Optional">
-              <input className="dgn-input" value={note} onChange={(e) => setNote(e.target.value)} />
-            </Field>
-            <button className="dgn-btn dgn-btn-primary mt-2" disabled={busy} onClick={ack}>
-              {busy ? 'Saving…' : 'I am dealing with this'}
-            </button>
+  const columns = useMemo<ColumnDef<AlertRow>[]>(
+    () => [
+      {
+        accessorKey: 'lastSeenAt',
+        header: 'Last Seen',
+        cell: ({ row }) => (
+          <div>
+            <p className="text-xs font-medium text-zinc-900 tabular-nums">
+              {formatDateTime(row.original.lastSeenAt)}
+            </p>
+            <p className="text-[11px] text-zinc-400 mt-0.5">
+              {row.original.occurrenceCount} event{row.original.occurrenceCount === 1 ? '' : 's'}
+            </p>
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'severity',
+        header: 'Severity',
+        cell: ({ row }) => (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              SEV_BADGE[row.original.severity] ?? 'bg-zinc-100 text-zinc-700'
+            }`}
+          >
+            {row.original.severity}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'category',
+        header: 'Category / Entity',
+        cell: ({ row }) => (
+          <div>
+            <p className="text-xs font-semibold text-zinc-900">{row.original.category}</p>
+            {row.original.entityLabel && (
+              <p className="font-mono text-[11px] text-zinc-500 mt-0.5">{row.original.entityLabel}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'title',
+        header: 'Issue / Details',
+        cell: ({ row }) => (
+          <div className="max-w-md">
+            <p className="font-semibold text-xs text-zinc-900">{row.original.title}</p>
+            <p className="text-xs text-zinc-600 mt-0.5">{row.original.message}</p>
+            {row.original.metricValue != null && (
+              <p className="text-[11px] text-zinc-400 mt-1">
+                Value: <span className="font-semibold text-zinc-700">{row.original.metricValue}{row.original.unit ? ` ${row.original.unit}` : ''}</span>
+                {row.original.thresholdValue != null ? ` (threshold: ${row.original.thresholdValue})` : ''}
+              </p>
+            )}
+            {row.original.acknowledgeNote && (
+              <p className="text-[11px] text-amber-800 mt-1 bg-amber-50 px-2 py-0.5 rounded inline-block">
+                Action: {row.original.acknowledgeNote}
+              </p>
+            )}
+            {row.original.resolutionNote && (
+              <p className="text-[11px] text-emerald-800 mt-1 bg-emerald-50 px-2 py-0.5 rounded inline-block">
+                Resolution: {row.original.resolutionNote}
+              </p>
+            )}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <div>
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                row.original.status === 'OPEN'
+                  ? 'bg-red-50 text-red-700 border border-red-200'
+                  : row.original.status === 'ACKNOWLEDGED'
+                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+              }`}
+            >
+              {row.original.status}
+            </span>
+            {row.original.acknowledgedBy && (
+              <p className="text-[10px] text-zinc-400 mt-0.5">by {row.original.acknowledgedBy}</p>
+            )}
+          </div>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-1.5">
+            {row.original.linkPath && (
+              <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs font-medium gap-1">
+                <Link to={row.original.linkPath}>
+                  <span>Inspect</span>
+                  <ExternalLink className="size-3" />
+                </Link>
+              </Button>
+            )}
+            {canManage && row.original.status === 'OPEN' && (
+              <Button
+                size="sm"
+                className="h-7 px-2.5 text-xs font-semibold gap-1"
+                onClick={() => {
+                  setAckAlert(row.original)
+                  setAckNote('')
+                  setAckError(null)
+                }}
+              >
+                <span>Handle</span>
+              </Button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    [canManage]
+  )
+
+  return (
+    <PageLayout
+      title="Alerts & Thresholds"
+      description="Factory intelligence, real-time threshold monitoring, and incident mitigation"
+      actions={
+        <div className="flex items-center gap-2">
+          {canManage && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5"
+              onClick={() => setTuning(true)}
+            >
+              <SlidersHorizontal className="size-3.5" />
+              Thresholds
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold gap-1.5"
+            disabled={evaluating}
+            onClick={evaluate}
+          >
+            <RefreshCw className={`size-3.5 ${evaluating ? 'animate-spin' : ''}`} />
+            {evaluating ? 'Checking…' : 'Check now'}
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {s && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatPill label="Active alerts" value={String(s.total)} tone="accent" />
+            <StatPill
+              label="Critical"
+              value={String(s.bySeverity.CRITICAL || 0)}
+              tone={(s.bySeverity.CRITICAL || 0) > 0 ? 'danger' : 'default'}
+            />
+            <StatPill label="Warnings" value={String(s.bySeverity.WARNING || 0)} />
+            <StatPill
+              label="Need attention"
+              value={String(s.unacknowledged)}
+              tone={s.unacknowledged > 0 ? 'danger' : 'success'}
+            />
           </div>
         )}
 
-        {error && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      </td>
-    </tr>
+        {/* Filters bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+            <div className="w-full sm:w-48">
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="h-8 text-xs font-semibold">
+                  <SelectValue placeholder="Alert status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="OPEN_ALL">Open alerts</SelectItem>
+                  <SelectItem value="OPEN">Unacknowledged</SelectItem>
+                  <SelectItem value="ACKNOWLEDGED">Being handled</SelectItem>
+                  <SelectItem value="RESOLVED">Resolved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-48">
+              <Select value={severity} onValueChange={setSeverity}>
+                <SelectTrigger className="h-8 text-xs font-semibold">
+                  <SelectValue placeholder="Severity" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All severities</SelectItem>
+                  <SelectItem value="CRITICAL">Critical only</SelectItem>
+                  <SelectItem value="WARNING">Warnings</SelectItem>
+                  <SelectItem value="INFO">Informational</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="text-xs text-zinc-500 self-end sm:self-center">
+            {alerts.data?.rows.length ?? 0} alert{alerts.data?.rows.length === 1 ? '' : 's'}
+          </div>
+        </div>
+
+        {/* CustomTable1 with card removed around it */}
+        <CustomTable1
+          columns={columns}
+          data={alerts.data?.rows ?? []}
+          loading={alerts.isLoading}
+        />
+
+        {/* Thresholds Modal Dialog */}
+        <Dialog open={tuning} onOpenChange={setTuning}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Alert Thresholds Configuration</DialogTitle>
+              <DialogDescription>
+                Customize triggers and warning margins. Changing a value immediately re-evaluates all factory rules.
+              </DialogDescription>
+            </DialogHeader>
+
+            <ThresholdsModalList onChanged={refresh} />
+          </DialogContent>
+        </Dialog>
+
+        {/* Acknowledge Action Modal Dialog */}
+        {ackAlert && (
+          <Dialog open={Boolean(ackAlert)} onOpenChange={(open) => !open && setAckAlert(null)}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Handle Alert</DialogTitle>
+                <DialogDescription>
+                  Mark {ackAlert.title} as acknowledged so other operators know it is being dealt with.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3 mt-2">
+                <div>
+                  <Label className="text-xs mb-1 block">What action are you taking? (Optional)</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    placeholder="e.g. Inspecting sensor, informing technician"
+                    value={ackNote}
+                    onChange={(e) => setAckNote(e.target.value)}
+                  />
+                </div>
+
+                {ackError && <p className="text-xs text-red-600 font-medium">{ackError}</p>}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setAckAlert(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs font-semibold"
+                    disabled={ackBusy}
+                    onClick={handleConfirmAck}
+                  >
+                    {ackBusy ? 'Saving…' : 'Confirm handling'}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    </PageLayout>
   )
 }
 
-function ThresholdsCard({ onChanged }: { onChanged: () => void }) {
+function ThresholdsModalList({ onChanged }: { onChanged: () => void }) {
   const thresholds = useQuery({
     queryKey: ['alert-thresholds'],
     queryFn: async () => {
@@ -323,21 +420,21 @@ function ThresholdsCard({ onChanged }: { onChanged: () => void }) {
   })
 
   return (
-    <Card className="mb-6">
-      <h2 className="text-base font-semibold">What counts as a problem</h2>
-      <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        Changing a number re-runs every rule immediately, so you can see the effect.
-      </p>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        {(thresholds.data ?? []).map((row) => (
-          <ThresholdRow key={row.key} row={row} onChanged={onChanged} />
-        ))}
-      </div>
-    </Card>
+    <div className="space-y-3 mt-2">
+      {thresholds.isLoading ? (
+        <p className="text-xs text-zinc-500 py-4 text-center">Loading thresholds…</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(thresholds.data ?? []).map((row) => (
+            <ThresholdRowItem key={row.key} row={row} onChanged={onChanged} />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
-function ThresholdRow({ row, onChanged }: { row: Threshold; onChanged: () => void }) {
+function ThresholdRowItem({ row, onChanged }: { row: Threshold; onChanged: () => void }) {
   const queryClient = useQueryClient()
   const [value, setValue] = useState(String(row.value))
   const [busy, setBusy] = useState(false)
@@ -355,20 +452,30 @@ function ThresholdRow({ row, onChanged }: { row: Threshold; onChanged: () => voi
   }
 
   return (
-    <div>
-      <Field label={row.label} hint={row.isCustom ? `default ${row.defaultValue}` : 'factory default'}>
-        <div className="flex gap-2">
-          <input
-            className="dgn-input"
-            type="number"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-          <button className="dgn-btn dgn-btn-secondary" disabled={!dirty || busy} onClick={save}>
-            Save
-          </button>
-        </div>
-      </Field>
+    <div className="p-3 rounded-lg border border-zinc-200 bg-zinc-50/50 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-zinc-900">{row.label}</span>
+        <span className="text-[10px] text-zinc-400">
+          {row.isCustom ? `Default: ${row.defaultValue}` : 'Standard default'}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          className="h-8 text-xs bg-white"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 text-xs font-semibold"
+          disabled={!dirty || busy}
+          onClick={save}
+        >
+          {busy ? '…' : 'Save'}
+        </Button>
+      </div>
     </div>
   )
 }

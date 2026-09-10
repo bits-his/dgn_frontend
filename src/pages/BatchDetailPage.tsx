@@ -1,9 +1,13 @@
-import { Link, useParams } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -53,21 +57,11 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 const STAGE_LABEL: Record<string, string> = {
+  BUY: 'Scrap buying',
   SORTING: 'Sorting',
   CRUSHING: 'Crushing',
   WASHING: 'Washing',
   DRYING: 'Drying',
-}
-
-const COST_CLASS_LABEL: Record<string, string> = {
-  PURCHASE: 'Buy scrap',
-  LOGISTICS: 'Transport / load',
-  LABOUR: 'Labour',
-  PROCESSING: 'Chemical / process',
-  UTILITIES: 'Energy / utilities',
-  MAINTENANCE: 'Maintenance',
-  OVERHEAD: 'Factory overhead',
-  OTHER: 'Other',
 }
 
 type CostSummary = {
@@ -135,6 +129,8 @@ type ProcessRunRow = {
 
 export function BatchDetailPage() {
   const { batchNumber = '' } = useParams()
+  const navigate = useNavigate()
+  const [stockAuditOpen, setStockAuditOpen] = useState(false)
 
   const detail = useQuery({
     queryKey: ['batch', batchNumber],
@@ -173,6 +169,8 @@ export function BatchDetailPage() {
           }
           startedAt?: string
           endedAt?: string
+          businessDate?: string | null
+          createdAt?: string
           createdBy?: { firstname: string; lastname: string }
           scrapReceipt?: {
             netWeight: number
@@ -287,6 +285,29 @@ export function BatchDetailPage() {
             qtyConsumed: number
             toBatch?: { batchNumber: string; batchType: string }
           }>
+          originScrapReceipt?: {
+            netWeight: number
+            pricePerKg: number
+            purchaseCost: number
+            transportCost: number
+            loadingCost: number
+            unloadingCost: number
+            otherCost?: number
+            inboundForm?: string
+            supplier?: { name: string }
+          }
+          siblingBatches?: Array<{
+            id: number
+            batchNumber: string
+            batchType: string
+            status: string
+            sortColor?: string | null
+            qtyIn: number
+            qtyRemaining: number
+            uom: string
+            locationName?: string | null
+            materialName?: string | null
+          }>
         }
         summary: {
           directCost: number
@@ -323,7 +344,8 @@ export function BatchDetailPage() {
   }
 
   const batch = detail.data.data
-  const receipt = batch.scrapReceipt
+  const receipt = batch.scrapReceipt || batch.originScrapReceipt
+  const siblingBatches = batch.siblingBatches || []
   const processRuns = batch.processRuns || []
   const productionRun = batch.productionRun
   const summary = detail.data.summary
@@ -332,8 +354,82 @@ export function BatchDetailPage() {
   const costPerKg = isDry ? summary.trueRecycledCostPerKg : summary.costPerKg
   const typeLabel = TYPE_LABEL[batch.batchType] || batch.batchType
   const stageRows = costSummary?.stageBreakdown || []
+  const sortingRun = processRuns.find((r) => r.stage === 'SORTING')
+
+  // Merge any SORTING stage into Scrap Buying ('BUY') stage, as sorting is part of scrap buying
+  const displayStageRows = (() => {
+    const sortingRow = stageRows.find((r) => r.stage === 'SORTING')
+    const buyRow = stageRows.find((r) => r.stage === 'BUY')
+
+    let rawRows: typeof stageRows = stageRows
+    if (!sortingRow) {
+      rawRows = stageRows.map((row) =>
+        row.stage === 'BUY' && row.label === 'Buy scrap'
+          ? { ...row, label: 'Scrap buying' }
+          : row
+      )
+    } else if (buyRow) {
+      rawRows = stageRows
+        .filter((r) => r.stage !== 'SORTING')
+        .map((row) => {
+          if (row.stage === 'BUY') {
+            const mergedLines = [...row.lines]
+            if (sortingRow.amount > 0) {
+              const sortingIdx = mergedLines.findIndex((l) =>
+                l.label.toLowerCase().includes('sorting')
+              )
+              if (sortingIdx >= 0) {
+                mergedLines[sortingIdx] = {
+                  ...mergedLines[sortingIdx],
+                  amount: +(mergedLines[sortingIdx].amount + sortingRow.amount).toFixed(2),
+                }
+              } else {
+                mergedLines.push({ label: 'Sorting', amount: sortingRow.amount })
+              }
+            }
+            const mergedAmount = +(row.amount + (sortingRow.amount || 0)).toFixed(2)
+            const mergedReject = +((row.qtyReject || 0) + (sortingRow.qtyReject || 0)).toFixed(2)
+            return {
+              ...row,
+              label: 'Scrap buying',
+              amount: mergedAmount,
+              qtyReject: mergedReject,
+              perKg: row.qtyKg > 0 ? +(mergedAmount / row.qtyKg).toFixed(2) : null,
+              lines: mergedLines,
+            }
+          }
+          return row
+        })
+    } else {
+      // If sortingRow exists but no BUY row, transform sortingRow into Scrap buying
+      rawRows = stageRows.map((row) => {
+        if (row.stage === 'SORTING') {
+          return {
+            ...row,
+            stage: 'BUY',
+            label: 'Scrap buying',
+          }
+        }
+        return row
+      })
+    }
+
+    let running = 0
+    return rawRows.map((row) => {
+      running += Number(row.amount || 0)
+      const qtyKg = Number(row.qtyKg || 0)
+      return {
+        ...row,
+        runningTotal: +running.toFixed(2),
+        runningPerKg: qtyKg > 0 ? +(running / qtyKg).toFixed(2) : null,
+      }
+    })
+  })()
+
+  const displayProcessRuns = processRuns.filter((r) => r.stage !== 'SORTING')
 
   const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
+
 
   const prodGoodUnits = Number(productionRun?.qtyGood || batch.qtyOut || 0)
   const prodRejectUnits = Number(productionRun?.qtyReject || batch.qtyReject || 0)
@@ -372,18 +468,27 @@ export function BatchDetailPage() {
   const isNotCompleted = isProd && (batch.status === 'IN_PROGRESS' || productionRun?.status === 'IN_PROGRESS' || !productionRun?.endedAt)
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="font-mono text-lg font-semibold tracking-tight">{batch.batchNumber}</p>
-        {isNotCompleted && productionRun ? (
-          <Link
-            to={`/production/${productionRun.id}/complete`}
-            className="dgn-btn dgn-btn-primary inline-flex items-center gap-1.5 !px-3.5 !py-2 text-sm font-semibold shadow-sm"
+    <PageLayout
+      title={<span className="font-mono">{batch.batchNumber}</span>}
+      description={`${typeLabel} · Created ${formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt)}`}
+      back={true}
+      backLabel="Back"
+      onBack={() => navigate(-1)}
+      actions={
+        isNotCompleted && productionRun ? (
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+            asChild
           >
-            Complete Run →
-          </Link>
-        ) : null}
-      </div>
+            <Link to={`/production/${productionRun.id}/complete`}>
+              Complete Run →
+            </Link>
+          </Button>
+        ) : null
+      }
+    >
+      <div className="space-y-3">
 
       {isNotCompleted && (
         <Card className="!p-3.5 border-l-4 !border-l-amber-500">
@@ -400,7 +505,7 @@ export function BatchDetailPage() {
       )}
 
       <Card className="!p-4">
-        <h2 className="text-base font-semibold">Basic info</h2>
+        <h2 className="text-base font-semibold">Batch overview</h2>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {isProd ? (
             <>
@@ -410,31 +515,53 @@ export function BatchDetailPage() {
                 strong
               />
               <Fact
-                label="Cost / pc (price/1)"
-                value={prodCostPerPiece > 0 ? `${money(prodCostPerPiece)}/pc` : (isNotCompleted ? 'Pending completion' : '—')}
+                label="Cost / pc"
+                value={prodCostPerPiece > 0 ? `${money(prodCostPerPiece)}/pc` : (isNotCompleted ? 'Pending…' : '—')}
                 strong
               />
               <Fact
                 label="Cost / dozen"
-                value={prodCostPerDozen > 0 ? `${money(prodCostPerDozen)}/dz` : (isNotCompleted ? 'Pending completion' : '—')}
+                value={prodCostPerDozen > 0 ? `${money(prodCostPerDozen)}/dz` : (isNotCompleted ? 'Pending…' : '—')}
               />
-              <Fact label="Current total cost" value={money(summary.totalCost)} strong />
+              <Fact label="Total cost" value={money(summary.totalCost)} strong />
             </>
           ) : (
             <>
               <Fact label="Qty in" value={kg(batch.qtyIn)} strong />
-              <Fact label="Qty available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
+              <Fact label="Available" value={`${batch.qtyRemaining} ${batch.uom}`} strong />
               <Fact label="Total cost" value={money(summary.totalCost)} />
               <Fact label="Cost / kg" value={costPerKg != null ? `${money(costPerKg)}/kg` : '—'} />
             </>
           )}
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--ink-muted)]">
-          {batch.location?.name && <span>Location: {batch.location.name}</span>}
-          {batch.product?.name && <span>Product: {batch.product.name}</span>}
-          {batch.sortColor && <span>Colour: {colorLabel(batch.sortColor)}</span>}
-          <span>Stage: {typeLabel}</span>
-          <span>Status: {isNotCompleted ? 'IN_PROGRESS (Not completed)' : batch.status}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {batch.sortColor && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+              {colorLabel(batch.sortColor)}
+            </span>
+          )}
+          {batch.location?.name && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+              {batch.location.name}
+            </span>
+          )}
+          {batch.product?.name && (
+            <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+              {batch.product.name}
+            </span>
+          )}
+          <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
+            {typeLabel}
+          </span>
+          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+            isNotCompleted
+              ? 'bg-amber-100 text-amber-700'
+              : batch.status === 'CLOSED'
+              ? 'bg-zinc-200 text-zinc-600'
+              : 'bg-emerald-100 text-emerald-700'
+          }`}>
+            {isNotCompleted ? 'In progress' : batch.status}
+          </span>
         </div>
       </Card>
 
@@ -590,8 +717,18 @@ export function BatchDetailPage() {
 
       {receipt && (
         <Card className="!p-4">
-          <h2 className="text-base font-semibold">Buy / receiving</h2>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base font-semibold">Buy / receiving</h2>
+            {batch.originScrapReceipt && !batch.scrapReceipt && batch.inputs?.[0]?.fromBatch && (
+              <Link
+                to={`/batches/${batch.inputs[0].fromBatch.batchNumber}`}
+                className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
+              >
+                Origin scrap ticket: {batch.inputs[0].fromBatch.batchNumber} →
+              </Link>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Fact label="Supplier" value={receipt.supplier?.name || '—'} />
             <Fact
               label="Bought as"
@@ -603,113 +740,131 @@ export function BatchDetailPage() {
         </Card>
       )}
 
-      {(batch.inputs?.length || batch.outputs?.length) ? (
+      <ForwardTracePanel
+        batchNumber={batchNumber}
+        inputs={batch.inputs}
+        siblingBatches={siblingBatches}
+      />
+
+      {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0) && (
         <Card className="!p-4">
-          <h2 className="text-base font-semibold">Linked batches</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
-                Came from
+              <h2 className="text-base font-semibold">Process stages</h2>
+              <p className="text-xs text-[var(--ink-muted)]">
+                Full manufacturing journey from scrap buying through current stage
               </p>
-              <ul className="mt-1 space-y-1">
-                {(batch.inputs || []).map((link) => (
-                  <li key={link.id} className="text-sm">
-                    <Link
-                      className="font-medium text-[var(--accent-strong)] hover:underline"
-                      to={`/batches/${link.fromBatch?.batchNumber}`}
-                    >
-                      {link.fromBatch?.batchNumber}
-                    </Link>
-                    <span className="text-[var(--ink-muted)]">
-                      {' '}
-                      · {TYPE_LABEL[link.fromBatch?.batchType || ''] || link.fromBatch?.batchType} · {link.qtyConsumed} kg
-                    </span>
-                  </li>
-                ))}
-                {!batch.inputs?.length && (
-                  <li className="text-sm text-[var(--ink-muted)]">None</li>
-                )}
-              </ul>
             </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
-                Went to
-              </p>
-              <ul className="mt-1 space-y-1">
-                {(batch.outputs || []).map((link) => (
-                  <li key={link.id} className="text-sm">
-                    <Link
-                      className="font-medium text-[var(--accent-strong)] hover:underline"
-                      to={`/batches/${link.toBatch?.batchNumber}`}
-                    >
-                      {link.toBatch?.batchNumber}
-                    </Link>
-                    <span className="text-[var(--ink-muted)]">
-                      {' '}
-                      · {TYPE_LABEL[link.toBatch?.batchType || ''] || link.toBatch?.batchType} · {link.qtyConsumed} kg
-                    </span>
-                  </li>
-                ))}
-                {!batch.outputs?.length && (
-                  <li className="text-sm text-[var(--ink-muted)]">None</li>
-                )}
-              </ul>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--ink-muted)]">Current stage:</span>
+              <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
+                {typeLabel}
+              </span>
             </div>
           </div>
-        </Card>
-      ) : null}
 
-      {!isProd && (processRuns.length > 0 || stageRows.length > 0) && (
-        <Card className="!p-4">
-          <h2 className="text-base font-semibold">Process stages</h2>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          {/* Stage Progression Pipeline */}
+          {/* <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {[
+              { key: 'BUY', label: '1. Scrap buying', match: ['SCRAP'] },
+              { key: 'CRUSHING', label: '2. Crushing', match: ['CRUSH'] },
+              { key: 'WASHING', label: '3. Washing', match: ['WASH'] },
+              { key: 'DRYING', label: '4. Drying', match: ['DRY'] },
+              { key: 'RECYCLING', label: '5. Recycling', match: ['RECYCLE', 'PROD'] },
+            ].map((step) => {
+              const hasRun = displayStageRows.some((r) => r.stage === step.key)
+              const isCurrent = step.match.includes(batch.batchType)
+
+              return (
+                <div
+                  key={step.key}
+                  className={`rounded-lg border p-2.5 text-xs transition-all ${
+                    isCurrent
+                      ? 'border-blue-500 bg-blue-50/80 font-medium text-blue-900 shadow-sm'
+                      : hasRun
+                      ? 'border-emerald-200 bg-emerald-50/40 text-emerald-800'
+                      : 'border-zinc-200 bg-zinc-50/40 text-zinc-400'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-medium">{step.label}</span>
+                    {hasRun && (
+                      <span className="text-emerald-600 font-bold">✓</span>
+                    )}
+                    {isCurrent && !hasRun && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] opacity-80">
+                    {isCurrent ? 'Current stage' : hasRun ? 'Completed' : 'Upcoming'}
+                  </p>
+                </div>
+              )
+            })}
+          </div> */}
+
+          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3">
             <Fact
               label="Expenses total"
-              value={money(stageRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}
+              value={money(displayStageRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}
               strong
             />
             <Fact
               label="Total waste"
               value={kg(
-                stageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
-                  processRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
+                displayStageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
+                  displayProcessRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
               )}
               strong
             />
           </div>
-          <div className="mt-3 space-y-3">
-            {stageRows.length > 0
-              ? stageRows.map((row) => {
-                  const run = processRuns.find((r) => r.stage === row.stage)
+          <div className="mt-4 space-y-3">
+            {displayStageRows.length > 0
+              ? displayStageRows.map((row) => {
+                  const run =
+                    row.stage === 'BUY'
+                      ? (processRuns.find((r) => r.stage === 'BUY') || sortingRun)
+                      : processRuns.find((r) => r.stage === row.stage)
                   return <StageBlock key={row.key} run={run} cost={row} />
                 })
-              : processRuns.map((run) => {
-                  const naira =
-                    Number(run.labourCost || 0) +
-                    Number(run.chemicalCost || 0) +
-                    Number(run.detergentCost || 0) +
-                    (run.stage === 'WASHING' ? 0 : Number(run.energyCost || 0))
-                  const qtyKg = Number(run.qtyUsable || run.qtyInput || 0)
-                  return (
-                    <StageBlock
-                      key={run.id}
-                      run={run}
-                      cost={{
-                        key: String(run.id),
-                        stage: run.stage,
-                        label: STAGE_LABEL[run.stage] || run.stage,
-                        qtyKg,
-                        qtyReject: Number(run.qtyReject || 0),
-                        amount: naira,
-                        perKg: qtyKg > 0 ? naira / qtyKg : null,
-                        runningTotal: naira,
-                        runningPerKg: qtyKg > 0 ? naira / qtyKg : null,
-                        lines: [],
-                        extras: [],
-                      }}
-                    />
-                  )
-                })}
+              : (() => {
+                  let fallbackRunning = 0
+                  return displayProcessRuns.map((run) => {
+                    const lines = [
+                      Number(run.labourCost || 0) > 0 ? { label: 'Labour', amount: Number(run.labourCost) } : null,
+                      (run.stage !== 'WASHING' && Number(run.energyCost || 0) > 0) ? { label: 'Energy', amount: Number(run.energyCost) } : null,
+                      Number(run.chemicalCost || 0) > 0 ? { label: 'Chemical', amount: Number(run.chemicalCost) } : null,
+                      Number(run.detergentCost || 0) > 0 ? { label: 'Detergent', amount: Number(run.detergentCost) } : null,
+                      Number(run.waterQty || 0) > 0 ? { label: 'Water', amount: Number(run.waterQty) } : null,
+                    ].filter(Boolean) as Array<{ label: string; amount: number }>
+                    const naira =
+                      Number(run.labourCost || 0) +
+                      Number(run.chemicalCost || 0) +
+                      Number(run.detergentCost || 0) +
+                      (run.stage === 'WASHING' ? 0 : Number(run.energyCost || 0))
+                    const qtyKg = Number(run.qtyUsable || run.qtyInput || 0)
+                    fallbackRunning += naira
+                    return (
+                      <StageBlock
+                        key={run.id}
+                        run={run}
+                        cost={{
+                          key: String(run.id),
+                          stage: run.stage,
+                          label: STAGE_LABEL[run.stage] || run.stage,
+                          qtyKg,
+                          qtyReject: Number(run.qtyReject || 0),
+                          amount: naira,
+                          perKg: qtyKg > 0 ? naira / qtyKg : null,
+                          runningTotal: fallbackRunning,
+                          runningPerKg: qtyKg > 0 ? fallbackRunning / qtyKg : null,
+                          lines,
+                          extras: [],
+                        }}
+                      />
+                    )
+                  })
+                })()}
           </div>
         </Card>
       )}
@@ -766,115 +921,100 @@ export function BatchDetailPage() {
         </Card>
       )}
 
-      <ForwardTracePanel batchNumber={batchNumber} />
+      {/* Combined Stock & Audit — collapsible */}
+      {((batch.inventoryTransactions || []).length > 0 || detail.data.auditLogs.length > 0) && (
+        <Card className="!overflow-hidden !p-0">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+            onClick={() => setStockAuditOpen((o) => !o)}
+          >
+            <div>
+              <h2 className="text-base font-semibold">Stock &amp; Audit</h2>
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                {(batch.inventoryTransactions || []).length} stock move{(batch.inventoryTransactions || []).length !== 1 ? 's' : ''}
+                {' · '}
+                {detail.data.auditLogs.length} audit event{detail.data.auditLogs.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+            {stockAuditOpen
+              ? <ChevronUp className="h-4 w-4 text-zinc-400 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />}
+          </button>
 
-      <Card className="!overflow-hidden !p-0">
-        <div className="border-b border-[var(--line)] px-4 py-3">
-          <h2 className="text-base font-semibold">Each cost on this batch</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                <th className="px-4 py-3 font-semibold">Date</th>
-                <th className="px-3 py-3 font-semibold">Description</th>
-                <th className="px-3 py-3 font-semibold">Class</th>
-                <th className="px-4 py-3 font-semibold text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(batch.costEntries || []).map((c) => (
-                <tr key={c.id} className="border-b border-[var(--line)]">
-                  <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                    {c.businessDate
-                      ? formatBusinessDate(c.businessDate)
-                      : formatDateTime(c.createdAt)}
-                  </td>
-                  <td className="px-3 py-3">{c.description}</td>
-                  <td className="px-3 py-3 text-[var(--ink-muted)]">
-                    {COST_CLASS_LABEL[c.costClass] || c.costClass}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                    {money(c.amount)}
-                  </td>
-                </tr>
-              ))}
-              {!batch.costEntries?.length && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-center text-[var(--ink-muted)]">
-                    No cost lines yet
-                  </td>
-                </tr>
+          {stockAuditOpen && (
+            <div className="border-t border-[var(--line)]">
+
+              {/* Stock moves */}
+              {(batch.inventoryTransactions || []).length > 0 && (
+                <div>
+                  <p className="px-4 pt-3 pb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Stock moves</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                          <th className="px-4 py-2.5 font-semibold">Date</th>
+                          <th className="px-3 py-2.5 font-semibold">Direction</th>
+                          <th className="px-3 py-2.5 font-semibold">Reason</th>
+                          <th className="px-4 py-2.5 font-semibold text-right">Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(batch.inventoryTransactions || []).map((tx) => (
+                          <tr key={tx.id} className="border-b border-[var(--line)]">
+                            <td className="px-4 py-2.5 tabular-nums text-[var(--ink-muted)]">
+                              {tx.businessDate ? formatBusinessDate(tx.businessDate) : formatDateTime(tx.createdAt)}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                tx.direction === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {tx.direction}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-[var(--ink-muted)]">{tx.reason}</td>
+                            <td className="px-4 py-2.5 text-right tabular-nums font-medium">{tx.qty} {tx.uom}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
-      {(batch.inventoryTransactions || []).length > 0 && (
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold">Stock moves</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-3 py-3 font-semibold">Direction</th>
-                  <th className="px-3 py-3 font-semibold">Reason</th>
-                  <th className="px-4 py-3 font-semibold text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(batch.inventoryTransactions || []).map((tx) => (
-                  <tr key={tx.id} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                      {tx.businessDate
-                        ? formatBusinessDate(tx.businessDate)
-                        : formatDateTime(tx.createdAt)}
-                    </td>
-                    <td className="px-3 py-3">{tx.direction}</td>
-                    <td className="px-3 py-3 text-[var(--ink-muted)]">{tx.reason}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {tx.qty} {tx.uom}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              {/* Audit log */}
+              {detail.data.auditLogs.length > 0 && (
+                <div className={`${ (batch.inventoryTransactions || []).length > 0 ? 'border-t border-[var(--line)]' : '' }`}>
+                  <p className="px-4 pt-3 pb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Audit log</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[420px] text-left text-sm">
+                      <thead>
+                        <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                          <th className="px-4 py-2.5 font-semibold">Date &amp; time</th>
+                          <th className="px-4 py-2.5 font-semibold">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.data.auditLogs.map((log) => (
+                          <tr key={log.id} className="border-b border-[var(--line)]">
+                            <td className="px-4 py-2.5 tabular-nums text-[var(--ink-muted)] whitespace-nowrap">
+                              {formatDateTime(log.createdAt)}
+                            </td>
+                            <td className="px-4 py-2.5 text-sm">{log.action}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          )}
         </Card>
       )}
-
-      {detail.data.auditLogs.length > 0 && (
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold">Audit log</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-3 font-semibold">Date</th>
-                  <th className="px-4 py-3 font-semibold">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.data.auditLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-3 tabular-nums text-[var(--ink-muted)]">
-                      {formatDateTime(log.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">{log.action}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 
@@ -895,6 +1035,7 @@ type StageCostRow = {
 function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) {
   const colors = parseColorBreakdown(run?.colorBreakdown)
   const stageName = cost.label || STAGE_LABEL[run?.stage || ''] || run?.stage || cost.stage
+  const buyPriceExtra = cost.extras?.find((e) => e.label === 'Buy price')
 
   return (
     <div className="rounded-lg border border-[var(--line)] p-3">
@@ -913,13 +1054,21 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
         <Fact label="Expenses" value={money(cost.amount)} compact />
         <Fact
           label="₦ / kg"
-          value={cost.perKg != null ? `${money(cost.perKg)}/kg` : '—'}
+          value={
+            cost.runningPerKg != null
+              ? `${money(cost.runningPerKg)}/kg`
+              : cost.perKg != null
+                ? `${money(cost.perKg)}/kg`
+                : '—'
+          }
           compact
         />
       </div>
       <p className="mt-1 text-xs text-[var(--ink-muted)]">
         Total so far: {money(cost.runningTotal)}
-        {cost.runningPerKg != null ? ` · ${money(cost.runningPerKg)}/kg` : ''}
+        {cost.perKg != null && cost.runningPerKg != null && Math.abs(cost.perKg - cost.runningPerKg) > 0.01
+          ? ` · +${money(cost.perKg)}/kg this stage`
+          : ''}
       </p>
 
       {colors.length > 0 && (
@@ -952,30 +1101,56 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
 
       {cost.lines.length > 0 && (
         <ul className="mt-2 divide-y divide-[var(--line)]">
-          {cost.lines.map((row) => (
-            <li key={row.label} className="flex justify-between py-1 text-sm">
-              <span className="text-[var(--ink-muted)]">{row.label}</span>
-              <span className="font-medium tabular-nums">{money(row.amount)}</span>
-            </li>
-          ))}
+          {cost.lines.map((row) => {
+            const isScrapBuy =
+              row.label === 'Scrap buy' || row.label.toLowerCase().includes('scrap buy')
+            const buyPriceText = buyPriceExtra
+              ? buyPriceExtra.text.startsWith('@')
+                ? buyPriceExtra.text
+                : `@ ${buyPriceExtra.text}`
+              : cost.perKg
+              ? `@ ${money(cost.perKg)}/kg`
+              : null
+
+            return (
+              <li key={row.label} className="flex justify-between py-1.5 text-sm items-start">
+                <div>
+                  <span className="text-[var(--ink-muted)] font-medium">{row.label}</span>
+                  {isScrapBuy && buyPriceText && (
+                    <p className="text-xs text-[var(--ink-faint)] font-normal mt-0.5">
+                      Buy price: {buyPriceText}
+                    </p>
+                  )}
+                </div>
+                <span className="font-medium tabular-nums">{money(row.amount)}</span>
+              </li>
+            )
+          })}
         </ul>
       )}
-      {cost.extras.map((ex) => (
+      {cost.extras.filter((ex) => ex.label !== 'Buy price').map((ex) => (
         <p key={ex.label} className="mt-1 text-xs text-[var(--ink-muted)]">
           {ex.label}: {ex.text}
         </p>
       ))}
 
-      {run && (run.operatorName || run.machineName || run.teamName) && (
-        <p className="mt-2 text-xs text-[var(--ink-muted)]">
-          {[
-            run.operatorName && `Operator: ${run.operatorName}`,
-            run.machineName && `Machine: ${run.machineName}`,
-            run.teamName && `Team: ${run.teamName}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </p>
+      {run && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--ink-muted)]">
+          {run.operatorName && <span>Operator: {run.operatorName}</span>}
+          {run.machineName && <span>Machine: {run.machineName}</span>}
+          {run.teamName && <span>Team: {run.teamName}</span>}
+          {run.waterQty != null && Number(run.waterQty) > 0 && (
+            <span>Water used: {Number(run.waterQty).toLocaleString()} L</span>
+          )}
+          {run.moistureReading != null && (
+            <span>Moisture: {run.moistureReading}%</span>
+          )}
+          {run.downtimeMinutes != null && Number(run.downtimeMinutes) > 0 && (
+            <span>
+              Downtime: {run.downtimeMinutes} min{run.downtimeReason ? ` (${run.downtimeReason})` : ''}
+            </span>
+          )}
+        </div>
       )}
       {run?.notes && <p className="mt-1 text-xs text-[var(--ink-muted)]">{run.notes}</p>}
     </div>
@@ -988,6 +1163,11 @@ type ForwardTrace = {
     batchType: string
     status: string
     itemName: string | null
+    qtyIn?: number
+    qtyOut?: number
+    qtyRemaining?: number
+    qtyConsumed?: number | null
+    uom?: string
     depth: number
   }>
   sales: Array<{
@@ -1007,7 +1187,39 @@ type ForwardTrace = {
   descendantCount: number
 }
 
-function ForwardTracePanel({ batchNumber }: { batchNumber: string }) {
+type BatchLinkInput = {
+  id: number
+  qtyConsumed: number
+  fromBatch?: {
+    batchNumber: string
+    batchType: string
+    material?: { name: string }
+    location?: { name: string; code?: string }
+  }
+}
+
+type SiblingBatchItem = {
+  id: number
+  batchNumber: string
+  batchType: string
+  status: string
+  sortColor?: string | null
+  qtyIn: number
+  qtyRemaining: number
+  uom: string
+  locationName?: string | null
+  materialName?: string | null
+}
+
+function ForwardTracePanel({
+  batchNumber,
+  inputs,
+  siblingBatches,
+}: {
+  batchNumber: string
+  inputs?: BatchLinkInput[]
+  siblingBatches?: SiblingBatchItem[]
+}) {
   const trace = useQuery({
     queryKey: ['forward-trace', batchNumber],
     queryFn: async () => {
@@ -1018,38 +1230,116 @@ function ForwardTracePanel({ batchNumber }: { batchNumber: string }) {
 
   if (!trace.data) return null
   const t = trace.data
-  if (t.descendantCount === 0 && t.sales.length === 0) return null
+  const hasInputs = Boolean(inputs && inputs.length > 0)
+  const hasSiblings = Boolean(siblingBatches && siblingBatches.length > 0)
+  const hasDescendants = t.descendantCount > 0 || (t.sales && t.sales.length > 0)
+
+  if (!hasDescendants && !hasInputs && !hasSiblings) return null
 
   return (
     <Card className="!p-4">
-      <h2 className="text-base font-semibold">Where it went</h2>
-      <p className="mt-1 text-sm text-[var(--ink-muted)]">
-        {t.descendantCount} next stage{t.descendantCount === 1 ? '' : 's'}
-        {t.reachedCustomers > 0
-          ? ` · sold to ${t.customers.join(', ')}`
-          : ' · not sold yet'}
+      <h2 className="text-base font-semibold">Linked & related batches</h2>
+      <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+        {t.descendantCount > 0
+          ? `${t.descendantCount} next stage${t.descendantCount === 1 ? '' : 's'}`
+          : 'Origin & downstream tracking'}
+        {t.reachedCustomers > 0 ? ` · sold to ${t.customers.join(', ')}` : ''}
       </p>
 
-      <div className="mt-2 space-y-0.5">
-        {t.batches.map((node) => (
-          <div
-            key={node.batchNumber}
-            className="flex flex-wrap items-center gap-1.5 text-sm"
-            style={{ paddingLeft: `${node.depth * 12}px` }}
-          >
-            {node.depth > 0 && <span className="text-[var(--ink-faint)]">└</span>}
-            <Link
-              to={`/batches/${node.batchNumber}`}
-              className="font-medium text-[var(--accent-strong)] hover:underline"
-            >
-              {node.batchNumber}
-            </Link>
-            <span className="text-xs text-[var(--ink-faint)]">
-              {TYPE_LABEL[node.batchType] || node.batchType}
-              {node.itemName ? ` · ${node.itemName}` : ''}
-            </span>
+      {hasInputs && (
+        <div className="mt-3 space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+            Came from (Source)
+          </p>
+          <div className="space-y-1 pl-1">
+            {inputs!.map((link) => (
+              <div key={link.id} className="flex flex-wrap items-center gap-1.5 text-sm">
+                <Link
+                  to={`/batches/${link.fromBatch?.batchNumber}`}
+                  className="font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  {link.fromBatch?.batchNumber}
+                </Link>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {TYPE_LABEL[link.fromBatch?.batchType || ''] || link.fromBatch?.batchType}
+                  {link.fromBatch?.material?.name ? ` · ${link.fromBatch.material.name}` : ''}
+                  {link.qtyConsumed ? ` · ${Number(link.qtyConsumed).toLocaleString()} kg consumed` : ''}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
+      )}
+
+      {hasSiblings && (
+        <div className="mt-3 space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+            Sister Lots (Same Scrap Ticket)
+          </p>
+          <div className="space-y-1 pl-2 max-h-48 overflow-y-auto border-l-2 border-[var(--line)]">
+            {siblingBatches!.map((sib) => (
+              <div key={sib.id} className="flex flex-wrap items-center gap-1.5 text-sm">
+                <Link
+                  to={`/batches/${sib.batchNumber}`}
+                  className="font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  {sib.batchNumber}
+                </Link>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {TYPE_LABEL[sib.batchType] || sib.batchType}
+                  {sib.sortColor ? ` · ${colorLabel(sib.sortColor)}` : ''}
+                  {sib.qtyIn ? ` · ${Number(sib.qtyIn).toLocaleString()} kg` : ''}
+                  {` · ${sib.status}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-1">
+        {(hasInputs || hasSiblings) && (
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
+            Downstream Journey
+          </p>
+        )}
+        <div className="space-y-1">
+          {t.batches.map((node) => {
+            const isCurrent = node.batchNumber === batchNumber
+            const weight =
+              node.qtyConsumed != null && node.qtyConsumed > 0
+                ? node.qtyConsumed
+                : (node.qtyIn != null && node.qtyIn > 0
+                    ? node.qtyIn
+                    : (node.qtyRemaining != null && node.qtyRemaining > 0
+                        ? node.qtyRemaining
+                        : (node.qtyOut != null && node.qtyOut > 0 ? node.qtyOut : null)))
+            return (
+              <div
+                key={node.batchNumber}
+                className="flex flex-wrap items-center gap-1.5 text-sm py-0.5"
+                style={{ paddingLeft: `${node.depth * 14}px` }}
+              >
+                {node.depth > 0 && <span className="text-[var(--ink-faint)] font-mono">└</span>}
+                <Link
+                  to={`/batches/${node.batchNumber}`}
+                  className={`font-medium hover:underline ${isCurrent ? 'font-semibold text-zinc-900' : 'text-[var(--accent-strong)]'}`}
+                >
+                  {node.batchNumber}
+                  {isCurrent && <span className="ml-1 text-[11px] font-normal text-[var(--ink-muted)]">(this batch)</span>}
+                </Link>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {TYPE_LABEL[node.batchType] || node.batchType}
+                  {node.itemName ? ` · ${node.itemName}` : ''}
+                  {weight != null ? ` · ${Number(weight).toLocaleString()} ${node.uom || 'kg'}` : ''}
+                </span>
+              </div>
+            )
+          })}
+          {t.descendantCount === 0 && (!t.sales || t.sales.length === 0) && (
+            <p className="text-xs text-[var(--ink-muted)] pl-1">In inventory / Not yet consumed into further stages</p>
+          )}
+        </div>
       </div>
 
       {t.sales.length > 0 && (

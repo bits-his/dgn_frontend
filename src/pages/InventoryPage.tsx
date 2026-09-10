@@ -1,9 +1,34 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ArrowRightLeft, ClipboardList, SlidersHorizontal } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
+import {
+  AlertTriangle,
+  ArrowRightLeft,
+  ClipboardList,
+  SlidersHorizontal,
+  Layers,
+  Hammer,
+  PackageCheck,
+  DollarSign,
+  MapPin,
+  Boxes,
+  Package,
+} from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, PageHeader, StatPill } from '@/components/ui'
+import { Card, Field, StatPill } from '@/components/ui'
+import { PageLayout } from '@/components/PageLayout'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -101,6 +126,7 @@ export function InventoryPage() {
 
   const [locationFilter, setLocationFilter] = useState('')
   const [batchFilter, setBatchFilter] = useState('')
+  const [viewMode, setViewMode] = useState<'lines' | 'location' | 'material' | 'product'>('lines')
   const [panel, setPanel] = useState<{ mode: 'adjust' | 'transfer'; line: StockLine } | null>(null)
 
   const overview = useQuery({
@@ -149,55 +175,341 @@ export function InventoryPage() {
     ? alerts.data.counts.lowStock + alerts.data.counts.ageing + alerts.data.counts.negative
     : 0
 
-  return (
-    <div>
-      <PageHeader
-        eyebrow="Inventory"
-        title="Stock visibility"
-        actions={
-          <Link to="/inventory/ledger" className="dgn-btn dgn-btn-secondary">
-            <ClipboardList className="size-4" />
-            Movement ledger
-          </Link>
-        }
-      />
+  const columns = useMemo<ColumnDef<StockLine>[]>(
+    () => [
+      {
+        id: 'batchNumber',
+        header: 'Batch',
+        cell: ({ row }) => {
+          const line = row.original
+          return line.batchNumber ? (
+            <Link
+              to={`/batches/${line.batchNumber}`}
+              className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+            >
+              {line.batchNumber}
+            </Link>
+          ) : (
+            <span className="text-zinc-400 text-xs">—</span>
+          )
+        },
+      },
+      {
+        id: 'item',
+        header: 'Item',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-800">
+            {row.original.productName || row.original.materialName || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'location',
+        header: 'Location',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-600">
+            {row.original.locationName || '—'}
+          </span>
+        ),
+      },
+      {
+        id: 'qtyOnHand',
+        header: 'On Hand',
+        cell: ({ row }) => (
+          <span className="font-semibold text-xs tabular-nums text-zinc-800">
+            {fmt(row.original.qtyOnHand)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'age',
+        header: 'Age',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-500 tabular-nums">
+            {row.original.ageDays != null ? `${row.original.ageDays}d` : '—'}
+          </span>
+        ),
+      },
+      ...(canAdjust
+        ? [
+            {
+              id: 'actions',
+              header: 'Actions',
+              cell: ({ row }: { row: { original: StockLine } }) => {
+                const line = row.original
+                return (
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
+                      onClick={() => setPanel({ mode: 'adjust', line })}
+                    >
+                      <SlidersHorizontal className="size-3.5 shrink-0" />
+                      <span>Adjust</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
+                      onClick={() => setPanel({ mode: 'transfer', line })}
+                    >
+                      <ArrowRightLeft className="size-3.5 shrink-0" />
+                      <span>Transfer</span>
+                    </Button>
+                  </div>
+                )
+              },
+            } as ColumnDef<StockLine>,
+          ]
+        : []),
+    ],
+    [canAdjust]
+  )
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        <StatPill label="Raw material" value={`${fmt(totals?.rawMaterialQty ?? 0)} kg`} />
-        <StatPill label="Work in progress" value={`${fmt(totals?.wipQty ?? 0)} kg`} tone="accent" />
-        <StatPill
-          label="Finished goods"
-          value={`${fmt(totals?.finishedGoodsQty ?? 0)} pcs`}
-          tone="success"
-        />
-        <StatPill
-          label="Stock value"
-          value={`₦${fmt(totals?.stockValue ?? 0)}`}
-          tone="success"
-        />
-        <StatPill
-          label="Open alerts"
-          value={String(alertCount)}
-          tone={alertCount > 0 ? 'danger' : 'default'}
-        />
+  const locationColumns = useMemo<ColumnDef<Overview['byLocation'][number]>[]>(
+    () => [
+      {
+        id: 'name',
+        header: 'Location',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
+            <MapPin className="size-3.5 text-zinc-400 shrink-0" />
+            <span>{row.original.name}</span>
+          </span>
+        ),
+      },
+      {
+        id: 'locationType',
+        header: 'Type',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-500 capitalize">
+            {row.original.locationType.toLowerCase()}
+          </span>
+        ),
+      },
+      {
+        id: 'lines',
+        header: 'Active Lines',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-600 font-medium">
+            {row.original.lines}
+          </span>
+        ),
+      },
+      {
+        id: 'qty',
+        header: 'On Hand Quantity',
+        cell: ({ row }) => (
+          <span className="text-xs font-semibold tabular-nums text-zinc-900">
+            {fmt(row.original.qty)} {row.original.uom}
+          </span>
+        ),
+      },
+    ],
+    []
+  )
+
+  const materialColumns = useMemo<ColumnDef<Overview['byMaterial'][number]>[]>(
+    () => [
+      {
+        id: 'name',
+        header: 'Material',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
+            <Boxes className="size-3.5 text-zinc-400 shrink-0" />
+            <span>{row.original.name}</span>
+          </span>
+        ),
+      },
+      {
+        id: 'reorderLevel',
+        header: 'Reorder Level',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-500">
+            {fmt(row.original.reorderLevel)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'qty',
+        header: 'On Hand Quantity',
+        cell: ({ row }) => (
+          <span
+            className={`text-xs font-semibold tabular-nums ${
+              row.original.belowReorder ? 'text-red-700' : 'text-zinc-900'
+            }`}
+          >
+            {fmt(row.original.qty)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        cell: ({ row }) =>
+          row.original.belowReorder ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
+              Low Stock
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Adequate
+            </span>
+          ),
+      },
+    ],
+    []
+  )
+
+  const productColumns = useMemo<ColumnDef<Overview['byProduct'][number]>[]>(
+    () => [
+      {
+        id: 'name',
+        header: 'Product',
+        cell: ({ row }) => (
+          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
+            <Package className="size-3.5 text-zinc-400 shrink-0" />
+            <span>{row.original.name}</span>
+          </span>
+        ),
+      },
+      {
+        id: 'reorderLevel',
+        header: 'Reorder Level',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-500">
+            {fmt(row.original.reorderLevel)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'qty',
+        header: 'On Hand Quantity',
+        cell: ({ row }) => (
+          <span
+            className={`text-xs font-semibold tabular-nums ${
+              row.original.belowReorder ? 'text-red-700' : 'text-zinc-900'
+            }`}
+          >
+            {fmt(row.original.qty)} {row.original.uom}
+          </span>
+        ),
+      },
+      {
+        id: 'status',
+        header: 'Status',
+        cell: ({ row }) =>
+          row.original.belowReorder ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
+              Low Stock
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Adequate
+            </span>
+          ),
+      },
+    ],
+    []
+  )
+
+  return (
+    <PageLayout
+      title="Stock visibility"
+      description="Inventory · Balances, locations, alerts, and reorder levels"
+      actions={
+        <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
+          <Link to="/inventory/ledger" className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <ClipboardList className="size-3.5 shrink-0" />
+            <span>Movement ledger</span>
+          </Link>
+        </Button>
+      }
+    >
+      <div className="space-y-6">
+
+      <div className="mb-6 grid grid-cols-2 gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Raw Material</span>
+            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-amber-50 text-amber-600">
+              <Layers className="size-3.5 sm:size-4" />
+            </div>
+          </div>
+          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.rawMaterialQty ?? 0)} kg</div>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Scrap & sorted stock</p>
+        </div>
+
+        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Work in Progress</span>
+            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-slate-50 text-slate-600">
+              <Hammer className="size-3.5 sm:size-4" />
+            </div>
+          </div>
+          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.wipQty ?? 0)} kg</div>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Crushed, washed & drying</p>
+        </div>
+
+        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Finished Goods</span>
+            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-50 text-emerald-600">
+              <PackageCheck className="size-3.5 sm:size-4" />
+            </div>
+          </div>
+          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.finishedGoodsQty ?? 0)} pcs</div>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Manufactured outputs</p>
+        </div>
+
+        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Stock Value</span>
+            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-teal-50 text-teal-600">
+              <DollarSign className="size-3.5 sm:size-4" />
+            </div>
+          </div>
+          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">₦{fmt(totals?.stockValue ?? 0)}</div>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Inventory valuation</p>
+        </div>
+
+        <div className="col-span-2 sm:col-span-2 lg:col-span-1 xl:col-span-1 rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
+            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Open Alerts</span>
+            <div className={`flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl ${alertCount > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
+              <AlertTriangle className="size-3.5 sm:size-4" />
+            </div>
+          </div>
+          <div className={`text-base sm:text-xl font-bold tracking-tight truncate ${alertCount > 0 ? 'text-red-700' : 'text-zinc-900'}`}>
+            {alertCount}
+          </div>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">
+            {alertCount > 0 ? `${alertCount} items need attention` : 'All levels nominal'}
+          </p>
+        </div>
       </div>
 
       {alerts.data && alertCount > 0 && (
-        <Card className="mb-4 border-amber-200 bg-amber-50">
+        <Card className="mb-4 border-amber-200 bg-amber-50/70 !p-4">
           <div className="flex items-center gap-2 text-amber-950">
-            <AlertTriangle className="size-5" />
-            <h2 className="text-lg font-semibold tracking-tight">Attention needed</h2>
+            <AlertTriangle className="size-4.5 text-amber-700" />
+            <h2 className="text-sm font-semibold tracking-tight">Attention needed ({alertCount} alerts)</h2>
           </div>
-          <div className="mt-4 space-y-4 text-sm text-amber-950">
+          <div className="mt-3 space-y-3 text-xs text-amber-950">
             {alerts.data.lowStock.length > 0 && (
               <div>
-                <p className="font-semibold">Below reorder level</p>
-                <ul className="mt-1 space-y-1">
+                <p className="font-semibold text-amber-900 mb-1">Below reorder level</p>
+                <ul className="space-y-1">
                   {alerts.data.lowStock.map((item) => (
-                    <li key={`${item.kind}-${item.code}`}>
-                      {item.name} — {fmt(item.qty)} {item.uom} on hand against a reorder level of{' '}
-                      {fmt(item.reorderLevel)}, short by {fmt(item.shortfall)} {item.uom}
-                      {item.severity === 'CRITICAL' && ' (out of stock)'}
+                    <li key={`${item.kind}-${item.code}`} className="flex items-center gap-1.5">
+                      <span className="size-1 rounded-full bg-amber-700" />
+                      <span>
+                        <strong className="font-semibold">{item.name}</strong>: {fmt(item.qty)} {item.uom} on hand (min {fmt(item.reorderLevel)} {item.uom}, short by {fmt(item.shortfall)} {item.uom})
+                        {item.severity === 'CRITICAL' && <span className="ml-1.5 font-bold text-red-700">(Out of Stock)</span>}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -205,14 +517,12 @@ export function InventoryPage() {
             )}
             {alerts.data.ageing.length > 0 && (
               <div>
-                <p className="font-semibold">
-                  Sitting longer than {alerts.data.ageingDaysThreshold} days
-                </p>
-                <ul className="mt-1 space-y-1">
-                  {alerts.data.ageing.slice(0, 8).map((line) => (
-                    <li key={line.id}>
-                      {line.batchNumber || line.materialName} — {fmt(line.qtyOnHand)} {line.uom} at{' '}
-                      {line.locationName}, {line.ageDays} days old
+                <p className="font-semibold text-amber-900 mb-1">Sitting longer than {alerts.data.ageingDaysThreshold} days</p>
+                <ul className="space-y-1">
+                  {alerts.data.ageing.slice(0, 5).map((line) => (
+                    <li key={line.id} className="flex items-center gap-1.5">
+                      <span className="size-1 rounded-full bg-amber-700" />
+                      <span>{line.batchNumber || line.materialName}: {fmt(line.qtyOnHand)} {line.uom} at {line.locationName} ({line.ageDays} days old)</span>
                     </li>
                   ))}
                 </ul>
@@ -220,12 +530,12 @@ export function InventoryPage() {
             )}
             {alerts.data.negative.length > 0 && (
               <div>
-                <p className="font-semibold">Negative balances (data problem)</p>
-                <ul className="mt-1 space-y-1">
+                <p className="font-semibold text-red-900 mb-1">Negative balances (data anomaly)</p>
+                <ul className="space-y-1 text-red-800">
                   {alerts.data.negative.map((line) => (
-                    <li key={line.id}>
-                      {line.batchNumber || line.materialName} — {fmt(line.qtyOnHand)} {line.uom} at{' '}
-                      {line.locationName}
+                    <li key={line.id} className="flex items-center gap-1.5">
+                      <span className="size-1 rounded-full bg-red-700" />
+                      <span>{line.batchNumber || line.materialName}: {fmt(line.qtyOnHand)} {line.uom} at {line.locationName}</span>
                     </li>
                   ))}
                 </ul>
@@ -235,222 +545,93 @@ export function InventoryPage() {
         </Card>
       )}
 
-      <div className="mb-4 grid gap-4 lg:grid-cols-3">
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold tracking-tight">By location</h2>
+      <div className="space-y-4">
+        {/* View Select and Filters Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+          <div className="w-full sm:w-60">
+            <Select value={viewMode} onValueChange={(val) => setViewMode(val as 'lines' | 'location' | 'material' | 'product')}>
+              <SelectTrigger className="w-full h-8 text-xs font-semibold">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="w-full">
+                <SelectItem value="lines">
+                  Stock Lines ({balances.data?.length ?? 0})
+                </SelectItem>
+                <SelectItem value="location">
+                  By Location ({overview.data?.byLocation.length ?? 0})
+                </SelectItem>
+                <SelectItem value="material">
+                  By Material ({overview.data?.byMaterial.length ?? 0})
+                </SelectItem>
+                <SelectItem value="product">
+                  By Product ({overview.data?.byProduct.length ?? 0})
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-2 font-semibold">Location</th>
-                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.data?.byLocation.map((loc) => (
-                  <tr key={loc.locationId} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-2">
-                      {loc.name}
-                      <span className="ml-2 text-xs text-[var(--ink-faint)]">{loc.locationType}</span>
-                    </td>
-                    <td className="px-4 py-2 text-right font-semibold tabular-nums">
-                      {fmt(loc.qty)} {loc.uom}
-                    </td>
-                  </tr>
-                ))}
-                {!overview.isLoading && !overview.data?.byLocation.length && (
-                  <tr>
-                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
-                      No stock on hand.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
 
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold tracking-tight">By material</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-2 font-semibold">Material</th>
-                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.data?.byMaterial.map((m) => (
-                  <tr key={m.materialId} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-2">{m.name}</td>
-                    <td
-                      className={`px-4 py-2 text-right font-semibold tabular-nums ${
-                        m.belowReorder ? 'text-red-600' : ''
-                      }`}
-                    >
-                      {fmt(m.qty)} {m.uom}
-                    </td>
-                  </tr>
-                ))}
-                {!overview.isLoading && !overview.data?.byMaterial.length && (
-                  <tr>
-                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
-                      No material stock.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+          {viewMode === 'lines' && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+              <div className="w-full sm:w-52">
+                <Select
+                  value={locationFilter || "ALL"}
+                  onValueChange={(val) => setLocationFilter(val === "ALL" ? "" : val)}
+                >
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue placeholder="All locations" />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    <SelectItem value="ALL">All locations</SelectItem>
+                    {locations.data?.map((loc) => (
+                      <SelectItem key={loc.id} value={String(loc.id)}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-full sm:w-52">
+                <Input
+                  className="h-8 text-xs w-full"
+                  placeholder="Search batch..."
+                  value={batchFilter}
+                  onChange={(e) => setBatchFilter(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
 
-        <Card className="!overflow-hidden !p-0">
-          <div className="border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-base font-semibold tracking-tight">By product</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                  <th className="px-4 py-2 font-semibold">Product</th>
-                  <th className="px-4 py-2 font-semibold text-right">Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.data?.byProduct.map((p) => (
-                  <tr key={p.productId} className="border-b border-[var(--line)]">
-                    <td className="px-4 py-2">{p.name}</td>
-                    <td
-                      className={`px-4 py-2 text-right font-semibold tabular-nums ${
-                        p.belowReorder ? 'text-red-600' : ''
-                      }`}
-                    >
-                      {fmt(p.qty)} {p.uom}
-                    </td>
-                  </tr>
-                ))}
-                {!overview.isLoading && !overview.data?.byProduct.length && (
-                  <tr>
-                    <td colSpan={2} className="px-4 py-4 text-[var(--ink-muted)]">
-                      No finished goods yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        {/* CustomTable rendering based on viewMode without any surrounding card */}
+        {viewMode === 'lines' && (
+          <CustomTable1
+            data={balances.data || []}
+            columns={columns}
+            loading={balances.isLoading}
+          />
+        )}
+        {viewMode === 'location' && (
+          <CustomTable1
+            data={overview.data?.byLocation || []}
+            columns={locationColumns}
+            loading={overview.isLoading}
+          />
+        )}
+        {viewMode === 'material' && (
+          <CustomTable1
+            data={overview.data?.byMaterial || []}
+            columns={materialColumns}
+            loading={overview.isLoading}
+          />
+        )}
+        {viewMode === 'product' && (
+          <CustomTable1
+            data={overview.data?.byProduct || []}
+            columns={productColumns}
+            loading={overview.isLoading}
+          />
+        )}
       </div>
-
-      <Card>
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Stock lines</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Location">
-              <select
-                className="dgn-input"
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-              >
-                <option value="">All locations</option>
-                {locations.data?.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Batch number">
-              <input
-                className="dgn-input"
-                placeholder="e.g. DRY-260903"
-                value={batchFilter}
-                onChange={(e) => setBatchFilter(e.target.value)}
-              />
-            </Field>
-          </div>
-        </div>
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] text-[var(--ink-muted)]">
-                <th className="py-3 pr-4 font-semibold">Batch</th>
-                <th className="py-3 pr-4 font-semibold">Item</th>
-                <th className="py-3 pr-4 font-semibold">Location</th>
-                <th className="py-3 pr-4 font-semibold">On hand</th>
-                <th className="py-3 pr-4 font-semibold">Age</th>
-                {canAdjust && <th className="py-3 font-semibold">Actions</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {balances.isLoading && (
-                <tr>
-                  <td colSpan={6} className="py-6 text-[var(--ink-muted)]">
-                    Loading…
-                  </td>
-                </tr>
-              )}
-              {balances.data?.map((line) => (
-                <tr key={line.id} className="border-b border-zinc-100">
-                  <td className="py-3 pr-4">
-                    {line.batchNumber ? (
-                      <Link
-                        to={`/batches/${line.batchNumber}`}
-                        className="font-semibold text-[var(--accent-strong)] hover:underline"
-                      >
-                        {line.batchNumber}
-                      </Link>
-                    ) : (
-                      <span className="text-[var(--ink-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="py-3 pr-4">{line.productName || line.materialName || '—'}</td>
-                  <td className="py-3 pr-4">{line.locationName}</td>
-                  <td className="py-3 pr-4 font-semibold">
-                    {fmt(line.qtyOnHand)} {line.uom}
-                  </td>
-                  <td className="py-3 pr-4">{line.ageDays != null ? `${line.ageDays}d` : '—'}</td>
-                  {canAdjust && (
-                    <td className="py-3">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="dgn-btn dgn-btn-ghost px-2 py-1 text-xs"
-                          onClick={() => setPanel({ mode: 'adjust', line })}
-                        >
-                          <SlidersHorizontal className="size-3.5" />
-                          Adjust
-                        </button>
-                        <button
-                          type="button"
-                          className="dgn-btn dgn-btn-ghost px-2 py-1 text-xs"
-                          onClick={() => setPanel({ mode: 'transfer', line })}
-                        >
-                          <ArrowRightLeft className="size-3.5" />
-                          Transfer
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {!balances.isLoading && !balances.data?.length && (
-                <tr>
-                  <td colSpan={6} className="py-6 text-[var(--ink-muted)]">
-                    No stock lines match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
       {panel && (
         <StockActionDialog
@@ -464,7 +645,8 @@ export function InventoryPage() {
           }}
         />
       )}
-    </div>
+      </div>
+    </PageLayout>
   )
 }
 
@@ -551,39 +733,37 @@ function StockActionDialog({
                 label="Adjustment quantity"
                 hint="Use a negative number for a loss, positive for a gain"
               >
-                <input
+                <Input
                   inputMode="decimal"
-                  className="dgn-input"
                   placeholder="-8"
                   value={qtyDelta}
                   onChange={(e) => setQtyDelta(e.target.value)}
                 />
               </Field>
               <Field label="Reason">
-                <select
-                  className="dgn-input"
-                  value={reasonCode}
-                  onChange={(e) => setReasonCode(e.target.value)}
-                >
-                  {Object.entries(REASON_LABELS).map(([code, label]) => (
-                    <option key={code} value={code}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <Select value={reasonCode} onValueChange={(val) => setReasonCode(val)}>
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    {Object.entries(REASON_LABELS).map(([code, label]) => (
+                      <SelectItem key={code} value={code}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="Explanation" hint="Required, minimum 5 characters">
-                <textarea
-                  className="dgn-input"
+                <Textarea
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                 />
               </Field>
               <Field label="Write-off cost ₦" hint="Optional, charged to the batch as a loss">
-                <input
+                <Input
                   inputMode="decimal"
-                  className="dgn-input"
                   value={writeOffCost}
                   onChange={(e) => setWriteOffCost(e.target.value)}
                 />
@@ -592,30 +772,28 @@ function StockActionDialog({
           ) : (
             <>
               <Field label="Destination location">
-                <select
-                  className="dgn-input"
-                  value={toLocationId}
-                  onChange={(e) => setToLocationId(e.target.value)}
-                >
-                  <option value="">Select destination</option>
-                  {destinations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+                <Select value={toLocationId} onValueChange={(val) => setToLocationId(val)}>
+                  <SelectTrigger className="w-full h-8 text-xs font-medium">
+                    <SelectValue placeholder="Select destination" />
+                  </SelectTrigger>
+                  <SelectContent className="w-full">
+                    {destinations.map((loc) => (
+                      <SelectItem key={loc.id} value={String(loc.id)}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label={`Quantity to move (${line.uom})`}>
-                <input
+                <Input
                   inputMode="decimal"
-                  className="dgn-input"
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
                 />
               </Field>
               <Field label="Notes">
-                <textarea
-                  className="dgn-input"
+                <Textarea
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
@@ -637,12 +815,19 @@ function StockActionDialog({
           )}
 
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <button type="button" className="dgn-btn dgn-btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
+            <Button
               type="button"
-              className="dgn-btn dgn-btn-primary"
+              variant="outline"
+              size="sm"
+              className="h-9 px-4 font-semibold"
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-9 px-4 font-semibold"
               disabled={mutation.isPending}
               onClick={() => {
                 setError('')
@@ -654,7 +839,7 @@ function StockActionDialog({
                 : mode === 'adjust'
                   ? 'Post adjustment'
                   : 'Post transfer'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
