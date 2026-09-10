@@ -27,7 +27,7 @@ export function Card({
   children: ReactNode
   className?: string
 }) {
-  return <section className={cn('dgn-card p-5 sm:p-6', className)}>{children}</section>
+  return <section className={cn('dgn-card p-3 sm:p-3.5', className)}>{children}</section>
 }
 
 export function Field({
@@ -66,10 +66,10 @@ export function StatPill({
     danger: 'bg-red-50 text-red-700',
   }
   return (
-    <div className={cn('rounded-2xl px-4 py-3', tones[tone])}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">{label}</p>
-      <p className="mt-1 text-xl font-semibold tracking-tight">{value}</p>
-      {hint && <p className="mt-1 text-[11px] opacity-70">{hint}</p>}
+    <div className={cn('rounded-xl px-3 py-2', tones[tone])}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold tracking-tight tabular-nums">{value}</p>
+      {hint && <p className="mt-0.5 text-[10px] opacity-70">{hint}</p>}
     </div>
   )
 }

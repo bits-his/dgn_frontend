@@ -178,7 +178,7 @@ export function MachinePerformancePage() {
         title="Machines & insights"
       />
 
-      <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <StatPill
           label="Avg OEE"
           value={summary?.avgOeePercent != null ? `${summary.avgOeePercent}%` : '—'}
@@ -211,7 +211,7 @@ export function MachinePerformancePage() {
         />
       </div>
 
-      <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]">
+      <div className="mb-3 grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)]">
         <Card className="!p-0 overflow-hidden">
           <div className="border-b border-[var(--line)] px-5 py-4 sm:px-6">
             <h2 className="text-lg font-semibold tracking-tight">Machines</h2>

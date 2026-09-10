@@ -161,7 +161,7 @@ export function HomePage() {
             <Link
               key={action.to}
               to={action.to}
-              className="dgn-card group flex min-h-32 flex-col justify-between p-5 transition hover:-translate-y-0.5 hover:border-amber-300"
+              className="dgn-card group flex min-h-24 flex-col justify-between p-3.5 transition hover:-translate-y-0.5 hover:border-amber-300"
             >
               <div
                 className={`flex size-11 items-center justify-center rounded-2xl bg-gradient-to-br ${action.tone} text-white shadow-lg`}

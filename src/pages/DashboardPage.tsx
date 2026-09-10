@@ -345,7 +345,7 @@ export function DashboardPage() {
   const critical = d?.alerts.bySeverity?.CRITICAL || 0
 
   return (
-    <div className="space-y-5 pb-8">
+    <div className="space-y-3 pb-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
         {d ? (
           <span className="mr-auto text-sm tabular-nums text-[var(--ink-muted)]">{d.range.label}</span>
@@ -406,7 +406,7 @@ export function DashboardPage() {
           {d.alerts.total > 0 && (
             <div
               className={cn(
-                'flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-3',
+                'flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2',
                 critical > 0 ? 'border-red-200 bg-red-50/60' : 'border-amber-200 bg-amber-50/50',
               )}
             >
@@ -436,7 +436,7 @@ export function DashboardPage() {
           )}
 
           {/* KPI strip */}
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6">
             {kpis.map((kpi) => {
               const c = d.compare?.[COMPARE_KEYS[kpi.id]]
               return (
@@ -444,7 +444,7 @@ export function DashboardPage() {
                   key={kpi.id}
                   type="button"
                   onClick={() => setDrillKpi(kpi.id)}
-                  className="group rounded-2xl border border-[var(--line)] bg-white p-3.5 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
+                  className="group rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-left shadow-[var(--shadow)] transition hover:border-[var(--accent)]"
                 >
                   <div className="flex items-center gap-2">
                     <span className={cn('size-1.5 rounded-full', toneDot(kpi.tone))} />
@@ -452,7 +452,7 @@ export function DashboardPage() {
                       {kpi.label}
                     </span>
                   </div>
-                  <p className="mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
+                  <p className="mt-1 text-lg font-semibold tracking-tight tabular-nums">
                     {formatKpiValue(kpi)}
                   </p>
                   {compare && c?.delta != null ? (
@@ -476,15 +476,15 @@ export function DashboardPage() {
           </div>
 
           {/* Charts row */}
-          <div className="grid gap-4 xl:grid-cols-3">
-            <Card className="xl:col-span-2 !p-4 sm:!p-5">
-              <div className="mb-3 flex items-center justify-between">
+          <div className="grid gap-2.5 xl:grid-cols-3">
+            <Card className="xl:col-span-2">
+              <div className="mb-1.5 flex items-center justify-between">
                 <h2 className="text-sm font-semibold tracking-tight">Output</h2>
                 <Link to="/production" className="text-xs font-medium text-[var(--accent-strong)]">
                   Production →
                 </Link>
               </div>
-              <div className="mb-4 flex flex-wrap gap-4 text-sm">
+              <div className="mb-2 flex flex-wrap gap-3 text-xs">
                 <Metric label="Good" value={fmt(d.production.unitsGood, 0)} />
                 <Metric label="Reject" value={`${d.production.rejectPercent}%`} danger={d.production.rejectPercent > 5} />
                 <Metric
@@ -494,7 +494,7 @@ export function DashboardPage() {
                 <Metric label="Yield" value={`${d.production.processYieldPercent}%`} />
                 <Metric label="Downtime" value={formatMinutes(d.production.downtimeMinutes || 0)} />
               </div>
-              <div className="h-56">
+              <div className="h-36">
                 {seriesData.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={seriesData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -535,9 +535,9 @@ export function DashboardPage() {
               </div>
             </Card>
 
-            <Card className="!p-4 sm:!p-5">
+            <Card>
               <h2 className="mb-3 text-sm font-semibold tracking-tight">Good vs reject</h2>
-              <div className="h-56">
+              <div className="h-36">
                 {qualityPie.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -572,15 +572,15 @@ export function DashboardPage() {
           </div>
 
           {/* Machines + material */}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card className="!p-4 sm:!p-5">
-              <div className="mb-3 flex items-center justify-between">
+          <div className="grid gap-2.5 lg:grid-cols-2">
+            <Card>
+              <div className="mb-1.5 flex items-center justify-between">
                 <h2 className="text-sm font-semibold tracking-tight">Machine OEE</h2>
                 <Link to="/machines" className="text-xs font-medium text-[var(--accent-strong)]">
                   All →
                 </Link>
               </div>
-              <div className="h-52">
+              <div className="h-32">
                 {machineChart.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={machineChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -620,9 +620,9 @@ export function DashboardPage() {
               )}
             </Card>
 
-            <Card className="!p-4 sm:!p-5">
+            <Card>
               <h2 className="mb-3 text-sm font-semibold tracking-tight">Material flow (kg)</h2>
-              <div className="h-52">
+              <div className="h-32">
                 {flowChart.some((x) => x.kg > 0) ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={flowChart} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -667,9 +667,9 @@ export function DashboardPage() {
           </div>
 
           {/* Quality + money + trend */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="!p-4 sm:!p-5">
-              <div className="mb-3 flex items-center justify-between">
+          <div className="grid gap-2.5 lg:grid-cols-3">
+            <Card>
+              <div className="mb-1.5 flex items-center justify-between">
                 <h2 className="text-sm font-semibold tracking-tight">Quality</h2>
                 <Link to="/qc" className="text-xs font-medium text-[var(--accent-strong)]">
                   QC →
@@ -692,8 +692,8 @@ export function DashboardPage() {
             </Card>
 
             {(canCosts || canSales || canExpense) && (
-              <Card className="!p-4 sm:!p-5">
-                <div className="mb-3 flex items-center justify-between">
+              <Card>
+                <div className="mb-1.5 flex items-center justify-between">
                   <h2 className="text-sm font-semibold tracking-tight">{d.periodLabel}</h2>
                   {canCosts ? (
                     <Link to="/costs" className="text-xs font-medium text-[var(--accent-strong)]">
@@ -736,9 +736,9 @@ export function DashboardPage() {
               </Card>
             )}
 
-            <Card className="!p-4 sm:!p-5 lg:col-span-1">
+            <Card>
               <h2 className="mb-3 text-sm font-semibold tracking-tight">6-month revenue</h2>
-              <div className="h-44">
+              <div className="h-28">
                 {trendChart.some((t) => t.Revenue > 0) ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={trendChart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -770,7 +770,7 @@ export function DashboardPage() {
 
           {/* Floor */}
           <Card className="!p-0 overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2">
               <h2 className="text-sm font-semibold tracking-tight">Floor</h2>
               <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
                 {(
@@ -795,14 +795,14 @@ export function DashboardPage() {
               </div>
             </div>
 
-            <div className="max-h-72 overflow-y-auto px-4 sm:px-5">
+            <div className="max-h-48 overflow-y-auto px-4 sm:px-5">
               {floorTab === 'activity' &&
                 (d.activity?.length ? (
                   d.activity.map((row, i) => (
                     <Link
                       key={`${row.at}-${i}`}
                       to={row.linkPath}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0 hover:text-[var(--accent-strong)]"
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0 hover:text-[var(--accent-strong)]"
                     >
                       <span className="min-w-0 truncate font-medium">{row.title}</span>
                       <span className="shrink-0 text-[11px] tabular-nums text-[var(--ink-faint)]">
@@ -819,7 +819,7 @@ export function DashboardPage() {
                   d.operators.map((op) => (
                     <div
                       key={op.operatorName}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0"
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0"
                     >
                       <div className="min-w-0">
                         <p className="font-medium">{op.operatorName}</p>
@@ -849,7 +849,7 @@ export function DashboardPage() {
                     <Link
                       key={row.saleNumber}
                       to={`/sales/${row.saleNumber}`}
-                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-3 text-sm last:border-0 hover:underline"
+                      className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-sm last:border-0 hover:underline"
                     >
                       <span>
                         {row.customerName || row.saleNumber}
