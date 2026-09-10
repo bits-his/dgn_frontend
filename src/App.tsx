@@ -101,6 +101,7 @@ function App() {
                 <Route path="/floor" element={<Navigate to="/receiving" replace />} />
                 <Route path="/receiving" element={<ScrapReceivingListPage />} />
                 <Route path="/receiving/new" element={<ScrapReceivingPage />} />
+                <Route path="/receiving/:id/edit" element={<ScrapReceivingPage />} />
                 <Route path="/process/:stage" element={<ProcessStageListPage />} />
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />

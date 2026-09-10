@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Warehouse, RotateCcw, ArrowRight, CheckCircle2, AlertCircle, Loader2, Recycle } from 'lucide-react'
+import { Warehouse, RotateCcw, AlertCircle, Loader2, Recycle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -32,6 +32,9 @@ export const STAGE_META: Record<
     labourHourly?: boolean
     labourPerKg?: boolean
     showEnergyCost?: boolean
+    showLoadingCost?: boolean
+    showTransportCost?: boolean
+    showOtherCost?: boolean
   }
 > = {
   sorting: {
@@ -51,15 +54,16 @@ export const STAGE_META: Record<
     eyebrow: 'Recycling stage',
     queueTitle: 'Sorted lots waiting to crush',
     emptyHint: 'No sorted lots waiting. Finish sorting first.',
-    showMachine: true,
+    showMachine: false,
     showTeam: false,
-    showOperator: true,
-    operatorLabel: 'Crusher Operator',
-    machineLabel: 'Crushing Machine',
-    showDowntime: true,
+    showOperator: false,
+    showDowntime: false,
     showLabourCost: true,
     labourPerKg: true,
     showEnergyCost: false,
+    showLoadingCost: true,
+    showTransportCost: true,
+    showOtherCost: true,
   },
   washing: {
     title: 'Washing',
@@ -135,6 +139,9 @@ export type FormValues = {
   labourHours?: string
   labourRatePerHour?: string
   energyCost: string
+  loadingCost: string
+  transportCost: string
+  otherCost: string
   waterQty: string
   chemicalCost: string
   detergentCost: string
@@ -161,7 +168,12 @@ export type InputBatch = {
 }
 
 export type ColorLine = { color: string; qtyKg: number }
-export type ColorLot = { batchNumber: string; color: string; qtyKg: number }
+export type LotLine = {
+  batchNumber: string
+  color: string | null
+  qtyIn: number
+  qtyUsable: string
+}
 
 export function colorName(code?: string | null) {
   if (!code) return '—'
@@ -213,6 +225,9 @@ const emptyForm = (batchNumber = ''): FormValues => ({
   labourHours: '',
   labourRatePerHour: '',
   energyCost: '0',
+  loadingCost: '0',
+  transportCost: '0',
+  otherCost: '0',
   waterQty: '0',
   chemicalCost: '0',
   detergentCost: '0',
@@ -236,25 +251,24 @@ export function ProcessStageForm({
   const isDrying = stage === 'drying'
   const isRecrushing = stage === 'recrushing'
   const isRecycling = stage === 'recycling'
-  /** Crushing / drying / recrushing: weigh after stage; washing / sorting / recycling record waste. */
-  const showsMeasuredOut = isCrushing || isDrying || isRecrushing
-  const showsWaste = isSorting || isWashing || isRecycling
+  /** Crushing / washing / drying / recrushing: weigh after stage. */
+  const showsMeasuredOut = isCrushing || isWashing || isDrying || isRecrushing
+  const showsWaste = isSorting || isRecycling
+  /** Washing: record usable per colour lot (same colour breakdown pattern as crushing). */
+  const isMultiLotStage = isWashing
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [activeBatch, setActiveBatch] = useState<string | null>(
-    () => presetBatchNumber || searchParams.get('batch') || null,
+    () => (isMultiLotStage ? null : presetBatchNumber || searchParams.get('batch') || null),
   )
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
-  const [successBatch, setSuccessBatch] = useState<string | null>(null)
-  const [dryingDestination, setDryingDestination] = useState<'recycling' | 'recrushing' | 'production' | null>(null)
   const [submitAction, setSubmitAction] = useState<string | null>(null)
-  const [colorLots, setColorLots] = useState<ColorLot[]>([])
-  const [scrapTicket, setScrapTicket] = useState<string | null>(null)
   const [colorLines, setColorLines] = useState<ColorLine[]>([])
+  const [lotLines, setLotLines] = useState<LotLine[]>([])
   const [pickColor, setPickColor] = useState('')
   const [pickKg, setPickKg] = useState('')
   const [colorError, setColorError] = useState('')
@@ -307,6 +321,10 @@ export function ProcessStageForm({
                 ((receipt.purchaseCost ?? 0) +
                   (receipt.transportCost ?? 0) +
                   (receipt.loadingCost ?? 0) +
+                  (receipt.unloadingCost ?? 0) +
+                  (receipt.scaleCost ?? 0) +
+                  (receipt.netBagCost ?? 0) +
+                  (receipt.sortingCost ?? 0) +
                   (receipt.otherCost ?? 0)) /
                 (receipt.netWeight || 1)
               ).toFixed(2),
@@ -359,31 +377,40 @@ export function ProcessStageForm({
     defaultValues: emptyForm(activeBatch || ''),
   })
 
-  // Reset when stage changes; keep ?batch= if present for this stage.
+  // Reset when stage changes; keep ?batch= if present for single-lot stages.
   useEffect(() => {
-    const fromUrl = searchParams.get('batch') || presetBatchNumber || null
+    const fromUrl = isMultiLotStage ? null : searchParams.get('batch') || presetBatchNumber || null
     setActiveBatch(fromUrl)
-    setSuccessBatch(null)
-    setDryingDestination(null)
-    setColorLots([])
-    setScrapTicket(null)
     setServerErrors([])
     setWarning(null)
     setColorLines([])
+    setLotLines([])
     setPickColor('')
     setPickKg('')
     setColorError('')
     setEditingColor(null)
     setEditingKg('')
     reset(emptyForm(fromUrl || ''))
-  }, [stage, presetBatchNumber, reset]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [stage, presetBatchNumber, reset, isMultiLotStage]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Washing: load every waiting colour lot into the form.
+  useEffect(() => {
+    if (!isMultiLotStage) return
+    const rows = inputs.data || []
+    setLotLines(
+      rows.map((b) => ({
+        batchNumber: b.batchNumber,
+        color: b.sortColor || null,
+        qtyIn: Number(b.qtyRemaining || 0),
+        qtyUsable: '',
+      })),
+    )
+  }, [isMultiLotStage, inputs.data])
 
   const selected = inputs.data?.find((b) => b.batchNumber === activeBatch)
 
   const openBatch = (batchNumber: string) => {
     setActiveBatch(batchNumber)
-    setSuccessBatch(null)
-    setDryingDestination(null)
     setServerErrors([])
     setWarning(null)
     setColorLines([])
@@ -402,22 +429,53 @@ export function ProcessStageForm({
     if (selected && activeBatch) {
       setValue('inputBatchNumber', selected.batchNumber)
       setValue('qtyInput', String(selected.qtyRemaining))
-      if (showsMeasuredOut) {
+      // Crushing (non-split) may start from remaining; wash multi-lot leaves measured empty.
+      if (isCrushing) {
         setValue('qtyUsable', String(selected.qtyRemaining))
+      } else if (showsMeasuredOut) {
+        setValue('qtyUsable', '')
       }
     }
-  }, [selected, activeBatch, setValue, showsMeasuredOut])
+  }, [selected, activeBatch, setValue, showsMeasuredOut, isCrushing])
 
-  const isSplittingCrush = isCrushing && (selected?.batchType === 'SCRAP' || colorLines.length > 0 || !selected?.sortColor)
+  const isSplittingCrush =
+    isCrushing &&
+    (selected?.batchType === 'SCRAP' || colorLines.length > 0 || !selected?.sortColor)
   const isColorAllocation = isSorting || isSplittingCrush
 
-  const qtyInput = Number(watch('qtyInput') || 0)
+  const lotTotalIn = useMemo(
+    () => +lotLines.reduce((sum, line) => sum + line.qtyIn, 0).toFixed(3),
+    [lotLines],
+  )
+  const lotTotalUsable = useMemo(
+    () => +lotLines.reduce((sum, line) => sum + Number(line.qtyUsable || 0), 0).toFixed(3),
+    [lotLines],
+  )
+  const lotTotalWaste = useMemo(
+    () =>
+      +lotLines
+        .reduce((sum, line) => {
+          const usable = Number(line.qtyUsable || 0)
+          if (!(usable > 0)) return sum
+          return sum + Math.max(0, line.qtyIn - usable)
+        }, 0)
+        .toFixed(3),
+    [lotLines],
+  )
+  const lotOverIn = lotLines.some((line) => Number(line.qtyUsable || 0) - line.qtyIn > 0.001)
+  const lotMissingUsable = lotLines.some((line) => !(Number(line.qtyUsable || 0) > 0))
+
+  const qtyInput = isMultiLotStage ? lotTotalIn : Number(watch('qtyInput') || 0)
   const qtyWaste = Number(watch('qtyWaste') || 0)
   const colorUsable = useMemo(
     () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
     [colorLines],
   )
-  const qtyUsable = isColorAllocation ? colorUsable : Number(watch('qtyUsable') || 0)
+  const qtyUsable = isMultiLotStage
+    ? lotTotalUsable
+    : isColorAllocation
+      ? colorUsable
+      : Number(watch('qtyUsable') || 0)
 
   const qtyReject = isColorAllocation
     ? Math.max(0, +(qtyInput - colorUsable).toFixed(3))
@@ -427,7 +485,9 @@ export function ProcessStageForm({
   const measuredShrink = showsMeasuredOut
     ? Math.max(0, +(qtyInput - qtyUsable).toFixed(3))
     : 0
-  const measuredOverIn = showsMeasuredOut && !isColorAllocation && qtyUsable - qtyInput > 0.001
+  const measuredOverIn =
+    (showsMeasuredOut && !isColorAllocation && !isMultiLotStage && qtyUsable > 0 && qtyUsable - qtyInput > 0.001) ||
+    (isMultiLotStage && lotOverIn)
 
   useEffect(() => {
     setValue('qtyReject', String(qtyReject))
@@ -540,40 +600,52 @@ export function ProcessStageForm({
         setSubmitAction(null)
         return
       }
-    } else if (isCrushing) {
-      const measured = Number(values.qtyUsable)
-      const inbound = Number(values.qtyInput)
-      if (!(measured > 0)) {
-        setServerErrors([
-          {
-            label: 'Measured after crushing',
-            message: 'Enter the measured kg after crushing.',
-          },
-        ])
-        setSubmitAction(null)
-        return
-      }
-      if (measured - inbound > 0.001) {
-        setServerErrors([
-          {
-            label: 'Measured after crushing',
-            message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
-          },
-        ])
-        setSubmitAction(null)
-        return
-      }
     }
 
-    if (isDrying || isRecrushing) {
+    if (isMultiLotStage) {
+      if (!lotLines.length) {
+        setServerErrors([
+          {
+            label: 'Colours',
+            message: meta.emptyHint || 'No colour lots waiting for washing.',
+          },
+        ])
+        setSubmitAction(null)
+        return
+      }
+      if (lotMissingUsable) {
+        setServerErrors([
+          {
+            label: 'Usable',
+            message: 'Enter usable kg after washing for every colour.',
+          },
+        ])
+        setSubmitAction(null)
+        return
+      }
+      if (lotOverIn) {
+        setServerErrors([
+          {
+            label: 'Usable',
+            message: 'Usable cannot be more than qty in for any colour.',
+          },
+        ])
+        setSubmitAction(null)
+        return
+      }
+    } else if (showsMeasuredOut && !isColorAllocation) {
       const measured = Number(values.qtyUsable)
       const inbound = Number(values.qtyInput)
-      const stageName = isRecrushing ? 're-crushing' : 'drying'
+      const measuredLabel = isCrushing
+        ? 'Measured after crushing'
+        : isRecrushing
+          ? 'Measured after re-crushing'
+          : 'Measured after drying'
       if (!(measured > 0)) {
         setServerErrors([
           {
-            label: `Measured after ${stageName}`,
-            message: `Enter the measured kg after ${stageName}.`,
+            label: measuredLabel,
+            message: `Enter the measured kg after ${meta.title.toLowerCase()}.`,
           },
         ])
         setSubmitAction(null)
@@ -582,7 +654,7 @@ export function ProcessStageForm({
       if (measured - inbound > 0.001) {
         setServerErrors([
           {
-            label: `Measured after ${stageName}`,
+            label: measuredLabel,
             message: `Measured (${measured} kg) cannot be more than qty in (${inbound} kg).`,
           },
         ])
@@ -594,7 +666,11 @@ export function ProcessStageForm({
     try {
       const isSplitting = isColorAllocation && colorLines.length > 0
       const labourRateKgVal = Number(values.labourRatePerKg || 0)
-      const relevantKg = (isSplitting ? colorUsable : (Number(values.qtyUsable) || Number(values.qtyInput))) || 0
+      const relevantKg = isMultiLotStage
+        ? lotTotalIn
+        : isSplitting
+          ? colorUsable
+          : Number(values.qtyUsable) || Number(values.qtyInput) || 0
       const labourHoursVal = Number(values.labourHours || 0)
       const labourRateVal = Number(values.labourRatePerHour || 0)
       const calculatedLabour =
@@ -606,17 +682,38 @@ export function ProcessStageForm({
 
       const { data } = await api.post(`/process/${stage}`, {
         ...values,
-        inputBatchNumber: activeBatch || values.inputBatchNumber,
-        qtyInput: Number(values.qtyInput),
-        qtyUsable: isSplitting ? colorUsable : Number(values.qtyUsable),
-        qtyReject: showsWaste ? qtyReject : 0,
+        inputBatchNumber: isMultiLotStage
+          ? lotLines[0]?.batchNumber
+          : activeBatch || values.inputBatchNumber,
+        qtyInput: isMultiLotStage ? lotTotalIn : Number(values.qtyInput),
+        qtyUsable: isMultiLotStage
+          ? lotTotalUsable
+          : isSplitting
+            ? colorUsable
+            : Number(values.qtyUsable),
+        qtyReject: isMultiLotStage
+          ? lotTotalWaste
+          : showsWaste
+            ? qtyReject
+            : 0,
         qtyWaste: 0,
         colorLines: isSplitting ? colorLines : undefined,
+        lots: isMultiLotStage
+          ? lotLines.map((line) => ({
+              inputBatchNumber: line.batchNumber,
+              color: line.color,
+              qtyInput: line.qtyIn,
+              qtyUsable: Number(line.qtyUsable || 0),
+            }))
+          : undefined,
         labourCost: meta.showLabourCost !== false ? calculatedLabour : 0,
         labourRatePerKg: labourRateKgVal > 0 ? labourRateKgVal : undefined,
         labourHours: labourHoursVal > 0 ? labourHoursVal : undefined,
         labourRatePerHour: labourRateVal > 0 ? labourRateVal : undefined,
         energyCost: meta.showEnergyCost !== false ? Number(values.energyCost || 0) : 0,
+        loadingCost: meta.showLoadingCost ? Number(values.loadingCost || 0) : 0,
+        transportCost: meta.showTransportCost ? Number(values.transportCost || 0) : 0,
+        otherCost: meta.showOtherCost ? Number(values.otherCost || 0) : 0,
         waterQty: Number(values.waterQty || 0),
         chemicalCost: Number(values.chemicalCost || 0),
         detergentCost: Number(values.detergentCost || 0),
@@ -629,7 +726,8 @@ export function ProcessStageForm({
         confirmUnusualYield,
       })
 
-      const resultingBatch = data.batchNumber || activeBatch || values.inputBatchNumber
+      const resultingBatch =
+        data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
 
       // If drying and user clicked "Move to Production", immediately handover to Production Store
       if (isDrying && destination === 'production') {
@@ -645,11 +743,6 @@ export function ProcessStageForm({
               (transferErr.response?.data?.err || transferErr.response?.data?.message || transferErr.message),
           )
         }
-        setDryingDestination('production')
-      } else if (isDrying && destination === 'recycling') {
-        setDryingDestination('recycling')
-      } else if (isDrying && destination === 'recrushing') {
-        setDryingDestination('recrushing')
       }
 
       // If recycling completed, auto-transfer output pellets to Production Store
@@ -664,11 +757,6 @@ export function ProcessStageForm({
         }
       }
 
-      if (Array.isArray(data.colorLots) && data.colorLots.length > 0) {
-        setColorLots(data.colorLots)
-        setScrapTicket(data.scrapTicket || values.inputBatchNumber)
-      }
-      setSuccessBatch(resultingBatch)
       await queryClient.invalidateQueries({ queryKey: ['process-inputs'] })
       await queryClient.invalidateQueries({ queryKey: ['batches'] })
       await queryClient.invalidateQueries({ queryKey: ['batch'] })
@@ -678,6 +766,14 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
       await queryClient.invalidateQueries()
+
+      if (isDrying && destination === 'production') {
+        navigate('/production/store')
+      } else if (isRecycling) {
+        navigate('/production/store')
+      } else {
+        navigate(`/process/${stage}`)
+      }
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: {
@@ -706,224 +802,29 @@ export function ProcessStageForm({
     }
   }
 
-  // ——— Success view ———
-  if (successBatch) {
-    const nextMap: Record<string, string | null> = {
-      sorting: 'crushing',
-      crushing: 'washing',
-      washing: 'drying',
-      drying: 'recrushing',
-      recrushing: null,
-      recycling: null,
-    }
-    const next = nextMap[stage]
-    const hasLots = colorLots.length > 0
-
-    if (isDrying) {
-      return (
-        <PageLayout
-          title={meta.title}
-          description={
-            dryingDestination === 'production'
-              ? 'Drying completed & transferred to Production Store'
-              : dryingDestination === 'recycling'
-                ? 'Drying completed & ready for Recycling'
-                : 'Drying completed & ready for Re-crushing'
-          }
-        >
-          <Card className="text-center !p-6 max-w-xl mx-auto space-y-4">
-            <div className="mx-auto size-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
-              {dryingDestination === 'production' ? (
-                <Warehouse className="size-6" />
-              ) : dryingDestination === 'recycling' ? (
-                <Recycle className="size-6" />
-              ) : (
-                <RotateCcw className="size-6" />
-              )}
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-                Drying Complete
-              </p>
-              <h2 className="text-xl font-bold tracking-tight text-zinc-900 mt-1">
-                Batch {successBatch}
-              </h2>
-              <p className="text-xs text-zinc-500 mt-1.5 leading-relaxed">
-                {dryingDestination === 'production'
-                  ? 'Batch has been saved and transferred directly to the Production Store. It is now ready for production extrusion.'
-                  : dryingDestination === 'recycling'
-                    ? 'Batch has been saved and is available in the Recycling queue for pelletizing.'
-                    : 'Batch has been saved in the drying area for secondary crushing. It is now available in the Re-crushing queue.'}
-              </p>
-            </div>
-
-            <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2.5">
-              {dryingDestination === 'production' ? (
-                <Button asChild size="lg">
-                  <Link
-                    to="/production/store"
-                    className="inline-flex items-center justify-center gap-1.5 leading-none"
-                  >
-                    <Warehouse className="size-4 shrink-0" />
-                    <span>Open Production Store</span>
-                  </Link>
-                </Button>
-              ) : dryingDestination === 'recycling' ? (
-                <Button asChild size="lg">
-                  <Link
-                    to={`/process/recycling/new?batch=${encodeURIComponent(successBatch)}`}
-                    className="inline-flex items-center justify-center gap-1.5 leading-none"
-                  >
-                    <Recycle className="size-4 shrink-0" />
-                    <span>Process Recycling Now</span>
-                  </Link>
-                </Button>
-              ) : (
-                <Button asChild size="lg">
-                  <Link
-                    to={`/process/recrushing/new?batch=${encodeURIComponent(successBatch)}`}
-                    className="inline-flex items-center justify-center gap-1.5 leading-none"
-                  >
-                    <RotateCcw className="size-4 shrink-0" />
-                    <span>Process Re-crushing Now</span>
-                  </Link>
-                </Button>
-              )}
-              <Button variant="outline" asChild>
-                <Link to={`/batches/${successBatch}`}>Batch 360°</Link>
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  setSuccessBatch(null)
-                  setDryingDestination(null)
-                  setActiveBatch(null)
-                  setSearchParams({}, { replace: true })
-                  reset(emptyForm())
-                }}
-              >
-                Start another lot
-              </Button>
-              <Button variant="ghost" asChild>
-                <Link to={`/process/${stage}`}>Back to Drying Queue</Link>
-              </Button>
-            </div>
-          </Card>
-        </PageLayout>
-      )
-    }
-
-    return (
-      <PageLayout
-        title={meta.title}
-        description={hasLots ? 'Colour lots created' : `${meta.title} saved`}
-      >
-        <Card className="text-center !p-6 max-w-xl mx-auto space-y-4">
-          <div className="mx-auto size-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
-            <CheckCircle2 className="size-6" />
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-              {hasLots ? 'Colour lots created' : `${meta.title} saved`}
-            </p>
-            {hasLots ? (
-              <>
-                <p className="mt-2 text-sm text-[var(--ink-muted)]">
-                  {isSorting
-                    ? `Sorted from scrap ${scrapTicket}. Each colour now has its own BAT- number for the rest of the line.`
-                    : `Crushed from scrap ${scrapTicket || activeBatch}. Each colour now has its own BAT- number ready for washing.`}
-                </p>
-                <ul className="mx-auto mt-4 max-w-md divide-y divide-[var(--line)] rounded-xl text-left ring-1 ring-[var(--line)]">
-                  {colorLots.map((lot) => (
-                    <li
-                      key={lot.batchNumber}
-                      className="flex items-center justify-between gap-3 px-4 py-3"
-                    >
-                      <div>
-                        <p className="font-semibold tracking-tight">{lot.batchNumber}</p>
-                        <p className="text-xs text-[var(--ink-muted)]">
-                          {colorName(lot.color)} · {lot.qtyKg.toLocaleString()} kg
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-xs font-semibold text-[var(--accent-strong)]"
-                        onClick={() => navigate(`/batches/${lot.batchNumber}`)}
-                      >
-                        Open
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="mt-1 text-2xl font-bold tracking-tight">{successBatch}</p>
-            )}
-          </div>
-
-          <div className="pt-2 flex flex-col sm:flex-row justify-center gap-2">
-            {isRecycling ? (
-              <Button asChild size="lg">
-                <Link
-                  to="/production/store"
-                  className="inline-flex items-center justify-center gap-1.5 leading-none"
-                >
-                  <Warehouse className="size-4 shrink-0" />
-                  <span>Open Production Store</span>
-                </Link>
-              </Button>
-            ) : next ? (
-              <Button asChild size="lg">
-                <Link
-                  to={`/process/${next}/new`}
-                  className="inline-flex items-center justify-center gap-1.5 leading-none"
-                >
-                  <span>Next: {STAGE_META[next]?.title}</span>
-                  <ArrowRight className="size-4 shrink-0 ml-0.5" />
-                </Link>
-              </Button>
-            ) : null}
-            {!isSorting && (
-              <Button variant="outline" asChild>
-                <Link to={`/batches/${successBatch}`}>Batch 360°</Link>
-              </Button>
-            )}
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setSuccessBatch(null)
-                setActiveBatch(null)
-                setSearchParams({}, { replace: true })
-                reset(emptyForm())
-              }}
-            >
-              Record Another
-            </Button>
-            <Button variant="ghost" asChild>
-              <Link to={`/process/${stage}`}>Back to {meta.title} Queue</Link>
-            </Button>
-          </div>
-        </Card>
-      </PageLayout>
-    )
-  }
-
   // ——— Form view ———
   return (
     <PageLayout
-      title={selected ? `${meta.title}: ${selected.batchNumber}` : `Record ${meta.title}`}
+      title={
+        isMultiLotStage
+          ? `Record ${meta.title}`
+          : selected
+            ? `${meta.title}: ${selected.batchNumber}`
+            : `Record ${meta.title}`
+      }
       description={
-        selected
-          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
-          : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
+        isMultiLotStage
+          ? 'Enter usable kg for each colour after washing — waste is qty in − usable.'
+          : selected
+            ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
+            : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
       }
       back={true}
       backLabel={`Back to ${meta.title} queue`}
       onBack={backToQueue}
     >
       <div className="w-full space-y-4">
-        {/* Batch Picker Card if no batch selected or to change batch */}
-        {!selected ? (
+        {!isMultiLotStage && !selected ? (
           <Card className="!p-5">
             <div className="space-y-3">
               <div>
@@ -950,7 +851,7 @@ export function ProcessStageForm({
               )}
             </div>
           </Card>
-        ) : (
+        ) : !isMultiLotStage && selected ? (
           <Card className="!p-4 bg-zinc-50 border-zinc-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
@@ -981,14 +882,128 @@ export function ProcessStageForm({
               </Button>
             </div>
           </Card>
-        )}
+        ) : null}
 
-        {selected && (
+        {(isMultiLotStage || selected) && (
           <form
             className="space-y-4"
             onSubmit={handleSubmit((values) => submitPayload(values, false))}
           >
-            <input type="hidden" {...register('inputBatchNumber', { required: true })} />
+            {!isMultiLotStage && (
+              <input type="hidden" {...register('inputBatchNumber', { required: true })} />
+            )}
+
+            {isMultiLotStage && (
+              <Card>
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold tracking-tight">
+                    Colours · usable after washing
+                  </h2>
+                  <span className="text-xs text-[var(--ink-muted)]">
+                    {lotLines.length} lot{lotLines.length === 1 ? '' : 's'}
+                  </span>
+                </div>
+                {inputs.isLoading ? (
+                  <p className="mt-3 text-sm text-[var(--ink-muted)]">Loading colour lots…</p>
+                ) : lotLines.length === 0 ? (
+                  <p className="mt-3 text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                    {meta.emptyHint}
+                  </p>
+                ) : (
+                  <>
+                    <div className="mt-3 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2.5 sm:p-3">
+                      <div className="grid grid-cols-3 gap-1 sm:gap-2 text-center divide-x divide-zinc-200/60">
+                        <div className="px-1">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            Qty in
+                          </p>
+                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-800 font-mono">
+                            {lotTotalIn.toLocaleString()}{' '}
+                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                          </p>
+                        </div>
+                        <div className="px-1">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            Usable
+                          </p>
+                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-emerald-600 font-mono">
+                            {lotTotalUsable.toLocaleString()}{' '}
+                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                          </p>
+                        </div>
+                        <div className="px-1">
+                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                            Waste
+                          </p>
+                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-700 font-mono">
+                            {lotTotalWaste.toLocaleString()}{' '}
+                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <ul className="mt-3 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
+                      {lotLines.map((line) => {
+                        const usableNum = Number(line.qtyUsable || 0)
+                        const over = usableNum - line.qtyIn > 0.001
+                        const wasteKg =
+                          usableNum > 0 ? Math.max(0, +(line.qtyIn - usableNum).toFixed(3)) : null
+                        return (
+                          <li
+                            key={line.batchNumber}
+                            className="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[1.1fr_0.7fr_1fr_0.7fr] sm:items-end"
+                          >
+                            <div>
+                              <p className="font-semibold tracking-tight">{colorName(line.color)}</p>
+                              <p className="text-xs text-[var(--ink-muted)]">{line.batchNumber}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                Qty in
+                              </p>
+                              <p className="font-mono text-sm font-semibold">
+                                {line.qtyIn.toLocaleString()} kg
+                              </p>
+                            </div>
+                            <Field
+                              label="Usable after washing (kg)"
+                              hint={over ? 'Cannot exceed qty in' : undefined}
+                            >
+                              <input
+                                inputMode="decimal"
+                                className={`dgn-input ${
+                                  over ? 'border-red-400 ring-1 ring-red-300' : ''
+                                }`}
+                                value={line.qtyUsable}
+                                placeholder=""
+                                onChange={(e) => {
+                                  const val = e.target.value
+                                  setLotLines((prev) =>
+                                    prev.map((row) =>
+                                      row.batchNumber === line.batchNumber
+                                        ? { ...row, qtyUsable: val }
+                                        : row,
+                                    ),
+                                  )
+                                }}
+                              />
+                            </Field>
+                            <div>
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                Waste
+                              </p>
+                              <p className="font-mono text-sm font-semibold text-zinc-700">
+                                {wasteKg == null ? '—' : `${wasteKg.toLocaleString()} kg`}
+                              </p>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </>
+                )}
+              </Card>
+            )}
 
             {isColorAllocation ? (
               <Card>
@@ -1200,7 +1215,7 @@ export function ProcessStageForm({
                   </p>
                 )}
               </Card>
-            ) : (
+            ) : !isMultiLotStage ? (
               <Card>
                 <div
                   className={
@@ -1242,6 +1257,8 @@ export function ProcessStageForm({
                         label={
                           isCrushing
                             ? 'Measured after crushing (kg)'
+                            : isWashing
+                            ? 'Measured after washing (kg)'
                             : isRecrushing
                             ? 'Measured after re-crushing (kg)'
                             : 'Measured after drying (kg)'
@@ -1266,7 +1283,7 @@ export function ProcessStageForm({
                       >
                         <input
                           className="dgn-input bg-[var(--bg)] text-[var(--ink-muted)]"
-                          value={qtyInput > 0 || qtyUsable > 0 ? String(measuredShrink) : ''}
+                          value={qtyUsable > 0 ? String(measuredShrink) : ''}
                           readOnly
                           tabIndex={-1}
                         />
@@ -1306,7 +1323,7 @@ export function ProcessStageForm({
                   </div>
                 )}
               </Card>
-            )}
+            ) : null}
 
             <Card>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1343,7 +1360,12 @@ export function ProcessStageForm({
                 )}
 
                 {/* Cost fields: 2 per row on mobile to conserve space */}
-                {(meta.showLabourCost !== false || meta.showEnergyCost !== false || meta.showWashFields) && (
+                {(meta.showLabourCost !== false ||
+                  meta.showEnergyCost !== false ||
+                  meta.showWashFields ||
+                  meta.showLoadingCost ||
+                  meta.showTransportCost ||
+                  meta.showOtherCost) && (
                   <div className="col-span-full grid grid-cols-2 gap-2.5 sm:contents">
                     {meta.showLabourCost !== false && (
                       meta.labourPerKg ? (
@@ -1384,6 +1406,36 @@ export function ProcessStageForm({
                     {meta.showEnergyCost !== false && (
                       <Field label="Energy cost (₦)">
                         <input inputMode="decimal" className="dgn-input" {...register('energyCost')} />
+                      </Field>
+                    )}
+                    {meta.showLoadingCost && (
+                      <Field label="Loading cost (₦)">
+                        <input
+                          inputMode="decimal"
+                          placeholder="0"
+                          className="dgn-input"
+                          {...register('loadingCost')}
+                        />
+                      </Field>
+                    )}
+                    {meta.showTransportCost && (
+                      <Field label="Transport cost (₦)">
+                        <input
+                          inputMode="decimal"
+                          placeholder="0"
+                          className="dgn-input"
+                          {...register('transportCost')}
+                        />
+                      </Field>
+                    )}
+                    {meta.showOtherCost && (
+                      <Field label="Other cost (₦)">
+                        <input
+                          inputMode="decimal"
+                          placeholder="0"
+                          className="dgn-input"
+                          {...register('otherCost')}
+                        />
                       </Field>
                     )}
                     {meta.showLabourCost !== false && meta.labourPerKg && Number(watch('labourRatePerKg') || 0) > 0 && (
@@ -1488,10 +1540,7 @@ export function ProcessStageForm({
                   variant="outline"
                   size="lg"
                   disabled={
-                    formState.isSubmitting ||
-                    !selected ||
-                    !(qtyUsable > 0) ||
-                    measuredOverIn
+                    formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
                   }
                   className="w-full sm:w-auto h-11 px-5 border-emerald-600/40 text-emerald-900 hover:bg-emerald-50 hover:text-emerald-950 font-semibold inline-flex items-center justify-center gap-2 leading-none"
                   onClick={handleSubmit((values) => submitPayload(values, false, 'recycling'))}
@@ -1508,10 +1557,7 @@ export function ProcessStageForm({
                   type="button"
                   size="lg"
                   disabled={
-                    formState.isSubmitting ||
-                    !selected ||
-                    !(qtyUsable > 0) ||
-                    measuredOverIn
+                    formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
                   }
                   className="w-full sm:w-auto h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-sm"
                   onClick={handleSubmit((values) => submitPayload(values, false, 'production'))}
@@ -1530,9 +1576,13 @@ export function ProcessStageForm({
                 size="lg"
                 disabled={
                   formState.isSubmitting ||
-                  !selected ||
-                  (isColorAllocation && (colorsOverLot || !colorLines.length)) ||
-                  (!isColorAllocation && showsMeasuredOut && (!(qtyUsable > 0) || measuredOverIn))
+                  (isMultiLotStage
+                    ? !lotLines.length || lotMissingUsable || measuredOverIn
+                    : !selected ||
+                      (isColorAllocation && (colorsOverLot || !colorLines.length)) ||
+                      (!isColorAllocation &&
+                        showsMeasuredOut &&
+                        (!(qtyUsable > 0) || measuredOverIn)))
                 }
                 className="w-full sm:w-auto h-11 px-6 font-semibold shadow-sm inline-flex items-center justify-center gap-2 leading-none"
               >

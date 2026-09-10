@@ -23,12 +23,15 @@ export function ProcessStageListPage() {
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const isSorting = stage === 'sorting'
   const isCrushing = stage === 'crushing'
+  const isMultiLotStage = stage === 'washing'
   const showColor = !isSorting && !isCrushing
 
-  // If a ?batch= query param is provided, forward directly to the form page
   const batchParam = searchParams.get('batch')
-  if (batchParam) {
+  if (batchParam && !isMultiLotStage) {
     return <Navigate to={`/process/${stage}/new?batch=${encodeURIComponent(batchParam)}`} replace />
+  }
+  if (batchParam && isMultiLotStage) {
+    return <Navigate to={`/process/${stage}/new`} replace />
   }
 
   const inputs = useQuery({
@@ -39,7 +42,6 @@ export function ProcessStageListPage() {
     },
   })
 
-  // Build columns for the queue CustomTable1
   const queueColumns = useMemo((): ColumnDef<InputBatch>[] => [
     {
       accessorKey: 'batchNumber',
@@ -58,16 +60,16 @@ export function ProcessStageListPage() {
     },
     ...(showColor
       ? [
-        {
-          accessorKey: 'sortColor',
-          header: 'Colour',
-          cell: ({ row }: { row: { original: InputBatch } }) => (
-            <span className="text-sm text-[var(--ink-muted)]">
-              {colorName(row.original.sortColor)}
-            </span>
-          ),
-        },
-      ]
+          {
+            accessorKey: 'sortColor',
+            header: 'Colour',
+            cell: ({ row }: { row: { original: InputBatch } }) => (
+              <span className="text-sm text-[var(--ink-muted)]">
+                {colorName(row.original.sortColor)}
+              </span>
+            ),
+          },
+        ]
       : []),
     {
       accessorFn: (row) => row.material?.name ?? '',
@@ -108,23 +110,31 @@ export function ProcessStageListPage() {
             <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
             <span>View</span>
           </Button>
-          <Button
-            size="sm"
-            className="h-8 text-xs font-semibold cursor-pointer"
-            onClick={() => navigate(`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`)}
-          >
-            <Play className="h-3 w-3 shrink-0 fill-current" />
-            <span>Process</span>
-          </Button>
+          {!isMultiLotStage && (
+            <Button
+              size="sm"
+              className="h-8 text-xs font-semibold cursor-pointer"
+              onClick={() =>
+                navigate(`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`)
+              }
+            >
+              <Play className="h-3 w-3 shrink-0 fill-current" />
+              <span>Process</span>
+            </Button>
+          )}
         </div>
       ),
     },
-  ], [showColor, stage, navigate])
+  ], [showColor, stage, navigate, isMultiLotStage])
 
   return (
     <PageLayout
       title={meta.title}
-      description={meta.queueTitle}
+      description={
+        isMultiLotStage
+          ? `${meta.queueTitle} · record usable per colour`
+          : meta.queueTitle
+      }
       actions={
         <Button
           size="sm"
