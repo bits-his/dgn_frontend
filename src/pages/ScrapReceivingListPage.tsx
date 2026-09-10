@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus, Eye } from 'lucide-react'
+import { Plus, Eye, Pencil } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
@@ -23,7 +23,13 @@ type ScrapReceiptRow = {
   transportCost?: number | string
   loadingCost?: number | string
   unloadingCost?: number | string
+  scaleCost?: number | string
+  netBagCost?: number | string
+  sortingCost?: number | string
   otherCost?: number | string
+  totalInboundCost?: number | string
+  editable?: boolean
+  lockReason?: string | null
   contaminationLevel?: string | null
   vehicleInfo?: string | null
   transporterName?: string | null
@@ -131,19 +137,58 @@ export function ScrapReceivingListPage() {
       //   ),
       // },
       {
-        id: 'purchaseCost',
-        header: 'Cost',
-        accessorKey: 'purchaseCost',
-        cell: ({ row }) => (
-          <div>
-            <span className="text-sm font-semibold text-foreground block">
-              ₦{Number(row.original.purchaseCost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className="text-xs text-[var(--ink-muted)] block mt-0.5">
-              @ ₦{Number(row.original.pricePerKg || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / kg
-            </span>
-          </div>
-        ),
+        id: 'totalInboundCost',
+        header: 'Total cost',
+        accessorFn: (row) =>
+          Number(
+            row.totalInboundCost ??
+              Number(row.purchaseCost || 0) +
+                Number(row.transportCost || 0) +
+                Number(row.loadingCost || 0) +
+                Number(row.unloadingCost || 0) +
+                Number(row.scaleCost || 0) +
+                Number(row.netBagCost || 0) +
+                Number(row.sortingCost || 0) +
+                Number(row.otherCost || 0),
+          ),
+        cell: ({ row }) => {
+          const r = row.original
+          const total = Number(
+            r.totalInboundCost ??
+              Number(r.purchaseCost || 0) +
+                Number(r.transportCost || 0) +
+                Number(r.loadingCost || 0) +
+                Number(r.unloadingCost || 0) +
+                Number(r.scaleCost || 0) +
+                Number(r.netBagCost || 0) +
+                Number(r.sortingCost || 0) +
+                Number(r.otherCost || 0),
+          )
+          return (
+            <div>
+              <span className="text-sm font-semibold text-foreground block">
+                ₦
+                {total.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              <span className="text-xs text-[var(--ink-muted)] block mt-0.5">
+                Buy ₦
+                {Number(r.purchaseCost || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{' '}
+                · @ ₦
+                {Number(r.pricePerKg || 0).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+                /kg
+              </span>
+            </div>
+          )
+        },
       },
       {
         id: 'receivedAt',
@@ -161,24 +206,35 @@ export function ScrapReceivingListPage() {
         cell: ({ row }) => {
           const batchNum = row.original.batch?.batchNumber
           return (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs font-medium cursor-pointer"
-              disabled={!batchNum}
-              onClick={() => {
-                if (batchNum) navigate(`/batches/${batchNum}`)
-              }}
-            >
-              {batchNum ? (
-                <>
-                  <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                  <span>View</span>
-                </>
-              ) : (
-                <span>—</span>
-              )}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium cursor-pointer"
+                disabled={!batchNum}
+                onClick={() => {
+                  if (batchNum) navigate(`/batches/${batchNum}`)
+                }}
+              >
+                <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                <span>View</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium cursor-pointer"
+                disabled={row.original.editable === false}
+                title={
+                  row.original.editable === false
+                    ? row.original.lockReason || 'Already moved to a later stage'
+                    : 'Edit costs'
+                }
+                onClick={() => navigate(`/receiving/${row.original.id}/edit`)}
+              >
+                <Pencil className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                <span>Edit</span>
+              </Button>
+            </div>
           )
         },
       },

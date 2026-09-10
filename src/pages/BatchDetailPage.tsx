@@ -118,6 +118,9 @@ type ProcessRunRow = {
   teamName?: string | null
   labourCost?: number | null
   energyCost?: number | null
+  loadingCost?: number | null
+  transportCost?: number | null
+  otherCost?: number | null
   waterQty?: number | null
   chemicalCost?: number | null
   detergentCost?: number | null
@@ -173,14 +176,21 @@ export function BatchDetailPage() {
           createdAt?: string
           createdBy?: { firstname: string; lastname: string }
           scrapReceipt?: {
+            id?: number
             netWeight: number
             pricePerKg: number
             purchaseCost: number
             transportCost: number
             loadingCost: number
             unloadingCost: number
+            scaleCost?: number
+            netBagCost?: number
+            sortingPricePerKg?: number
+            sortingCost?: number
             otherCost?: number
             inboundForm?: string
+            editable?: boolean
+            lockReason?: string | null
             supplier?: { name: string }
           }
           processRuns?: ProcessRunRow[]
@@ -286,14 +296,21 @@ export function BatchDetailPage() {
             toBatch?: { batchNumber: string; batchType: string }
           }>
           originScrapReceipt?: {
+            id?: number
             netWeight: number
             pricePerKg: number
             purchaseCost: number
             transportCost: number
             loadingCost: number
             unloadingCost: number
+            scaleCost?: number
+            netBagCost?: number
+            sortingPricePerKg?: number
+            sortingCost?: number
             otherCost?: number
             inboundForm?: string
+            editable?: boolean
+            lockReason?: string | null
             supplier?: { name: string }
           }
           siblingBatches?: Array<{
@@ -415,7 +432,7 @@ export function BatchDetailPage() {
     }
 
     let running = 0
-    return rawRows.map((row) => {
+    let rows = rawRows.map((row) => {
       running += Number(row.amount || 0)
       const qtyKg = Number(row.qtyKg || 0)
       return {
@@ -424,6 +441,114 @@ export function BatchDetailPage() {
         runningPerKg: qtyKg > 0 ? +(running / qtyKg).toFixed(2) : null,
       }
     })
+
+    // Ensure scrap buying lines show full inbound detail from the receipt when available
+    if (receipt) {
+      const buyIdx = rows.findIndex((r) => r.stage === 'BUY')
+      const receiptLines = [
+        { label: 'Scrap buy', amount: Number(receipt.purchaseCost || 0) },
+        { label: 'Transport', amount: Number(receipt.transportCost || 0) },
+        { label: 'Loading', amount: Number(receipt.loadingCost || 0) },
+        { label: 'Unloading', amount: Number(receipt.unloadingCost || 0) },
+        { label: 'Scale fee', amount: Number(receipt.scaleCost || 0) },
+        { label: 'Net bag cost', amount: Number(receipt.netBagCost || 0) },
+        { label: 'Sorting', amount: Number(receipt.sortingCost || 0) },
+        { label: 'Other', amount: Number(receipt.otherCost || 0) },
+      ]
+      const receiptTotal = +receiptLines
+        .reduce((sum, line) => sum + line.amount, 0)
+        .toFixed(2)
+      const qtyKg = Number(receipt.netWeight || 0)
+      const buyExtras = [
+        ...(Number(receipt.pricePerKg) > 0
+          ? [{ label: 'Buy price', text: `₦${Number(receipt.pricePerKg).toLocaleString()}/kg` }]
+          : []),
+        ...(receipt.supplier?.name
+          ? [{ label: 'Supplier', text: receipt.supplier.name }]
+          : []),
+        ...(receipt.inboundForm
+          ? [
+              {
+                label: 'Bought as',
+                text: receipt.inboundForm === 'CRUSHED' ? 'Already crushed' : 'Raw scrap',
+              },
+            ]
+          : []),
+        ...(Number(receipt.sortingPricePerKg) > 0
+          ? [
+              {
+                label: 'Sorting price',
+                text: `₦${Number(receipt.sortingPricePerKg).toLocaleString()}/kg`,
+              },
+            ]
+          : []),
+      ]
+
+      if (buyIdx >= 0) {
+        const existing = rows[buyIdx]
+        const byLabel = new Map(existing.lines.map((l) => [l.label.toLowerCase(), l.amount]))
+        const mergedLines = receiptLines.map((line) => ({
+          label: line.label,
+          amount:
+            line.amount > 0
+              ? line.amount
+              : Number(byLabel.get(line.label.toLowerCase()) || 0),
+        }))
+        // Keep any sorting labour already merged that isn't on the receipt field
+        existing.lines.forEach((l) => {
+          if (!mergedLines.some((m) => m.label.toLowerCase() === l.label.toLowerCase())) {
+            mergedLines.push(l)
+          }
+        })
+        const amount = Math.max(
+          receiptTotal,
+          Number(existing.amount || 0),
+          +mergedLines.reduce((s, l) => s + l.amount, 0).toFixed(2),
+        )
+        rows[buyIdx] = {
+          ...existing,
+          label: 'Scrap buying',
+          qtyKg: existing.qtyKg || qtyKg,
+          amount,
+          perKg: (existing.qtyKg || qtyKg) > 0 ? +(amount / (existing.qtyKg || qtyKg)).toFixed(2) : null,
+          lines: mergedLines,
+          extras: [...(existing.extras || []), ...buyExtras].filter(
+            (ex, i, arr) => arr.findIndex((x) => x.label === ex.label) === i,
+          ),
+        }
+      } else {
+        rows = [
+          {
+            key: 'BUY-receipt',
+            stage: 'BUY',
+            label: 'Scrap buying',
+            qtyKg,
+            qtyReject: 0,
+            amount: receiptTotal,
+            perKg: qtyKg > 0 ? +(receiptTotal / qtyKg).toFixed(2) : null,
+            runningTotal: receiptTotal,
+            runningPerKg: qtyKg > 0 ? +(receiptTotal / qtyKg).toFixed(2) : null,
+            lines: receiptLines,
+            extras: buyExtras,
+          },
+          ...rows,
+        ]
+      }
+
+      // Recompute running totals after buy merge
+      let run = 0
+      rows = rows.map((row) => {
+        run += Number(row.amount || 0)
+        const q = Number(row.qtyKg || 0)
+        return {
+          ...row,
+          runningTotal: +run.toFixed(2),
+          runningPerKg: q > 0 ? +(run / q).toFixed(2) : null,
+        }
+      })
+    }
+
+    return rows
   })()
 
   const displayProcessRuns = processRuns.filter((r) => r.stage !== 'SORTING')
@@ -715,48 +840,46 @@ export function BatchDetailPage() {
         </Card>
       )}
 
-      {receipt && (
-        <Card className="!p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">Buy / receiving</h2>
-            {batch.originScrapReceipt && !batch.scrapReceipt && batch.inputs?.[0]?.fromBatch && (
-              <Link
-                to={`/batches/${batch.inputs[0].fromBatch.batchNumber}`}
-                className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
-              >
-                Origin scrap ticket: {batch.inputs[0].fromBatch.batchNumber} →
-              </Link>
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Fact label="Supplier" value={receipt.supplier?.name || '—'} />
-            <Fact
-              label="Bought as"
-              value={receipt.inboundForm === 'CRUSHED' ? 'Already crushed' : 'Raw scrap'}
-            />
-            <Fact label="Weight" value={kg(receipt.netWeight)} />
-            <Fact label="Price / kg" value={money(receipt.pricePerKg)} />
-          </div>
-        </Card>
-      )}
-
       <ForwardTracePanel
         batchNumber={batchNumber}
         inputs={batch.inputs}
         siblingBatches={siblingBatches}
       />
 
-      {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0) && (
+      {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0 || receipt) && (
         <Card className="!p-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3">
             <div>
               <h2 className="text-base font-semibold">Process stages</h2>
               <p className="text-xs text-[var(--ink-muted)]">
-                Full manufacturing journey from scrap buying through current stage
+                Scrap buying through current stage — costs and measured kg
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-[var(--ink-muted)]">Current stage:</span>
+            <div className="flex items-center gap-3">
+              {receipt?.id && receipt.editable !== false ? (
+                <Link
+                  to={`/receiving/${receipt.id}/edit`}
+                  className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  Edit scrap costs
+                </Link>
+              ) : receipt?.id && receipt.editable === false ? (
+                <span
+                  className="text-xs text-[var(--ink-muted)]"
+                  title={receipt.lockReason || 'Already moved to crushing or later'}
+                >
+                  Scrap edit locked
+                </span>
+              ) : null}
+              {batch.originScrapReceipt && !batch.scrapReceipt && batch.inputs?.[0]?.fromBatch && (
+                <Link
+                  to={`/batches/${batch.inputs[0].fromBatch.batchNumber}`}
+                  className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
+                >
+                  Origin: {batch.inputs[0].fromBatch.batchNumber} →
+                </Link>
+              )}
+              <span className="text-xs text-[var(--ink-muted)]">Current:</span>
               <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
                 {typeLabel}
               </span>
@@ -832,16 +955,17 @@ export function BatchDetailPage() {
                   return displayProcessRuns.map((run) => {
                     const lines = [
                       Number(run.labourCost || 0) > 0 ? { label: 'Labour', amount: Number(run.labourCost) } : null,
-                      (run.stage !== 'WASHING' && Number(run.energyCost || 0) > 0) ? { label: 'Energy', amount: Number(run.energyCost) } : null,
+                      Number(run.energyCost || 0) > 0 ? { label: 'Energy', amount: Number(run.energyCost) } : null,
+                      Number(run.loadingCost || 0) > 0 ? { label: 'Loading', amount: Number(run.loadingCost) } : null,
+                      Number(run.transportCost || 0) > 0
+                        ? { label: 'Transport', amount: Number(run.transportCost) }
+                        : null,
+                      Number(run.otherCost || 0) > 0 ? { label: 'Other', amount: Number(run.otherCost) } : null,
                       Number(run.chemicalCost || 0) > 0 ? { label: 'Chemical', amount: Number(run.chemicalCost) } : null,
                       Number(run.detergentCost || 0) > 0 ? { label: 'Detergent', amount: Number(run.detergentCost) } : null,
                       Number(run.waterQty || 0) > 0 ? { label: 'Water', amount: Number(run.waterQty) } : null,
                     ].filter(Boolean) as Array<{ label: string; amount: number }>
-                    const naira =
-                      Number(run.labourCost || 0) +
-                      Number(run.chemicalCost || 0) +
-                      Number(run.detergentCost || 0) +
-                      (run.stage === 'WASHING' ? 0 : Number(run.energyCost || 0))
+                    const naira = lines.reduce((sum, line) => sum + line.amount, 0)
                     const qtyKg = Number(run.qtyUsable || run.qtyInput || 0)
                     fallbackRunning += naira
                     return (
@@ -1101,7 +1225,9 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
 
       {cost.lines.length > 0 && (
         <ul className="mt-2 divide-y divide-[var(--line)]">
-          {cost.lines.map((row) => {
+          {cost.lines
+            .filter((row) => Number(row.amount || 0) > 0)
+            .map((row) => {
             const isScrapBuy =
               row.label === 'Scrap buy' || row.label.toLowerCase().includes('scrap buy')
             const buyPriceText = buyPriceExtra
@@ -1128,7 +1254,9 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
           })}
         </ul>
       )}
-      {cost.extras.filter((ex) => ex.label !== 'Buy price').map((ex) => (
+      {(cost.extras || [])
+        .filter((ex) => ex.label !== 'Buy price')
+        .map((ex) => (
         <p key={ex.label} className="mt-1 text-xs text-[var(--ink-muted)]">
           {ex.label}: {ex.text}
         </p>
@@ -1139,8 +1267,8 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
           {run.operatorName && <span>Operator: {run.operatorName}</span>}
           {run.machineName && <span>Machine: {run.machineName}</span>}
           {run.teamName && <span>Team: {run.teamName}</span>}
-          {run.waterQty != null && Number(run.waterQty) > 0 && (
-            <span>Water used: {Number(run.waterQty).toLocaleString()} L</span>
+          {run.waterQty != null && Number(run.waterQty) > 0 && cost.stage === 'WASHING' && (
+            <span>Water: ₦{Number(run.waterQty).toLocaleString()}</span>
           )}
           {run.moistureReading != null && (
             <span>Moisture: {run.moistureReading}%</span>
