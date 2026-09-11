@@ -39,9 +39,31 @@ type ScrapReceiptRow = {
     batchType: string
     status: string
     qtyRemaining: number | string
+    businessDate?: string | null
   } | null
   supplier?: { id: number; name: string; code?: string } | null
   material?: { id: number; name: string; code?: string } | null
+}
+
+const STAGE_LABEL: Record<string, string> = {
+  SCRAP: 'Bought',
+  SORT: 'Sorted',
+  CRUSH: 'Crushed',
+  WASH: 'Washed',
+  DRY: 'Dried',
+  RECYCLE: 'Recycled',
+  PROD: 'Production',
+}
+
+function stageBadgeClass(stage?: string) {
+  const s = (stage || '').toUpperCase()
+  if (s === 'SCRAP') return 'bg-amber-50 text-amber-800 border-amber-300'
+  if (s === 'SORT') return 'bg-blue-50 text-blue-800 border-blue-300'
+  if (s === 'CRUSH') return 'bg-purple-50 text-purple-800 border-purple-300'
+  if (s === 'WASH') return 'bg-cyan-50 text-cyan-800 border-cyan-300'
+  if (s === 'DRY') return 'bg-orange-50 text-orange-800 border-orange-300'
+  if (s === 'RECYCLE' || s === 'PROD') return 'bg-emerald-50 text-emerald-800 border-emerald-300'
+  return 'bg-zinc-50 text-zinc-700 border-zinc-300'
 }
 
 function formatDate(raw?: string) {
@@ -107,7 +129,7 @@ export function ScrapReceivingListPage() {
       },
       {
         id: 'condition',
-        header: 'Condition / Type',
+        header: 'Bought as',
         accessorKey: 'inboundForm',
         cell: ({ row }) => {
           const r = row.original
@@ -116,7 +138,7 @@ export function ScrapReceivingListPage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm text-foreground">
-                  {isRaw ? 'Raw Scrap' : 'Crushed Scrap'}
+                  {isRaw ? 'Raw scrap' : 'Crushed scrap'}
                 </span>
                 <span
                   className={cn(
@@ -133,6 +155,24 @@ export function ScrapReceivingListPage() {
                 {Number(r.netWeight || 0).toLocaleString()} kg
               </p>
             </div>
+          )
+        },
+      },
+      {
+        id: 'stage',
+        header: 'Current stage',
+        accessorFn: (row) => row.batch?.batchType || 'SCRAP',
+        cell: ({ row }) => {
+          const type = (row.original.batch?.batchType || 'SCRAP').toUpperCase()
+          return (
+            <span
+              className={cn(
+                'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border tracking-wide',
+                stageBadgeClass(type),
+              )}
+            >
+              {STAGE_LABEL[type] || type}
+            </span>
           )
         },
       },
@@ -243,7 +283,7 @@ export function ScrapReceivingListPage() {
   return (
     <PageLayout
       title="Scrap Buying"
-      description="Inbound scrap receipts and raw material purchasing ledger"
+      description="Every scrap purchase stays here after crushing, washing, drying, or re-crushing"
       actions={
         <Button
           size="sm"

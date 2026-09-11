@@ -100,16 +100,15 @@ export const STAGE_META: Record<
   },
   recrushing: {
     title: 'Re-crushing',
-    eyebrow: 'Standalone processing',
-    queueTitle: 'Batches waiting to re-crush',
-    emptyHint: 'No batches currently queued for re-crushing.',
-    showMachine: true,
+    eyebrow: 'Recycling stage',
+    queueTitle: 'Washed lots waiting to re-crush',
+    emptyHint: 'No washed lots waiting. Finish washing first.',
+    showMachine: false,
     showTeam: false,
-    showOperator: true,
-    operatorLabel: 'Re-crushing Operator',
-    machineLabel: 'Re-crushing Machine',
+    showOperator: false,
     showDowntime: false,
     showLabourCost: true,
+    labourHourly: false,
     labourPerKg: true,
     showEnergyCost: false,
   },
@@ -267,11 +266,11 @@ export function ProcessStageForm({
   const isDrying = stage === 'drying'
   const isRecrushing = stage === 'recrushing'
   const isRecycling = stage === 'recycling'
-  /** Crushing / washing / drying / recrushing: weigh after stage. */
-  const showsMeasuredOut = isCrushing || isWashing || isDrying || isRecrushing
+  /** Crushing / washing / drying: weigh after stage. Re-crushing keeps the same kg. */
+  const showsMeasuredOut = isCrushing || isWashing || isDrying
   const showsWaste = isSorting || isRecycling
-  /** Washing, drying, and recrushing: process all colours of a batch in a single run */
-  const isMultiLotStage = isWashing || isDrying || isRecrushing
+  /** Washing and drying: process all colours of a batch in a single run */
+  const isMultiLotStage = isWashing || isDrying
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -530,7 +529,7 @@ export function ProcessStageForm({
       setValue('inputBatchNumber', selected.batchNumber)
       setValue('qtyInput', String(selected.qtyRemaining))
       // Crushing (non-split) may start from remaining; wash multi-lot leaves measured empty.
-      if (isCrushing) {
+      if (isCrushing || isRecrushing) {
         setValue('qtyUsable', String(selected.qtyRemaining))
       } else if (showsMeasuredOut) {
         setValue('qtyUsable', '')
@@ -763,10 +762,22 @@ export function ProcessStageForm({
       }
     }
 
+    if (isRecrushing) {
+      const rateKg = Number(values.labourRatePerKg || 0)
+      if (!(rateKg > 0)) {
+        setServerErrors([{ label: 'Labour rate / kg', message: 'Enter labour cost per kg.' }])
+        setSubmitAction(null)
+        return
+      }
+    }
+
     try {
       const isSplitting = isColorAllocation && colorLines.length > 0
+      const recrushQty = Number(selected?.qtyRemaining ?? values.qtyInput ?? 0)
       const labourRateKgVal = Number(values.labourRatePerKg || 0)
-      const relevantKg = isMultiLotStage
+      const relevantKg = isRecrushing
+        ? recrushQty
+        : isMultiLotStage
         ? lotTotalIn
         : isSplitting
           ? colorUsable
@@ -784,13 +795,21 @@ export function ProcessStageForm({
         ...values,
         inputBatchNumber:
           activeBatch || selected?.batchNumber || lotLines[0]?.batchNumber || values.inputBatchNumber,
-        qtyInput: isMultiLotStage ? lotTotalIn : Number(values.qtyInput),
-        qtyUsable: isMultiLotStage
+        qtyInput: isRecrushing
+          ? recrushQty
+          : isMultiLotStage
+            ? lotTotalIn
+            : Number(values.qtyInput),
+        qtyUsable: isRecrushing
+          ? recrushQty
+          : isMultiLotStage
           ? lotTotalUsable
           : isSplitting
             ? colorUsable
             : Number(values.qtyUsable),
-        qtyReject: isMultiLotStage
+        qtyReject: isRecrushing
+          ? 0
+          : isMultiLotStage
           ? lotTotalWaste
           : showsWaste
             ? qtyReject
@@ -838,8 +857,8 @@ export function ProcessStageForm({
       const resultingBatch =
         data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
 
-      // If washing, recrushing, or drying and user clicked "Move to Material", immediately handover to Production Store
-      if ((isWashing || isRecrushing || isDrying) && destination === 'production') {
+      // Drying: "Move to Material" immediately hands over to Production Store
+      if (isDrying && destination === 'production') {
         try {
           await api.post('/production/store/transfer', { batchNumber: resultingBatch })
           await queryClient.invalidateQueries({ queryKey: ['production-store'] })
@@ -876,7 +895,9 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
       await queryClient.invalidateQueries()
 
-      if ((isWashing || isRecrushing || isDrying) && destination === 'production') {
+      if (isRecrushing) {
+        navigate('/production/store')
+      } else if (isDrying && destination === 'production') {
         navigate('/production/store')
       } else if (isRecycling) {
         navigate('/production/store')
@@ -1005,6 +1026,7 @@ export function ProcessStageForm({
             onSubmit={handleSubmit((values) => submitPayload(values, false))}
           >
             <input type="hidden" {...register('inputBatchNumber', { required: true })} />
+            {isRecrushing && <input type="hidden" {...register('qtyInput', { required: true })} />}
 
             {isMultiLotStage && (
               <Card className="p-4 sm:p-5">
@@ -1474,7 +1496,7 @@ export function ProcessStageForm({
                   </p>
                 )}
               </Card>
-            ) : !isMultiLotStage ? (
+            ) : !isMultiLotStage && !isRecrushing ? (
               <Card>
                 <div
                   className={
@@ -1799,8 +1821,8 @@ export function ProcessStageForm({
               </Card>
             )}
 
-            {/* Action buttons: for washing, recrushing, and drying, allow direct Move to Material Store or complete */}
-            {isWashing || isRecrushing || isDrying ? (
+            {/* Washing: complete only. Drying: complete or move to material store. */}
+            {isWashing || isDrying ? (
               <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                 <Button
                   type="submit"
@@ -1822,6 +1844,7 @@ export function ProcessStageForm({
                     <span>Complete {meta.title}</span>
                   )}
                 </Button>
+                {isDrying && (
                 <Button
                   type="button"
                   size="default"
@@ -1841,6 +1864,7 @@ export function ProcessStageForm({
                       : 'Move to Material Store'}
                   </span>
                 </Button>
+                )}
               </div>
             ) : (
               <Button
@@ -1848,6 +1872,7 @@ export function ProcessStageForm({
                 size="default"
                 disabled={
                   formState.isSubmitting ||
+                  (isRecrushing && !(Number(watch('labourRatePerKg') || 0) > 0)) ||
                   (isMultiLotStage
                     ? !lotLines.length || lotMissingUsable || measuredOverIn
                     : !selected ||

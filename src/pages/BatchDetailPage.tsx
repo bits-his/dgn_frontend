@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, Navigate, useParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
@@ -7,7 +7,7 @@ import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
-import { ChevronDown, ChevronUp, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, Wrench } from 'lucide-react'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -457,9 +457,10 @@ export function BatchDetailPage() {
       }
     })
 
-    // Ensure scrap buying lines show full inbound detail from the receipt when available
-    if (receipt) {
-      const buyIdx = rows.findIndex((r) => r.stage === 'BUY')
+    // Only inject scrap receipt costs when stage breakdown has no BUY yet
+    // (backend already builds BUY from the receipt — re-merging caused duplicate lines)
+    const buyIdx = rows.findIndex((r) => r.stage === 'BUY')
+    if (receipt && buyIdx < 0) {
       const receiptLines = [
         { label: 'Scrap buy', amount: Number(receipt.purchaseCost || 0) },
         { label: 'Transport', amount: Number(receipt.transportCost || 0) },
@@ -469,7 +470,7 @@ export function BatchDetailPage() {
         { label: 'Net bag cost', amount: Number(receipt.netBagCost || 0) },
         { label: 'Sorting', amount: Number(receipt.sortingCost || 0) },
         { label: 'Other', amount: Number(receipt.otherCost || 0) },
-      ]
+      ].filter((line) => line.amount > 0)
       const receiptTotal = +receiptLines
         .reduce((sum, line) => sum + line.amount, 0)
         .toFixed(2)
@@ -499,39 +500,7 @@ export function BatchDetailPage() {
           : []),
       ]
 
-      if (buyIdx >= 0) {
-        const existing = rows[buyIdx]
-        const byLabel = new Map(existing.lines.map((l) => [l.label.toLowerCase(), l.amount]))
-        const mergedLines = receiptLines.map((line) => ({
-          label: line.label,
-          amount:
-            line.amount > 0
-              ? line.amount
-              : Number(byLabel.get(line.label.toLowerCase()) || 0),
-        }))
-        // Keep any sorting labour already merged that isn't on the receipt field
-        existing.lines.forEach((l) => {
-          if (!mergedLines.some((m) => m.label.toLowerCase() === l.label.toLowerCase())) {
-            mergedLines.push(l)
-          }
-        })
-        const amount = Math.max(
-          receiptTotal,
-          Number(existing.amount || 0),
-          +mergedLines.reduce((s, l) => s + l.amount, 0).toFixed(2),
-        )
-        rows[buyIdx] = {
-          ...existing,
-          label: 'Scrap buying',
-          qtyKg: existing.qtyKg || qtyKg,
-          amount,
-          perKg: (existing.qtyKg || qtyKg) > 0 ? +(amount / (existing.qtyKg || qtyKg)).toFixed(2) : null,
-          lines: mergedLines,
-          extras: [...(existing.extras || []), ...buyExtras].filter(
-            (ex, i, arr) => arr.findIndex((x) => x.label === ex.label) === i,
-          ),
-        }
-      } else {
+      if (receiptTotal > 0) {
         rows = [
           {
             key: 'BUY-receipt',
@@ -548,9 +517,77 @@ export function BatchDetailPage() {
           },
           ...rows,
         ]
-      }
 
-      // Recompute running totals after buy merge
+        let run = 0
+        rows = rows.map((row) => {
+          run += Number(row.amount || 0)
+          const q = Number(row.qtyKg || 0)
+          return {
+            ...row,
+            runningTotal: +run.toFixed(2),
+            runningPerKg: q > 0 ? +(run / q).toFixed(2) : null,
+          }
+        })
+      }
+    }
+
+    // Collapse duplicate BUY stages (same receipt counted twice in lineage)
+    const buyStages = rows.filter((r) => r.stage === 'BUY')
+    if (buyStages.length > 1) {
+      const lineMap = new Map<string, { label: string; amount: number }>()
+      let qtyKg = 0
+      let qtyReject = 0
+      const extras: Array<{ label: string; text: string }> = []
+      buyStages.forEach((stage) => {
+        qtyKg = Math.max(qtyKg, Number(stage.qtyKg || 0))
+        qtyReject = Math.max(qtyReject, Number(stage.qtyReject || 0))
+        ;(stage.lines || []).forEach((line) => {
+          const key = String(line.label || '')
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim()
+          if (!key) return
+          const amount = Number(line.amount || 0)
+          const prev = lineMap.get(key)
+          if (!prev) {
+            lineMap.set(key, { label: line.label, amount })
+          } else if (Math.abs(prev.amount - amount) < 0.02) {
+            // identical duplicate — keep once
+          } else {
+            lineMap.set(key, { label: prev.label, amount: +(prev.amount + amount).toFixed(2) })
+          }
+        })
+        ;(stage.extras || []).forEach((ex) => {
+          if (!extras.some((e) => e.label === ex.label)) extras.push(ex)
+        })
+      })
+      const lines = Array.from(lineMap.values()).filter((l) => l.amount > 0)
+      const amount = +lines.reduce((s, l) => s + l.amount, 0).toFixed(2)
+      const mergedBuy = {
+        ...buyStages[0],
+        key: buyStages[0].key || 'BUY-merged',
+        stage: 'BUY' as const,
+        label: 'Scrap buying',
+        qtyKg,
+        qtyReject,
+        amount,
+        perKg: qtyKg > 0 ? +(amount / qtyKg).toFixed(2) : null,
+        lines,
+        extras,
+      }
+      const collapsed: typeof rows = []
+      let buyInserted = false
+      rows.forEach((row) => {
+        if (row.stage === 'BUY') {
+          if (!buyInserted) {
+            collapsed.push(mergedBuy)
+            buyInserted = true
+          }
+        } else {
+          collapsed.push(row)
+        }
+      })
+      rows = collapsed
       let run = 0
       rows = rows.map((row) => {
         run += Number(row.amount || 0)
@@ -569,33 +606,56 @@ export function BatchDetailPage() {
   const displayProcessRuns = processRuns.filter((r) => r.stage !== 'SORTING')
 
   const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
-
-  // Scrap buying has its own clean detail page
-  if (batch.batchType === 'SCRAP' && batch.scrapReceipt?.id) {
-    return <Navigate to={`/receiving/${batch.scrapReceipt.id}`} replace />
-  }
+  const hasRecrushing = displayProcessRuns.some((r) => r.stage === 'RECRUSHING')
 
   // Process stages (crush / wash / dry / …): summary + expense table only
   if (!isProd) {
-    const qtyKg = Number(batch.qtyIn || 0)
+    const boughtKg = Number(batch.scrapReceipt?.netWeight || batch.qtyIn || 0)
     const wasteKg = Number(batch.qtyReject || batch.qtyWaste || 0)
+    const qtyKg = boughtKg
     const usableKg = Math.max(0, qtyKg - wasteKg)
     const totalCost = Number(summary.totalCost || 0)
     const unitCost = usableKg > 0 ? +(totalCost / usableKg).toFixed(2) : 0
 
-    const expenseRows: Array<{ label: string; amount: number }> = []
+    const expenseRowsRaw: Array<{
+      label: string
+      amount: number
+      amountPrimary?: string
+      amountSecondary?: string
+    }> = []
+    const pricePerKg = Number(receipt?.pricePerKg || 0)
+    const sortingPricePerKg = Number(receipt?.sortingPricePerKg || 0)
+    const isBuyStage = (stage: string) => stage === 'BUY'
+    const isScrapBuyLabel = (label: string) => {
+      const l = label.toLowerCase()
+      return l.includes('scrap buy') || l.includes('buy scrap') || l.includes('material purchase')
+    }
     if (displayStageRows.length > 0) {
       displayStageRows.forEach((row) => {
         const stageName = row.label || STAGE_LABEL[row.stage] || row.stage
+        const buyStage = isBuyStage(row.stage)
         ;(row.lines || []).forEach((line) => {
           const amount = Number(line.amount || 0)
-          if (!(amount > 0)) return
+          if (!(amount > 0) && !isScrapBuyLabel(String(line.label || ''))) return
           const lineLabel = String(line.label || '').trim()
           const alreadyPrefixed = lineLabel.toLowerCase().startsWith(String(stageName).toLowerCase())
-          expenseRows.push({
-            label: alreadyPrefixed ? lineLabel : `${stageName} ${lineLabel.toLowerCase()}`,
+          const label = buyStage
+            ? lineLabel
+            : alreadyPrefixed
+              ? lineLabel
+              : `${stageName} ${lineLabel.toLowerCase()}`
+          const rowItem: (typeof expenseRowsRaw)[number] = {
+            label,
             amount: +amount.toFixed(2),
-          })
+          }
+          if (buyStage && isScrapBuyLabel(lineLabel) && pricePerKg > 0) {
+            rowItem.amountPrimary = `${money(pricePerKg)}/kg`
+            rowItem.amountSecondary = amount > 0 ? money(amount) : undefined
+          } else if (buyStage && lineLabel.toLowerCase().includes('sorting') && sortingPricePerKg > 0) {
+            rowItem.amountPrimary = `${money(sortingPricePerKg)}/kg`
+            rowItem.amountSecondary = amount > 0 ? money(amount) : undefined
+          }
+          expenseRowsRaw.push(rowItem)
         })
       })
     } else {
@@ -604,7 +664,7 @@ export function BatchDetailPage() {
         const add = (label: string, amount: number | null | undefined) => {
           const n = Number(amount || 0)
           if (!(n > 0)) return
-          expenseRows.push({
+          expenseRowsRaw.push({
             label: `${stageName} ${label.toLowerCase()}`,
             amount: +n.toFixed(2),
           })
@@ -619,6 +679,20 @@ export function BatchDetailPage() {
         add('Detergent', run.detergentCost)
       })
     }
+    // Drop exact duplicate expense lines (same label + same amount)
+    const expenseRows: Array<{
+      label: string
+      amount: number
+      amountPrimary?: string
+      amountSecondary?: string
+    }> = []
+    const seenExpense = new Set<string>()
+    expenseRowsRaw.forEach((row) => {
+      const key = `${row.label.toLowerCase()}|${row.amount.toFixed(2)}`
+      if (seenExpense.has(key)) return
+      seenExpense.add(key)
+      expenseRows.push(row)
+    })
     const expensesTotal = +expenseRows.reduce((sum, row) => sum + row.amount, 0).toFixed(2)
     const isPurchaseLine = (label: string) => {
       const l = label.toLowerCase()
@@ -631,23 +705,49 @@ export function BatchDetailPage() {
     // Prefer summed expense lines; fall back to batch total cost
     const displayTotal = expensesTotal > 0 ? expensesTotal : totalCost
 
+    const editAction =
+      receipt?.id && receipt.editable !== false ? (
+        <Button
+          size="sm"
+          className="h-8 shrink-0 px-2.5 text-xs font-semibold cursor-pointer sm:px-3"
+          asChild
+        >
+          <Link to={`/receiving/${receipt.id}/edit`}>
+            <Pencil className="h-3.5 w-3.5 shrink-0" />
+            <span className="sm:hidden">Edit</span>
+            <span className="hidden sm:inline">Edit costs</span>
+          </Link>
+        </Button>
+      ) : null
+
+    const remaining = Number(batch.qtyRemaining || 0) > 0
     const nextAction =
-      batch.batchType === 'CRUSH' && Number(batch.qtyRemaining || 0) > 0 ? (
+      batch.batchType === 'CRUSH' && remaining && !hasRecrushing ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
           <Link to={`/process/washing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
             Process washing →
           </Link>
         </Button>
-      ) : batch.batchType === 'WASH' && Number(batch.qtyRemaining || 0) > 0 ? (
+      ) : batch.batchType === 'WASH' && remaining ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
           <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
             Process drying →
           </Link>
         </Button>
-      ) : batch.batchType === 'DRY' && Number(batch.qtyRemaining || 0) > 0 ? (
+      ) : batch.batchType === 'DRY' && remaining && !hasRecrushing ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
           <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
             Process re-crushing →
+          </Link>
+        </Button>
+      ) : hasRecrushing && remaining ? (
+        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
+          <Link to="/production/store">Issue to machine →</Link>
+        </Button>
+      ) : batch.batchType === 'SCRAP' && remaining ? (
+        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
+          <Link to={`/process/crushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+            Process crushing →
           </Link>
         </Button>
       ) : null
@@ -659,72 +759,148 @@ export function BatchDetailPage() {
         back
         backLabel="Back"
         onBack={() => navigate(-1)}
-        actions={nextAction}
+        actions={
+          editAction || nextAction ? (
+            <div className="flex items-center gap-2">
+              {editAction}
+              {nextAction}
+            </div>
+          ) : null
+        }
       >
-        <div className="space-y-4">
-          <Card className="!p-4">
-            <h2 className="text-base font-semibold">Summary</h2>
-            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <div className="space-y-3 sm:space-y-4">
+          <Card className="!p-3 sm:!p-4">
+            <h2 className="text-sm font-semibold sm:text-base">Summary</h2>
+
+            <div className="mt-3 rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
+                Cost / kg
+              </p>
+              <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
+                {usableKg > 0 && displayTotal > 0
+                  ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
+                  : unitCost > 0
+                    ? `${money(unitCost)}/kg`
+                    : '—'}
+              </p>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 sm:gap-4">
               <Fact
+                compact
                 label="Date"
                 value={formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt) || '—'}
               />
-              <Fact label="Name of material" value={batch.material?.name || '—'} />
-              <Fact label="Quantity" value={kg(qtyKg)} />
-              <Fact label="Waste" value={kg(wasteKg)} />
-              <Fact
-                label="Cost / kg"
-                value={
-                  usableKg > 0 && displayTotal > 0
-                    ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
-                    : unitCost > 0
-                      ? `${money(unitCost)}/kg`
-                      : '—'
-                }
-              />
-              <Fact label="Other cost" value={money(Number(otherExpenses))} />
-              <Fact label="Cost" value={money(displayTotal)} strong />
+              <Fact compact label="Material" value={batch.material?.name || '—'} />
+              <Fact compact label="Quantity purchased" value={kg(qtyKg)} />
+              <Fact compact label="Qty available" value={kg(usableKg)} />
+              <Fact compact label="Waste" value={kg(wasteKg)} />
+              <Fact compact label="Other cost" value={money(Number(otherExpenses))} />
             </div>
           </Card>
 
-          <Card className="!overflow-hidden !p-0">
-            <div className="border-b border-[var(--line)] px-4 py-3">
-              <h2 className="text-base font-semibold">Expense details</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[420px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
-                    <th className="px-4 py-3 font-semibold">Expense</th>
-                    <th className="px-4 py-3 font-semibold text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {expenseRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={2} className="px-4 py-6 text-sm text-[var(--ink-muted)]">
-                        No expense lines recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    expenseRows.map((row, idx) => (
-                      <tr key={`${row.label}-${idx}`} className="border-b border-[var(--line)]">
-                        <td className="px-4 py-3 font-medium">{row.label}</td>
-                        <td className="px-4 py-3 text-right font-medium tabular-nums">
-                          {money(row.amount)}
-                        </td>
-                      </tr>
+          {((batch.colorItems && batch.colorItems.length > 0) || crushedColors.length > 0) && (
+            <Card className="!overflow-hidden !p-0">
+              <div className="border-b border-[var(--line)] px-3 py-2.5 sm:px-4 sm:py-3">
+                <h2 className="text-sm font-semibold sm:text-base">Materials</h2>
+                <p className="mt-0.5 text-[11px] text-[var(--ink-muted)] sm:text-xs">
+                  {receipt?.inboundForm === 'CRUSHED'
+                    ? 'Crushed colours and kg in this buy'
+                    : 'Colour breakdown and kg in this batch'}
+                </p>
+              </div>
+              <ul className="divide-y divide-[var(--line)]">
+                {batch.colorItems && batch.colorItems.length > 0
+                  ? batch.colorItems.map((item) => (
+                      <li
+                        key={item.id}
+                        className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-[var(--ink)]">
+                            {colorLabel(item.color)}
+                          </p>
+                          <p className="text-[11px] font-mono text-[var(--ink-muted)]">{item.color}</p>
+                        </div>
+                        <p className="shrink-0 text-sm font-semibold tabular-nums">
+                          {kg(Number(item.qtyCrushed || 0))}
+                        </p>
+                      </li>
                     ))
-                  )}
-                  <tr className="bg-zinc-50">
-                    <td className="px-4 py-3 font-semibold">Total</td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                      {money(displayTotal)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                  : crushedColors.map((c, idx) => (
+                      <li
+                        key={`${c.color}-${idx}`}
+                        className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-[var(--ink)]">
+                            {colorLabel(c.color)}
+                          </p>
+                          <p className="text-[11px] font-mono text-[var(--ink-muted)]">{c.color}</p>
+                        </div>
+                        <p className="shrink-0 text-sm font-semibold tabular-nums">
+                          {kg(Number(c.qtyKg || 0))}
+                        </p>
+                      </li>
+                    ))}
+                <li className="flex items-center justify-between gap-3 bg-zinc-50 px-3 py-2.5 sm:px-4 sm:py-3">
+                  <span className="text-sm font-semibold">Total</span>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {kg(
+                      batch.colorItems && batch.colorItems.length > 0
+                        ? batch.colorItems.reduce((s, i) => s + Number(i.qtyCrushed || 0), 0)
+                        : crushedColors.reduce((s, c) => s + Number(c.qtyKg || 0), 0),
+                    )}
+                  </span>
+                </li>
+              </ul>
+            </Card>
+          )}
+
+          <Card className="!overflow-hidden !p-0">
+            <div className="border-b border-[var(--line)] px-3 py-2.5 sm:px-4 sm:py-3">
+              <h2 className="text-sm font-semibold sm:text-base">Expense details</h2>
             </div>
+            <ul className="divide-y divide-[var(--line)]">
+              {expenseRows.length === 0 ? (
+                <li className="px-3 py-6 text-sm text-[var(--ink-muted)] sm:px-4">
+                  No expense lines recorded yet.
+                </li>
+              ) : (
+                expenseRows.map((row, idx) => (
+                  <li
+                    key={`${row.label}-${idx}`}
+                    className="flex items-start justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
+                  >
+                    <span className="min-w-0 break-words pt-0.5 text-sm font-medium text-[var(--ink)]">
+                      {row.label}
+                    </span>
+                    <div className="shrink-0 text-right tabular-nums">
+                      {row.amountPrimary ? (
+                        <>
+                          <p className="text-sm font-bold text-[var(--ink)] sm:text-base">
+                            {row.amountPrimary}
+                          </p>
+                          {row.amountSecondary && (
+                            <p className="text-[11px] font-medium text-[var(--ink-muted)] sm:text-xs">
+                              {row.amountSecondary}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm font-medium text-[var(--ink)]">{money(row.amount)}</p>
+                      )}
+                    </div>
+                  </li>
+                ))
+              )}
+              <li className="flex items-center justify-between gap-3 bg-zinc-50 px-3 py-3 sm:px-4">
+                <span className="text-sm font-semibold">Total</span>
+                <span className="text-sm font-bold tabular-nums sm:text-base">
+                  {money(displayTotal)}
+                </span>
+              </li>
+            </ul>
           </Card>
         </div>
       </PageLayout>
@@ -800,11 +976,11 @@ export function BatchDetailPage() {
         ) : batch.batchType === 'WASH' && Number(batch.qtyRemaining || 0) > 0 ? (
           <Button
             size="sm"
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm"
             asChild
           >
-            <Link to="/production/store">
-              Move to Material Store →
+            <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+              Process drying →
             </Link>
           </Button>
         ) : null
@@ -913,8 +1089,8 @@ export function BatchDetailPage() {
                     Process Washing →
                   </Link>
                 ) : batch.batchType === 'WASH' ? (
-                  <Link to="/production/store">
-                    Move to Material Store →
+                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process drying →
                   </Link>
                 ) : (
                   <Link to="/production/store">
@@ -1851,11 +2027,13 @@ function Fact({
   compact?: boolean
 }) {
   return (
-    <div className={compact ? '' : 'rounded-lg bg-zinc-50 px-2.5 py-2'}>
+    <div className={compact ? 'min-w-0' : 'min-w-0 rounded-lg bg-zinc-50 px-2.5 py-2'}>
       <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--ink-faint)]">
         {label}
       </p>
-      <p className={`mt-0.5 text-sm ${strong ? 'font-semibold' : 'font-medium'} tabular-nums`}>
+      <p
+        className={`mt-0.5 break-words text-sm ${strong ? 'font-semibold' : 'font-medium'} tabular-nums`}
+      >
         {value}
       </p>
     </div>
