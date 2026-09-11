@@ -40,6 +40,15 @@ export function ProcessStageListPage() {
 
   const queueColumns = useMemo((): ColumnDef<InputBatch>[] => [
     {
+      accessorKey: 'businessDate',
+      header: 'Date',
+      cell: ({ row }) => (
+        <span className="text-xs sm:text-sm font-bold tabular-nums text-foreground">
+          {formatBusinessDate(row.original.businessDate) || formatCreatedAt(row.original.createdAt)}
+        </span>
+      ),
+    },
+    {
       accessorKey: 'batchNumber',
       header: 'Batch',
       cell: ({ row }) => (
@@ -121,15 +130,6 @@ export function ProcessStageListPage() {
             {qtyLabel(row.original.qtyRemaining, row.original.uom)}
           </span>
         </div>
-      ),
-    },
-    {
-      accessorKey: 'businessDate',
-      header: 'Date',
-      cell: ({ row }) => (
-        <span className="text-sm tabular-nums text-[var(--ink-muted)]">
-          {formatBusinessDate(row.original.businessDate) || formatCreatedAt(row.original.createdAt)}
-        </span>
       ),
     },
     {

@@ -80,6 +80,7 @@ export function ScrapReceivingPage() {
         batch?: { batchNumber: string; notes?: string | null; locationId?: number } | null
         editable?: boolean
         lockReason?: string | null
+        colorLines?: { id?: number; color: string; qtyKg: number }[]
       }
     },
   })
@@ -119,6 +120,9 @@ export function ScrapReceivingPage() {
       otherCost: String(Number(r.otherCost || 0)),
       notes: r.batch?.notes || '',
     })
+    if (r.colorLines && r.colorLines.length) {
+      setColorLines(r.colorLines.map((l) => ({ color: l.color, qtyKg: Number(l.qtyKg || 0) })))
+    }
     setIsCostBreakdownOpen(true)
   }, [receiptQuery.data, isEdit, reset])
 
@@ -132,11 +136,9 @@ export function ScrapReceivingPage() {
     [colorLines],
   )
   const rawKg = Number(watch('kg') || 0)
-  const netKg = isEdit
-    ? Number(Math.max(rawKg, 0).toFixed(3))
-    : isCrushed
-      ? colorTotal
-      : Number(Math.max(rawKg, 0).toFixed(3))
+  const netKg = isCrushed
+    ? colorTotal
+    : Number(Math.max(rawKg, 0).toFixed(3))
 
   const pricePerKg = Number(watch('pricePerKg') || 0)
   const sortingPricePerKg = Number(watch('sortingPricePerKg') || 0)
@@ -148,7 +150,10 @@ export function ScrapReceivingPage() {
   const otherCost = Number(watch('otherCost') || 0)
 
   const scrapCost = useMemo(() => Number((netKg * pricePerKg).toFixed(2)), [netKg, pricePerKg])
-  const sortingCost = useMemo(() => Number((netKg * sortingPricePerKg).toFixed(2)), [netKg, sortingPricePerKg])
+  const sortingCost = useMemo(
+    () => (isCrushed ? 0 : Number((netKg * sortingPricePerKg).toFixed(2))),
+    [isCrushed, netKg, sortingPricePerKg],
+  )
   const totalOtherCosts = useMemo(
     () =>
       Number(
@@ -168,11 +173,12 @@ export function ScrapReceivingPage() {
 
 
   useEffect(() => {
+    if (isEdit) return
     setColorLines([])
     setPickColor('')
     setPickKg('')
     setServerErrors([])
-  }, [inboundForm])
+  }, [inboundForm, isEdit])
 
   const addColorLine = () => {
     setServerErrors([])
@@ -209,11 +215,11 @@ export function ScrapReceivingPage() {
       return
     }
 
-    if (!isEdit && values.inboundForm === 'CRUSHED' && !colorLines.length) {
+    if (values.inboundForm === 'CRUSHED' && !colorLines.length) {
       setServerErrors([
         {
           label: 'Colours',
-          message: 'Add at least one colour with kg. Each colour gets its own BAT- batch.',
+          message: 'Add at least one colour with kg.',
         },
       ])
       return
@@ -222,8 +228,11 @@ export function ScrapReceivingPage() {
     try {
       if (isEdit && editId) {
         await api.patch(`/receiving/scrap/${editId}`, {
+          inboundForm: values.inboundForm,
+          kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
+          colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
           pricePerKg: Number(values.pricePerKg),
-          sortingPricePerKg: Number(values.sortingPricePerKg || 0),
+          sortingPricePerKg: values.inboundForm === 'CRUSHED' ? 0 : Number(values.sortingPricePerKg || 0),
           transportCost: Number(values.transportCost || 0),
           scaleCost: Number(values.scaleCost || 0),
           netCost: Number(values.netCost || 0),
@@ -256,7 +265,7 @@ export function ScrapReceivingPage() {
         kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
         colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
         pricePerKg: Number(values.pricePerKg),
-        sortingPricePerKg: Number(values.sortingPricePerKg || 0),
+        sortingPricePerKg: values.inboundForm === 'CRUSHED' ? 0 : Number(values.sortingPricePerKg || 0),
         transportCost: Number(values.transportCost || 0),
         scaleCost: Number(values.scaleCost || 0),
         netCost: Number(values.netCost || 0),
@@ -441,15 +450,28 @@ export function ScrapReceivingPage() {
         </Card>
 
         {/* Section 3: Quantity & Buying Rates */}
-        {isCrushed && !isEdit ? (
+        {isCrushed ? (
           <Card className="p-3 sm:p-5">
-            <h2 className="text-base font-semibold tracking-tight">Crushed colours → batches</h2>
-            <p className="mt-1 text-xs text-[var(--ink-muted)]">
-              Add each colour and kg. Each colour mints its own BAT- batch for washing.
-            </p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-semibold tracking-tight">Crushed colours</h2>
+                <p className="mt-1 text-xs text-[var(--ink-muted)]">
+                  {isEdit
+                    ? 'Edit colour lines and weights. All colours remain in the same batch for washing.'
+                    : 'Add each colour and kg. All colours are received in a single batch ready for washing.'}
+                </p>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-[var(--ink-muted)]">Total crushed weight</span>
+                <p className="text-base font-bold text-emerald-600">{colorTotal.toLocaleString()} kg</p>
+              </div>
+            </div>
+
+            <div className="mt-3 max-w-sm">
               <Field label="Purchase price / kg (₦)">
                 <input
+                  type="number"
+                  step="any"
                   inputMode="decimal"
                   placeholder="0.00"
                   className="dgn-input w-full"
@@ -457,57 +479,96 @@ export function ScrapReceivingPage() {
                 />
               </Field>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-[1.2fr_1fr_auto]">
-              <Field label="Colour">
-                <ColorCombobox
-                  value={pickColor}
-                  onChange={setPickColor}
-                  exclude={colorLines.map((l) => l.color)}
-                  placeholder="Select colour…"
-                />
-              </Field>
-              <Field label="Kg">
-                <input
-                  inputMode="decimal"
-                  placeholder="0"
-                  className="dgn-input w-full"
-                  value={pickKg}
-                  onChange={(e) => setPickKg(e.target.value)}
-                />
-              </Field>
-              <div className="flex items-end">
-                <button
-                  type="button"
-                  className="dgn-btn dgn-btn-secondary w-full"
-                  onClick={addColorLine}
-                >
-                  + Add colour
-                </button>
+
+            {/* List of colour lines */}
+            {colorLines.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-xl ring-1 ring-[var(--line)]">
+                <div className="bg-[var(--surface-muted)] px-3 py-2 text-xs font-semibold text-[var(--ink-muted)] grid grid-cols-[1fr_130px_auto] gap-2 items-center">
+                  <span>Colour</span>
+                  <span className="text-right">Weight (kg)</span>
+                  <span className="w-14 text-center">Action</span>
+                </div>
+                <ul className="divide-y divide-[var(--line)] bg-[var(--surface)]">
+                  {colorLines.map((line, idx) => (
+                    <li
+                      key={line.color}
+                      className="grid grid-cols-[1fr_130px_auto] gap-2 items-center px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-[var(--ink)]">{colorName(line.color)}</span>
+                        <span className="text-xs text-[var(--ink-muted)] font-mono">({line.color})</span>
+                      </div>
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.001"
+                          placeholder="0"
+                          value={line.qtyKg || ''}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0
+                            setColorLines((prev) =>
+                              prev.map((r, i) => (i === idx ? { ...r, qtyKg: val } : r))
+                            )
+                          }}
+                          className="dgn-input w-24 text-right py-1 text-sm font-semibold"
+                        />
+                        <span className="text-xs text-[var(--ink-muted)]">kg</span>
+                      </div>
+                      <div className="w-14 text-center">
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-red-500 hover:text-red-400 p-1"
+                          onClick={() =>
+                            setColorLines((prev) => prev.filter((_, i) => i !== idx))
+                          }
+                          title="Remove colour"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Add Colour Form */}
+            <div className="mt-3 pt-3 border-t border-[var(--line)]">
+              <span className="text-xs font-medium text-[var(--ink-muted)] block mb-1.5">
+                Add {colorLines.length > 0 ? 'another' : 'a'} colour:
+              </span>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1.2fr_1fr_auto]">
+                <Field label="Colour">
+                  <ColorCombobox
+                    value={pickColor}
+                    onChange={setPickColor}
+                    exclude={colorLines.map((l) => l.color)}
+                    placeholder="Select colour…"
+                  />
+                </Field>
+                <Field label="Kg">
+                  <input
+                    type="number"
+                    step="any"
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="dgn-input w-full"
+                    value={pickKg}
+                    onChange={(e) => setPickKg(e.target.value)}
+                  />
+                </Field>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    className="dgn-btn dgn-btn-secondary w-full"
+                    onClick={addColorLine}
+                  >
+                    + Add colour
+                  </button>
+                </div>
               </div>
             </div>
-
-            {colorLines.length > 0 && (
-              <ul className="mt-3 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
-                {colorLines.map((line) => (
-                  <li
-                    key={line.color}
-                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                  >
-                    <span className="font-medium">{colorName(line.color)}</span>
-                    <span className="text-[var(--ink-muted)]">{line.qtyKg.toLocaleString()} kg</span>
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-red-500 hover:text-red-400"
-                      onClick={() =>
-                        setColorLines((prev) => prev.filter((row) => row.color !== line.color))
-                      }
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </Card>
         ) : (
           <Card className="p-3 sm:p-5">
@@ -520,8 +581,7 @@ export function ScrapReceivingPage() {
                   inputMode="decimal"
                   placeholder="e.g. 1500"
                   className="dgn-input w-full font-semibold"
-                  readOnly={isEdit}
-                  {...register('kg', { required: !isEdit && !isCrushed })}
+                  {...register('kg', { required: !isCrushed })}
                 />
               </Field>
               <Field label="Buying price / kg (₦)">
@@ -681,10 +741,12 @@ export function ScrapReceivingPage() {
                   <span>Material purchase ({netKg.toLocaleString()} kg @ ₦{pricePerKg.toLocaleString()})</span>
                   <span className="font-mono font-medium text-zinc-900">₦{scrapCost.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-indigo-700">
-                  <span>Sorting ({netKg.toLocaleString()} kg @ ₦{sortingPricePerKg.toLocaleString()})</span>
-                  <span className="font-mono font-medium">₦{sortingCost.toLocaleString()}</span>
-                </div>
+                {!isCrushed && (
+                  <div className="flex justify-between text-indigo-700">
+                    <span>Sorting ({netKg.toLocaleString()} kg @ ₦{sortingPricePerKg.toLocaleString()})</span>
+                    <span className="font-mono font-medium">₦{sortingCost.toLocaleString()}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-zinc-600">
                   <span>Scale / Weighbridge fee</span>
                   <span className="font-mono text-zinc-900">₦{scaleCost.toLocaleString()}</span>
@@ -749,7 +811,7 @@ export function ScrapReceivingPage() {
         <div className="pt-1">
           <button
             type="submit"
-            disabled={formState.isSubmitting || (!isEdit && isCrushed && !colorLines.length)}
+            disabled={formState.isSubmitting || (isCrushed && !colorLines.length)}
             className="w-full rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 py-3.5 text-[15px] font-bold tracking-wide text-white shadow-lg shadow-emerald-800/30 transition-all hover:from-emerald-500 hover:to-emerald-400 hover:shadow-emerald-700/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
           >
             {formState.isSubmitting ? (
@@ -758,12 +820,12 @@ export function ScrapReceivingPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                 </svg>
-                {isEdit ? 'Saving costs…' : 'Saving scrap ticket…'}
+                {isEdit ? 'Saving changes…' : 'Saving scrap ticket…'}
               </>
             ) : (
               <>
                 <ShoppingCart className="h-4.5 w-4.5" />
-                {isEdit ? 'Save cost changes' : 'Record Scrap Buying'}
+                {isEdit ? 'Save changes' : 'Record Scrap Buying'}
               </>
             )}
           </button>

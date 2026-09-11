@@ -1,17 +1,26 @@
-import { useMemo } from 'react'
+import { useMemo, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
 import {
   PackagePlus,
   Hammer,
   Droplets,
   RotateCcw,
+  Warehouse,
   Play,
   ShieldCheck,
   Boxes,
   Truck,
+  Store,
+  Search,
   Receipt,
+  Users,
+  Wallet,
+  LayoutDashboard,
+  Gauge,
+  TrendingUp,
+  Calculator,
+  Layers,
   Clock,
   CheckCircle2,
   Bell,
@@ -20,9 +29,9 @@ import {
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import CustomTable1 from '@/components/CustomTable1'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
+import { canAccessNavItem } from '@/components/AppShell'
 import { cn } from '@/lib/utils'
 
 type BatchRow = {
@@ -48,43 +57,219 @@ type QcQueueItem = {
   material?: { name: string }
 }
 
-function getStageBadge(stage?: string) {
-  const s = (stage || '').toUpperCase()
-  if (s === 'SCRAP') return 'bg-amber-50 text-amber-800 border-amber-200'
-  if (s === 'SORT') return 'bg-blue-50 text-blue-800 border-blue-200'
-  if (s === 'CRUSH') return 'bg-purple-50 text-purple-800 border-purple-200'
-  if (s === 'WASH') return 'bg-cyan-50 text-cyan-800 border-cyan-200'
-  if (s === 'DRY') return 'bg-orange-50 text-orange-800 border-orange-200'
-  if (s === 'PROD') return 'bg-emerald-50 text-emerald-800 border-emerald-200'
-  return 'bg-zinc-100 text-zinc-800 border-zinc-200'
+type QuickActionItem = {
+  to: string
+  title: string
+  desc: string
+  icon: ComponentType<{ className?: string }>
+  tone: string
+  menuKey: string
+  permission?: string
 }
 
-function formatCreatedAt(raw?: string) {
-  if (!raw) return '—'
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+// All sidebar navigation items mapped to a quick action
+const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
+  {
+    to: '/receiving/new',
+    title: 'New Scrap Buying',
+    desc: 'Log inbound raw or crushed scrap',
+    icon: PackagePlus,
+    tone: 'bg-amber-500 text-white',
+    menuKey: 'receiving',
+    permission: 'receiving.create',
+  },
+  {
+    to: '/process/crushing',
+    title: 'Crushing Stage',
+    desc: 'Crush sorted material into flakes',
+    icon: Hammer,
+    tone: 'bg-purple-600 text-white',
+    menuKey: 'crushing',
+    permission: 'batch.create',
+  },
+  {
+    to: '/process/washing',
+    title: 'Washing Stage',
+    desc: 'Wash crushed material lots',
+    icon: Droplets,
+    tone: 'bg-cyan-600 text-white',
+    menuKey: 'washing',
+    permission: 'batch.create',
+  },
+  {
+    to: '/process/recrushing',
+    title: 'Re-crushing',
+    desc: 'Re-crush washed and dried lots',
+    icon: RotateCcw,
+    tone: 'bg-slate-700 text-white',
+    menuKey: 'recrushing',
+    permission: 'batch.create',
+  },
+  {
+    to: '/production/store',
+    title: 'Material Store',
+    desc: 'Ready-to-process flake inventory',
+    icon: Warehouse,
+    tone: 'bg-emerald-600 text-white',
+    menuKey: 'production_store',
+    permission: 'batch.view',
+  },
+  {
+    to: '/production/new',
+    title: 'Floor Operations & Shifts',
+    desc: 'Manage machine shifts, outputs & downtime',
+    icon: Play,
+    tone: 'bg-violet-600 text-white',
+    menuKey: 'production',
+    permission: 'batch.view',
+  },
+  {
+    to: '/qc',
+    title: 'QC Inspection',
+    desc: 'Inspect dried or production batches',
+    icon: ShieldCheck,
+    tone: 'bg-teal-600 text-white',
+    menuKey: 'qc',
+    permission: 'batch.view',
+  },
+  {
+    to: '/inventory',
+    title: 'Stock Ledger',
+    desc: 'View balances and make adjustments',
+    icon: Boxes,
+    tone: 'bg-sky-600 text-white',
+    menuKey: 'inventory',
+    permission: 'inventory.view',
+  },
+  {
+    to: '/sales/new',
+    title: 'New Dispatch / Sale',
+    desc: 'Create sales invoice & dispatch goods',
+    icon: Truck,
+    tone: 'bg-indigo-600 text-white',
+    menuKey: 'sales',
+    permission: 'sales.view',
+  },
+  {
+    to: '/distributors',
+    title: 'Distributors',
+    desc: 'Customer distributor accounts & credit',
+    icon: Store,
+    tone: 'bg-blue-600 text-white',
+    menuKey: 'distributors',
+    permission: 'sales.view',
+  },
+  {
+    to: '/batches',
+    title: 'Batches',
+    desc: 'Search, trace & inspect batch histories',
+    icon: Search,
+    tone: 'bg-zinc-700 text-white',
+    menuKey: 'batches',
+    permission: 'batch.view',
+  },
+  {
+    to: '/masters',
+    title: 'Masters Management',
+    desc: 'Configure scrap grades, products & settings',
+    icon: Boxes,
+    tone: 'bg-stone-600 text-white',
+    menuKey: 'masters',
+    permission: 'masters.manage',
+  },
+  {
+    to: '/expenses',
+    title: 'Log Expense',
+    desc: 'Submit operational expenses & vouchers',
+    icon: Receipt,
+    tone: 'bg-rose-600 text-white',
+    menuKey: 'expenses',
+    permission: 'expense.view',
+  },
+  {
+    to: '/staff',
+    title: 'Staff Management',
+    desc: 'Manage workforce, attendance & roles',
+    icon: Users,
+    tone: 'bg-amber-600 text-white',
+    menuKey: 'staff',
+    permission: 'labour.view',
+  },
+  {
+    to: '/payroll',
+    title: 'Payroll & Wages',
+    desc: 'Worker wage sheets & disbursements',
+    icon: Wallet,
+    tone: 'bg-emerald-700 text-white',
+    menuKey: 'payroll',
+    permission: 'labour.view',
+  },
+  {
+    to: '/dashboard',
+    title: 'Command Centre',
+    desc: 'Executive cockpit, KPIs & margins',
+    icon: LayoutDashboard,
+    tone: 'bg-indigo-700 text-white',
+    menuKey: 'dashboard',
+    permission: 'dashboard.executive',
+  },
+  {
+    to: '/machines',
+    title: 'Machines & Maintenance',
+    desc: 'Monitor health, runtimes & breakdowns',
+    icon: Gauge,
+    tone: 'bg-orange-600 text-white',
+    menuKey: 'machines',
+    permission: 'batch.view',
+  },
+  {
+    to: '/sales/margins',
+    title: 'Sales Margins',
+    desc: 'Analyze product profitability & margins',
+    icon: TrendingUp,
+    tone: 'bg-teal-700 text-white',
+    menuKey: 'sales_margins',
+    permission: 'sales.view',
+  },
+  {
+    to: '/costs',
+    title: 'Cost Intelligence',
+    desc: 'Unit production costs & power usage',
+    icon: Calculator,
+    tone: 'bg-cyan-700 text-white',
+    menuKey: 'costs',
+    permission: 'costs.view',
+  },
+  {
+    to: '/costs/overhead',
+    title: 'Factory Overhead',
+    desc: 'Track monthly overheads & absorption',
+    icon: Layers,
+    tone: 'bg-fuchsia-700 text-white',
+    menuKey: 'overhead',
+    permission: 'costs.view',
+  },
+  {
+    to: '/alerts',
+    title: 'Operational Alerts',
+    desc: 'Review critical notices & plant flags',
+    icon: Bell,
+    tone: 'bg-red-600 text-white',
+    menuKey: 'alerts',
+    permission: 'alert.view',
+  },
+]
 
 export function StaffDashboard() {
   const user = useAuthStore((s) => s.user)
 
   const canBatchView = hasPermission(user, 'batch.view')
   const canBatchCreate = hasPermission(user, 'batch.create')
-  const canReceiving = hasPermission(user, 'receiving.create')
-  const canProdCreate = hasPermission(user, 'production.create')
   const canQc = hasPermission(user, 'qc.inspect')
   const canInventory = hasPermission(user, 'inventory.view')
-  const canSales = hasPermission(user, 'sales.view')
-  const canExpense = hasPermission(user, 'expense.view')
   const canAlert = hasPermission(user, 'alert.view')
 
-  // Fetch recent batches for operations queue
+  // Fetch recent batches for metric calculations
   const batchesQuery = useQuery({
     queryKey: ['staff-recent-batches'],
     queryFn: async () => {
@@ -141,192 +326,22 @@ export function StaffDashboard() {
   const completedTodayCount = batchList.filter((b) => b.status === 'COMPLETED').length
   const qcQueueCount = qcQueueQuery.data?.length || 0
 
-  // Fast actions relevant to user
+  // Filter all sidebar quick actions based on user access
   const fastActions = useMemo(() => {
-    const list: Array<{
-      to: string
-      title: string
-      desc: string
-      icon: any
-      tone: string
-    }> = []
-
-    if (canReceiving) {
-      list.push({
-        to: '/receiving/new',
-        title: 'New Scrap Buying',
-        desc: 'Log inbound raw or crushed scrap',
-        icon: PackagePlus,
-        tone: 'bg-amber-500 text-white',
-      })
-    }
-    if (canBatchCreate) {
-      list.push({
-        to: '/process/crushing',
-        title: 'Crushing Stage',
-        desc: 'Crush sorted material into flakes',
-        icon: Hammer,
-        tone: 'bg-purple-600 text-white',
-      })
-      list.push({
-        to: '/process/washing',
-        title: 'Washing Stage',
-        desc: 'Wash crushed material lots',
-        icon: Droplets,
-        tone: 'bg-cyan-600 text-white',
-      })
-      list.push({
-        to: '/process/recrushing',
-        title: 'Re-crushing',
-        desc: 'Re-crush washed and dried lots for material store',
-        icon: RotateCcw,
-        tone: 'bg-slate-700 text-white',
-      })
-    }
-    if (canProdCreate) {
-      list.push({
-        to: '/production/new',
-        title: 'Floor Operations & Shifts',
-        desc: 'Manage machine shifts, outputs & downtime',
-        icon: Play,
-        tone: 'bg-violet-600 text-white',
-      })
-    }
-    if (canQc) {
-      list.push({
-        to: '/qc',
-        title: 'QC Inspection',
-        desc: 'Inspect dried or production batches',
-        icon: ShieldCheck,
-        tone: 'bg-emerald-600 text-white',
-      })
-    }
-    if (canInventory) {
-      list.push({
-        to: '/inventory',
-        title: 'Stock Ledger',
-        desc: 'View balances and make adjustments',
-        icon: Boxes,
-        tone: 'bg-sky-600 text-white',
-      })
-    }
-    if (canSales) {
-      list.push({
-        to: '/sales/new',
-        title: 'New Dispatch / Sale',
-        desc: 'Create sales invoice & dispatch goods',
-        icon: Truck,
-        tone: 'bg-indigo-600 text-white',
-      })
-    }
-    if (canExpense) {
-      list.push({
-        to: '/expenses',
-        title: 'Log Expense',
-        desc: 'Submit operational expenses',
-        icon: Receipt,
-        tone: 'bg-rose-600 text-white',
-      })
-    }
-
-    return list
-  }, [canReceiving, canBatchCreate, canProdCreate, canQc, canInventory, canSales, canExpense])
-
-  // CustomTable1 columns for recent batches
-  const batchColumns = useMemo((): ColumnDef<BatchRow>[] => [
-    {
-      accessorKey: 'batchNumber',
-      header: 'Batch #',
-      cell: ({ row }) => (
-        <div>
-          <Link
-            to={`/batches/${row.original.batchNumber}`}
-            className="font-semibold text-sm hover:underline text-[var(--accent-strong)]"
-          >
-            {row.original.batchNumber}
-          </Link>
-          <p className="text-xs text-[var(--ink-faint)]">
-            {row.original.material?.name || row.original.product?.name || '—'}
-          </p>
-        </div>
-      ),
-    },
-    {
-      accessorKey: 'batchType',
-      header: 'Stage',
-      cell: ({ row }) => (
-        <span
-          className={cn(
-            'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide',
-            getStageBadge(row.original.batchType),
-          )}
-        >
-          {row.original.batchType}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'status',
-      header: 'Status',
-      cell: ({ row }) => {
-        const s = row.original.status
-        const isProg = s === 'IN_PROGRESS' || s === 'OPEN'
-        return (
-          <span
-            className={cn(
-              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-              isProg ? 'bg-amber-100 text-amber-800' : 'bg-zinc-100 text-zinc-700',
-            )}
-          >
-            {isProg ? 'In progress' : s}
-          </span>
-        )
-      },
-    },
-    {
-      accessorKey: 'qtyRemaining',
-      header: 'Qty Remaining',
-      cell: ({ row }) => (
-        <span className="tabular-nums font-medium text-sm">
-          {Number(row.original.qtyRemaining).toLocaleString()} {row.original.uom || 'kg'}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'createdAt',
-      header: 'Created',
-      cell: ({ row }) => (
-        <span className="text-xs text-[var(--ink-muted)]">
-          {formatCreatedAt(row.original.createdAt)}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: 'Action',
-      cell: ({ row }) => {
-        const b = row.original
-        const stageMap: Record<string, string> = {
-          CRUSH: 'crushing',
-          WASH: 'washing',
-          DRY: 'drying',
-          SORT: 'sorting',
-        }
-        const stageUrl = stageMap[b.batchType] ? `/process/${stageMap[b.batchType]}?batch=${b.batchNumber}` : `/batches/${b.batchNumber}`
-        return (
-          <Button variant="ghost" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
-            <Link to={stageUrl} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-              <span>Open</span>
-              <ArrowRight className="h-3 w-3 shrink-0" />
-            </Link>
-          </Button>
-        )
-      },
-    },
-  ], [])
+    return ALL_SIDEBAR_QUICK_ACTIONS.filter((act) =>
+      canAccessNavItem(user, {
+        to: act.to,
+        label: act.title,
+        icon: act.icon,
+        menuKey: act.menuKey,
+        permission: act.permission,
+      }),
+    )
+  }, [user])
 
   return (
     <div className="space-y-6">
+      {/* Alert Banner */}
       {canAlert && (alertsQuery.data?.totalUnacknowledged || 0) > 0 && (
         <Link
           to="/alerts"
@@ -420,7 +435,7 @@ export function StaffDashboard() {
         )}
       </div>
 
-      {/* Fast Actions Bar */}
+      {/* Quick Actions Bar */}
       {fastActions.length > 0 && (
         <div>
           <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
@@ -487,35 +502,6 @@ export function StaffDashboard() {
             ))}
           </div>
         </Card>
-      )}
-
-      {/* Live Floor Batches Table */}
-      {canBatchView && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-base font-semibold text-foreground">Active Operations &amp; Recent Batches</h2>
-              <p className="text-xs text-muted-foreground">
-                Recent lots moving through processing stages
-              </p>
-            </div>
-            <Button variant="outline" size="sm" className="h-8 text-xs font-medium shrink-0" asChild>
-              <Link to="/batches" className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                <span>All Batches</span>
-                <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-              </Link>
-            </Button>
-          </div>
-
-          <CustomTable1
-            data={batchList.slice(0, 5)}
-            columns={batchColumns}
-            filter={false}
-            pagination={false}
-            card
-            loading={batchesQuery.isLoading}
-          />
-        </div>
       )}
     </div>
   )

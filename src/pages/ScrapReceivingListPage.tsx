@@ -72,6 +72,16 @@ export function ScrapReceivingListPage() {
   const columns: ColumnDef<ScrapReceiptRow>[] = useMemo(
     () => [
       {
+        id: 'receivedAt',
+        header: 'Date Received',
+        accessorKey: 'receivedAt',
+        cell: ({ row }) => (
+          <span className="text-xs font-bold text-foreground">
+            {formatDate(row.original.receivedAt)}
+          </span>
+        ),
+      },
+      {
         id: 'batchNumber',
         header: 'Batch / Ticket',
         accessorKey: 'batch.batchNumber',
@@ -190,16 +200,7 @@ export function ScrapReceivingListPage() {
           )
         },
       },
-      {
-        id: 'receivedAt',
-        header: 'Date Received',
-        accessorKey: 'receivedAt',
-        cell: ({ row }) => (
-          <span className="text-xs text-[var(--ink-muted)]">
-            {formatDate(row.original.receivedAt)}
-          </span>
-        ),
-      },
+ 
       {
         id: 'actions',
         header: 'Action',

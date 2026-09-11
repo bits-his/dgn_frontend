@@ -37,7 +37,7 @@ import { api } from '@/lib/api'
 import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 
-type NavItem = {
+export type NavItem = {
   to: string
   label: string
   icon: ComponentType<{ className?: string }>
@@ -47,7 +47,7 @@ type NavItem = {
   menuKey?: string
 }
 
-type NavGroup = {
+export type NavGroup = {
   id: string
   label: string
   icon: ComponentType<{ className?: string }>
@@ -98,11 +98,12 @@ const recyclingGroup: NavGroup = {
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
-    { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'recrushing', permission: 'batch.create' },
   ],
 }
 
-const recyclingNav: NavItem[] = []
+const recyclingNav: NavItem[] = [
+  { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'recrushing', permission: 'batch.create' },
+]
 
 const productionNav: NavItem[] = [
   { to: '/production/store', label: 'Material store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },

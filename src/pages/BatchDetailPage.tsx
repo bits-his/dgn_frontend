@@ -634,6 +634,16 @@ export function BatchDetailPage() {
               Process Washing →
             </Link>
           </Button>
+        ) : batch.batchType === 'WASH' && Number(batch.qtyRemaining || 0) > 0 ? (
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            asChild
+          >
+            <Link to="/production/store">
+              Move to Material Store →
+            </Link>
+          </Button>
         ) : null
       }
     >
@@ -740,12 +750,12 @@ export function BatchDetailPage() {
                     Process Washing →
                   </Link>
                 ) : batch.batchType === 'WASH' ? (
-                  <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-                    Process Re-crushing →
+                  <Link to="/production/store">
+                    Move to Material Store →
                   </Link>
                 ) : (
-                  <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-                    Process Re-crushing →
+                  <Link to="/production/store">
+                    Move to Material Store →
                   </Link>
                 )}
               </Button>

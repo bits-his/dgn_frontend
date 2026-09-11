@@ -100,9 +100,9 @@ export const STAGE_META: Record<
   },
   recrushing: {
     title: 'Re-crushing',
-    eyebrow: 'Recycling stage',
-    queueTitle: 'Washed & Dried lots waiting to re-crush',
-    emptyHint: 'No washed lots waiting. Finish washing first.',
+    eyebrow: 'Standalone processing',
+    queueTitle: 'Batches waiting to re-crush',
+    emptyHint: 'No batches currently queued for re-crushing.',
     showMachine: true,
     showTeam: false,
     showOperator: true,
@@ -435,11 +435,14 @@ export function ProcessStageForm({
   }, [machines.data, isWashing, isCrushing, isRecrushing, isDrying, isRecycling])
 
   const batchOptions = useMemo(() => {
-    return (inputs.data || []).map((b) => ({
-      value: b.batchNumber,
-      label: `${b.batchNumber} - ${colorName(b.sortColor)} (${qtyLabel(b.qtyRemaining, b.uom)})`,
-      sublabel: b.material?.name || b.batchType,
-    }))
+    return (inputs.data || []).map((b) => {
+      const dateStr = formatBusinessDate(b.businessDate) || formatCreatedAt(b.createdAt)
+      return {
+        value: b.batchNumber,
+        label: `${dateStr ? `${dateStr} · ` : ''}${b.batchNumber} - ${colorName(b.sortColor)} (${qtyLabel(b.qtyRemaining, b.uom)})`,
+        sublabel: b.material?.name || b.batchType,
+      }
+    })
   }, [inputs.data])
 
   const { register, handleSubmit, watch, setValue, formState, reset } = useForm<FormValues>({
@@ -835,8 +838,8 @@ export function ProcessStageForm({
       const resultingBatch =
         data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
 
-      // If recrushing or drying and user clicked "Move to Material", immediately handover to Production Store
-      if ((isRecrushing || isDrying) && destination === 'production') {
+      // If washing, recrushing, or drying and user clicked "Move to Material", immediately handover to Production Store
+      if ((isWashing || isRecrushing || isDrying) && destination === 'production') {
         try {
           await api.post('/production/store/transfer', { batchNumber: resultingBatch })
           await queryClient.invalidateQueries({ queryKey: ['production-store'] })
@@ -873,7 +876,7 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
       await queryClient.invalidateQueries()
 
-      if ((isRecrushing || isDrying) && destination === 'production') {
+      if ((isWashing || isRecrushing || isDrying) && destination === 'production') {
         navigate('/production/store')
       } else if (isRecycling) {
         navigate('/production/store')
@@ -968,6 +971,11 @@ export function ProcessStageForm({
                   </h3>
                 </div>
                 <p className="text-xs text-[var(--ink-muted)] mt-1">
+                  {(formatBusinessDate(selected.businessDate) || formatCreatedAt(selected.createdAt)) && (
+                    <strong className="text-zinc-900 font-bold mr-2">
+                      {formatBusinessDate(selected.businessDate) || formatCreatedAt(selected.createdAt)}
+                    </strong>
+                  )}
                   {selected.material?.name || selected.batchType} · Available in queue:{' '}
                   <strong className="text-emerald-700 font-bold">
                     {qtyLabel(selected.qtyRemaining, selected.uom)}
@@ -1791,9 +1799,29 @@ export function ProcessStageForm({
               </Card>
             )}
 
-            {/* Action buttons: for recrushing (and drying), directly Move to Material */}
-            {isRecrushing || isDrying ? (
+            {/* Action buttons: for washing, recrushing, and drying, allow direct Move to Material Store or complete */}
+            {isWashing || isRecrushing || isDrying ? (
               <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
+                <Button
+                  type="submit"
+                  size="default"
+                  disabled={
+                    formState.isSubmitting ||
+                    (isMultiLotStage
+                      ? !lotLines.length || lotMissingUsable || measuredOverIn
+                      : !selected || !(qtyUsable > 0) || measuredOverIn)
+                  }
+                  className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
+                >
+                  {formState.isSubmitting && !submitAction ? (
+                    <>
+                      <Loader2 className="size-3.5 sm:size-4 animate-spin" />
+                      <span>Saving…</span>
+                    </>
+                  ) : (
+                    <span>Complete {meta.title}</span>
+                  )}
+                </Button>
                 <Button
                   type="button"
                   size="default"
@@ -1810,7 +1838,7 @@ export function ProcessStageForm({
                   <span>
                     {formState.isSubmitting && submitAction === 'production'
                       ? 'Moving to Material…'
-                      : 'Move to Material'}
+                      : 'Move to Material Store'}
                   </span>
                 </Button>
               </div>
