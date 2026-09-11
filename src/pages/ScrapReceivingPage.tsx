@@ -236,11 +236,7 @@ export function ScrapReceivingPage() {
         await queryClient.invalidateQueries({ queryKey: ['scrap-receipt', editId] })
         await queryClient.invalidateQueries({ queryKey: ['batches'] })
         await queryClient.invalidateQueries()
-        if (editBatchNumber) {
-          navigate(`/batches/${editBatchNumber}`)
-        } else {
-          navigate('/receiving')
-        }
+        navigate(`/receiving/${editId}`)
         return
       }
 

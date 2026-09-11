@@ -9,6 +9,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { HomePage } from '@/pages/HomePage'
 import { ScrapReceivingListPage } from '@/pages/ScrapReceivingListPage'
 import { ScrapReceivingPage } from '@/pages/ScrapReceivingPage'
+import { ScrapReceivingDetailPage } from '@/pages/ScrapReceivingDetailPage'
 import { BatchesPage } from '@/pages/BatchesPage'
 import { BatchDetailPage } from '@/pages/BatchDetailPage'
 import { SuppliersPage } from '@/pages/SuppliersPage'
@@ -102,6 +103,7 @@ function App() {
                 <Route path="/receiving" element={<ScrapReceivingListPage />} />
                 <Route path="/receiving/new" element={<ScrapReceivingPage />} />
                 <Route path="/receiving/:id/edit" element={<ScrapReceivingPage />} />
+                <Route path="/receiving/:id" element={<ScrapReceivingDetailPage />} />
                 <Route path="/process/:stage" element={<ProcessStageListPage />} />
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />

@@ -81,7 +81,7 @@ export function ScrapReceivingListPage() {
           return (
             <div>
               <Link
-                to={r.batch?.batchNumber ? `/batches/${r.batch.batchNumber}` : '#'}
+                to={`/receiving/${r.id}`}
                 className="font-semibold text-sm hover:underline text-[var(--accent-strong)]"
               >
                 {batchNum}
@@ -204,17 +204,14 @@ export function ScrapReceivingListPage() {
         id: 'actions',
         header: 'Action',
         cell: ({ row }) => {
-          const batchNum = row.original.batch?.batchNumber
+          const receiptId = row.original.id
           return (
             <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
                 className="h-8 text-xs font-medium cursor-pointer"
-                disabled={!batchNum}
-                onClick={() => {
-                  if (batchNum) navigate(`/batches/${batchNum}`)
-                }}
+                onClick={() => navigate(`/receiving/${receiptId}`)}
               >
                 <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                 <span>View</span>

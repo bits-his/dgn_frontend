@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useParams, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
@@ -62,6 +62,8 @@ const STAGE_LABEL: Record<string, string> = {
   CRUSHING: 'Crushing',
   WASHING: 'Washing',
   DRYING: 'Drying',
+  RECRUSHING: 'Re-crushing',
+  RECYCLING: 'Recycling',
 }
 
 type CostSummary = {
@@ -567,6 +569,167 @@ export function BatchDetailPage() {
   const displayProcessRuns = processRuns.filter((r) => r.stage !== 'SORTING')
 
   const isProd = batch.batchType === 'PROD' || Boolean(productionRun)
+
+  // Scrap buying has its own clean detail page
+  if (batch.batchType === 'SCRAP' && batch.scrapReceipt?.id) {
+    return <Navigate to={`/receiving/${batch.scrapReceipt.id}`} replace />
+  }
+
+  // Process stages (crush / wash / dry / …): summary + expense table only
+  if (!isProd) {
+    const qtyKg = Number(batch.qtyIn || 0)
+    const wasteKg = Number(batch.qtyReject || batch.qtyWaste || 0)
+    const usableKg = Math.max(0, qtyKg - wasteKg)
+    const totalCost = Number(summary.totalCost || 0)
+    const unitCost = usableKg > 0 ? +(totalCost / usableKg).toFixed(2) : 0
+
+    const expenseRows: Array<{ label: string; amount: number }> = []
+    if (displayStageRows.length > 0) {
+      displayStageRows.forEach((row) => {
+        const stageName = row.label || STAGE_LABEL[row.stage] || row.stage
+        ;(row.lines || []).forEach((line) => {
+          const amount = Number(line.amount || 0)
+          if (!(amount > 0)) return
+          const lineLabel = String(line.label || '').trim()
+          const alreadyPrefixed = lineLabel.toLowerCase().startsWith(String(stageName).toLowerCase())
+          expenseRows.push({
+            label: alreadyPrefixed ? lineLabel : `${stageName} ${lineLabel.toLowerCase()}`,
+            amount: +amount.toFixed(2),
+          })
+        })
+      })
+    } else {
+      displayProcessRuns.forEach((run) => {
+        const stageName = STAGE_LABEL[run.stage] || run.stage
+        const add = (label: string, amount: number | null | undefined) => {
+          const n = Number(amount || 0)
+          if (!(n > 0)) return
+          expenseRows.push({
+            label: `${stageName} ${label.toLowerCase()}`,
+            amount: +n.toFixed(2),
+          })
+        }
+        add('Labour', run.labourCost)
+        add('Energy', run.energyCost)
+        add('Loading', run.loadingCost)
+        add('Transport', run.transportCost)
+        add('Other', run.otherCost)
+        add('Water', run.waterQty)
+        add('Chemical', run.chemicalCost)
+        add('Detergent', run.detergentCost)
+      })
+    }
+    const expensesTotal = +expenseRows.reduce((sum, row) => sum + row.amount, 0).toFixed(2)
+    const isPurchaseLine = (label: string) => {
+      const l = label.toLowerCase()
+      return l.includes('scrap buy') || l.includes('buy scrap') || l.includes('material purchase')
+    }
+    const otherExpenses = +expenseRows
+      .filter((row) => !isPurchaseLine(row.label))
+      .reduce((sum, row) => sum + row.amount, 0)
+      .toFixed(2)
+    // Prefer summed expense lines; fall back to batch total cost
+    const displayTotal = expensesTotal > 0 ? expensesTotal : totalCost
+
+    const nextAction =
+      batch.batchType === 'CRUSH' && Number(batch.qtyRemaining || 0) > 0 ? (
+        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
+          <Link to={`/process/washing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+            Process washing →
+          </Link>
+        </Button>
+      ) : batch.batchType === 'WASH' && Number(batch.qtyRemaining || 0) > 0 ? (
+        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
+          <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+            Process drying →
+          </Link>
+        </Button>
+      ) : batch.batchType === 'DRY' && Number(batch.qtyRemaining || 0) > 0 ? (
+        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
+          <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+            Process re-crushing →
+          </Link>
+        </Button>
+      ) : null
+
+    return (
+      <PageLayout
+        title={<span className="font-mono">{batch.batchNumber}</span>}
+        description={`${typeLabel}${batch.sortColor ? ` · ${colorLabel(batch.sortColor)}` : ''}`}
+        back
+        backLabel="Back"
+        onBack={() => navigate(-1)}
+        actions={nextAction}
+      >
+        <div className="space-y-4">
+          <Card className="!p-4">
+            <h2 className="text-base font-semibold">Summary</h2>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+              <Fact
+                label="Date"
+                value={formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt) || '—'}
+              />
+              <Fact label="Name of material" value={batch.material?.name || '—'} />
+              <Fact label="Quantity" value={kg(qtyKg)} />
+              <Fact label="Waste" value={kg(wasteKg)} />
+              <Fact
+                label="Cost / kg"
+                value={
+                  usableKg > 0 && displayTotal > 0
+                    ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
+                    : unitCost > 0
+                      ? `${money(unitCost)}/kg`
+                      : '—'
+                }
+              />
+              <Fact label="Other cost" value={money(Number(otherExpenses))} />
+              <Fact label="Cost" value={money(displayTotal)} strong />
+            </div>
+          </Card>
+
+          <Card className="!overflow-hidden !p-0">
+            <div className="border-b border-[var(--line)] px-4 py-3">
+              <h2 className="text-base font-semibold">Expense details</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[420px] text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-zinc-50 text-xs text-[var(--ink-faint)]">
+                    <th className="px-4 py-3 font-semibold">Expense</th>
+                    <th className="px-4 py-3 font-semibold text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {expenseRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={2} className="px-4 py-6 text-sm text-[var(--ink-muted)]">
+                        No expense lines recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    expenseRows.map((row, idx) => (
+                      <tr key={`${row.label}-${idx}`} className="border-b border-[var(--line)]">
+                        <td className="px-4 py-3 font-medium">{row.label}</td>
+                        <td className="px-4 py-3 text-right font-medium tabular-nums">
+                          {money(row.amount)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                  <tr className="bg-zinc-50">
+                    <td className="px-4 py-3 font-semibold">Total</td>
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                      {money(displayTotal)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      </PageLayout>
+    )
+  }
 
 
   const prodGoodUnits = Number(productionRun?.qtyGood || batch.qtyOut || 0)
