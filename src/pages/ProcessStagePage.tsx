@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {  useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Warehouse, AlertCircle, Loader2, Recycle } from 'lucide-react'
+import { Warehouse, AlertCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, ErrorBanner } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
@@ -54,9 +54,11 @@ export const STAGE_META: Record<
     eyebrow: 'Recycling stage',
     queueTitle: 'Sorted lots waiting to crush',
     emptyHint: 'No sorted lots waiting. Finish sorting first.',
-    showMachine: false,
+    showMachine: true,
+    machineLabel: 'Crusher Machine',
     showTeam: false,
-    showOperator: false,
+    showOperator: true,
+    operatorLabel: 'Crusher Operator',
     showDowntime: false,
     showLabourCost: true,
     labourPerKg: true,
@@ -99,8 +101,8 @@ export const STAGE_META: Record<
   recrushing: {
     title: 'Re-crushing',
     eyebrow: 'Recycling stage',
-    queueTitle: 'Dried lots waiting to re-crush',
-    emptyHint: 'No dried lots waiting. Finish drying first.',
+    queueTitle: 'Washed & Dried lots waiting to re-crush',
+    emptyHint: 'No washed lots waiting. Finish washing first.',
     showMachine: true,
     showTeam: false,
     showOperator: true,
@@ -307,7 +309,7 @@ export function ProcessStageForm({
     queryKey: ['machines'],
     queryFn: async () => {
       const { data } = await api.get('/machines')
-      return data.data as Array<{ id: number; name: string; code?: string }>
+      return data.data as Array<{ id: number; name: string; code?: string; machineType?: string }>
     },
     enabled: Boolean(STAGE_META[stage]?.showMachine),
   })
@@ -372,12 +374,65 @@ export function ProcessStageForm({
   }, [staff.data])
 
   const machineOptions = useMemo(() => {
-    return (machines.data || []).map((m) => ({
+    const list = machines.data || []
+    const filtered = list.filter((m) => {
+      const type = (m.machineType || '').toUpperCase().trim()
+      const name = (m.name || '').toUpperCase().trim()
+      const code = (m.code || '').toUpperCase().trim()
+      const combined = `${type} ${name} ${code}`
+
+      if (isWashing) {
+        return type === 'WASHER' || combined.includes('WASH')
+      }
+      if (isCrushing) {
+        // Crushing: primary crushers
+        return (
+          type === 'CRUSHER' ||
+          combined.includes('CRUSHER') ||
+          (combined.includes('CRUSH') && !combined.includes('RECRUSH'))
+        )
+      }
+      if (isRecrushing) {
+        // Re-crushing: re-crushers or crushers
+        return (
+          type === 'RECRUSHER' ||
+          type === 'CRUSHER' ||
+          combined.includes('RECRUSH') ||
+          combined.includes('CRUSH')
+        )
+      }
+      if (isDrying) {
+        return type === 'DRYER' || combined.includes('DRY')
+      }
+      if (isRecycling) {
+        return (
+          type === 'RECYCLING' ||
+          type === 'EXTRUDER' ||
+          combined.includes('RECYCL') ||
+          combined.includes('PELLET') ||
+          combined.includes('EXTRUD')
+        )
+      }
+      return true
+    })
+
+    // If machines matching this specific activity exist, show them;
+    // Otherwise fallback to showing all active machines (excluding pure PRODUCTION machines if non-production machines exist, else all).
+    const finalMachines =
+      filtered.length > 0
+        ? filtered
+        : list.filter((m) => (m.machineType || '').toUpperCase() !== 'PRODUCTION').length > 0
+          ? list.filter((m) => (m.machineType || '').toUpperCase() !== 'PRODUCTION')
+          : list
+
+    return finalMachines.map((m) => ({
       value: m.name,
       label: m.name,
-      sublabel: m.code ? `Code: ${m.code}` : undefined,
+      sublabel: [m.code ? `Code: ${m.code}` : '', m.machineType ? `Type: ${m.machineType}` : '']
+        .filter(Boolean)
+        .join(' · ') || undefined,
     }))
-  }, [machines.data])
+  }, [machines.data, isWashing, isCrushing, isRecrushing, isDrying, isRecycling])
 
   const batchOptions = useMemo(() => {
     return (inputs.data || []).map((b) => ({
@@ -424,11 +479,15 @@ export function ProcessStageForm({
           color: item.color,
           qtyIn: isWashing
             ? Number(item.qtyCrushed || 0)
+            : isRecrushing
+            ? Number(item.qtyWashed ?? item.qtyDried ?? item.qtyCrushed ?? 0)
             : isDrying
             ? Number(item.qtyWashed ?? item.qtyCrushed ?? 0)
             : Number(item.qtyDried ?? item.qtyWashed ?? item.qtyCrushed ?? 0),
           qtyUsable: isWashing
             ? item.qtyWashed != null ? String(item.qtyWashed) : ''
+            : isRecrushing
+            ? item.qtyDried != null ? String(item.qtyDried) : ''
             : isDrying
             ? item.qtyDried != null ? String(item.qtyDried) : ''
             : '',
@@ -445,7 +504,7 @@ export function ProcessStageForm({
         },
       ])
     }
-  }, [isMultiLotStage, isWashing, isDrying, selected])
+  }, [isMultiLotStage, isWashing, isDrying, isRecrushing, selected])
 
   const openBatch = (batchNumber: string) => {
     setActiveBatch(batchNumber)
@@ -776,8 +835,8 @@ export function ProcessStageForm({
       const resultingBatch =
         data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
 
-      // If drying and user clicked "Move to Production", immediately handover to Production Store
-      if (isDrying && destination === 'production') {
+      // If recrushing or drying and user clicked "Move to Material", immediately handover to Production Store
+      if ((isRecrushing || isDrying) && destination === 'production') {
         try {
           await api.post('/production/store/transfer', { batchNumber: resultingBatch })
           await queryClient.invalidateQueries({ queryKey: ['production-store'] })
@@ -786,7 +845,7 @@ export function ProcessStageForm({
         } catch (transferErr: any) {
           console.error('Failed to auto-transfer to production store:', transferErr)
           alert(
-            `Drying saved as batch ${resultingBatch}, but transfer to Production Store had an issue: ` +
+            `${meta.title} saved as batch ${resultingBatch}, but transfer to Material Store had an issue: ` +
               (transferErr.response?.data?.err || transferErr.response?.data?.message || transferErr.message),
           )
         }
@@ -814,7 +873,7 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
       await queryClient.invalidateQueries()
 
-      if (isDrying && destination === 'production') {
+      if ((isRecrushing || isDrying) && destination === 'production') {
         navigate('/production/store')
       } else if (isRecycling) {
         navigate('/production/store')
@@ -1732,32 +1791,17 @@ export function ProcessStageForm({
               </Card>
             )}
 
-            {/* Action buttons: for drying, provide the 2 distinct destinations requested */}
-            {isDrying ? (
+            {/* Action buttons: for recrushing (and drying), directly Move to Material */}
+            {isRecrushing || isDrying ? (
               <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                 <Button
                   type="button"
-                  variant="outline"
                   size="default"
                   disabled={
-                    formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
-                  }
-                  className="w-full sm:w-auto h-9 sm:h-10 px-4 text-xs sm:text-sm border-emerald-600/40 text-emerald-900 hover:bg-emerald-50 hover:text-emerald-950 font-semibold inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
-                  onClick={handleSubmit((values) => submitPayload(values, false, 'recycling'))}
-                >
-                  <Recycle className="size-3.5 sm:size-4 shrink-0 text-emerald-700" />
-                  <span>
-                    {formState.isSubmitting && submitAction === 'recycling'
-                      ? 'Moving to Recycling…'
-                      : 'Move to Recycling'}
-                  </span>
-                </Button>
-
-                <Button
-                  type="button"
-                  size="default"
-                  disabled={
-                    formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
+                    formState.isSubmitting ||
+                    (isMultiLotStage
+                      ? !lotLines.length || lotMissingUsable || measuredOverIn
+                      : !selected || !(qtyUsable > 0) || measuredOverIn)
                   }
                   className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-xs cursor-pointer"
                   onClick={handleSubmit((values) => submitPayload(values, false, 'production'))}

@@ -1,15 +1,25 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
+import { useMemo, useState, useEffect } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Palette, Factory } from 'lucide-react'
+import {
+  CheckCircle2,
+  Clock,
+  Eye,
+  LogIn,
+  LogOut,
+  AlertTriangle,
+  UserCheck,
+  History,
+  Users,
+  Check,
+  Factory,
+  Plus,
+} from 'lucide-react'
 import { api } from '@/lib/api'
-import { Field, StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
-import { SearchableSelect } from '@/components/ui/searchable-select'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -17,14 +27,129 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SORT_COLORS } from '@/lib/sortColors'
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog'
 
-function colorName(code?: string | null) {
-  if (!code) return '—'
-  return SORT_COLORS.find((c) => c.code === code)?.name || code
+export type ShiftLogItem = {
+  id: number
+  productionRunId: number
+  machineId: number
+  shiftId: number | null
+  operatorId: number | null
+  operatorName: string
+  clockInAt: string
+  clockOutAt: string | null
+  status: 'ACTIVE' | 'COMPLETED'
+  runtimeMinutes: number
+  downtimeMinutes: number
+  qtyGood: string | number
+  qtyReject: string | number
+  materialConsumed: string | number
+  handoverNotes: string | null
+  shift?: { id: number; name: string; code: string }
 }
 
-function fmt(value: string | number | null | undefined, digits = 1) {
+export type FaultLogItem = {
+  id: number
+  productionRunId: number
+  productionShiftLogId: number | null
+  machineId: number
+  shiftId: number | null
+  operatorName: string
+  category: string
+  downtimeMinutes: number
+  startTime: string | null
+  endTime: string | null
+  rootCause: string | null
+  actionTaken: string | null
+  createdAt: string
+  shift?: { id: number; name: string }
+}
+
+type EmployeeItem = {
+  id: number
+  firstname: string
+  lastname?: string
+  employeeCode?: string
+  department?: string
+  designation?: string
+  isActive?: boolean
+}
+
+type ShiftItem = {
+  id: number
+  name: string
+  code?: string
+  startTime?: string
+  endTime?: string
+  isActive?: boolean
+}
+
+type ProductionRunSummary = {
+  id: number
+  batchId: number
+  machineId: number
+  productId: number
+  inputBatchId: number
+  shiftId: number | null
+  operatorName: string | null
+  materialConsumed: string | number
+  qtyProduced: string | number
+  qtyGood: string | number
+  qtyReject: string | number
+  uom: string
+  runtimeMinutes: number
+  downtimeMinutes: number
+  downtimeReason: string | null
+  scheduledMinutes: number
+  status?: string
+  startedAt: string | null
+  createdAt: string
+  notes?: string | null
+  batch?: {
+    id: number
+    batchNumber: string
+    status: string
+  }
+  inputBatch?: {
+    id: number
+    batchNumber: string
+    material?: { name: string }
+  }
+  machine?: {
+    id: number
+    name: string
+    code: string
+  }
+  product?: {
+    id: number
+    name: string
+    code: string
+    uom: string
+  }
+  shift?: {
+    id: number
+    name: string
+  }
+  shiftLogs?: ShiftLogItem[]
+  faultLogs?: FaultLogItem[]
+}
+
+const FAULT_CATEGORIES = [
+  { value: 'ELECTRICAL', label: 'Electrical & Sensors (Heaters, PLC, Drives, Thermocouple)', icon: '⚡' },
+  { value: 'MECHANICAL', label: 'Mechanical & Hydraulic (Motors, Pumps, Screw, Nozzle, Barrel)', icon: '⚙️' },
+  { value: 'MOLD_TOOLING', label: 'Mold & Tooling (Jams, Ejector Pins, Water Cooling Lines)', icon: '🧩' },
+  { value: 'POWER_UTILITY', label: 'Power & Utilities (Grid Outage, Generator Change, Air)', icon: '🔌' },
+  { value: 'RAW_MATERIAL', label: 'Raw Material & Feed (Hopper Clog, Color Purging, Contamination)', icon: '📦' },
+  { value: 'OPERATOR_ERROR', label: 'Operational & Handling (Setup Delay, Cycle Delay, Packing)', icon: '👤' },
+  { value: 'OTHER', label: 'Other Stoppage / General Stoppage', icon: '❓' },
+]
+
+function fmt(value: string | number | null | undefined, digits = 0) {
   if (value == null || value === '') return '—'
   const n = Number(value)
   return Number.isFinite(n)
@@ -32,123 +157,17 @@ function fmt(value: string | number | null | undefined, digits = 1) {
     : String(value)
 }
 
-function fmtDozensPcs(totalPcs: number) {
-  if (!totalPcs || totalPcs <= 0) return '0 pcs'
-  const dz = Math.floor(totalPcs / 12)
-  const pcs = Math.round(totalPcs % 12)
-  if (dz > 0 && pcs > 0) return `${dz} dz ${pcs} pcs`
-  if (dz > 0) return `${dz} dz`
-  return `${pcs} pcs`
+function getCurrentTimeString(date = new Date()): string {
+  const h = String(date.getHours()).padStart(2, '0')
+  const m = String(date.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
 }
 
-type MasterItem = {
-  id: number
-  name: string
-  code?: string
-  machineType?: string
-  uom?: string
-  startTime?: string
-  endTime?: string
-  ratedOutputPerHour?: string | number
-}
-
-type InputBatch = {
-  id: number
-  batchNumber: string
-  batchType: string
-  qtyRemaining: number | string
-  uom: string
-  sortColor?: string | null
-  material?: { name: string }
-}
-
-type IssuedRunRow = {
-  id: number
-  machineId?: number
-  productId?: number
-  inputBatchId?: number
-  shiftId?: number | null
-  operatorName?: string | null
-  materialConsumed?: string | number
-  qtyProduced?: string | number
-  qtyGood?: string | number
-  qtyReject?: string | number
-  uom?: string
-  runtimeMinutes?: number
-  downtimeMinutes?: number
-  downtimeReason?: string | null
-  scheduledMinutes?: number
-  status?: string
-  startedAt?: string | null
-  batch?: {
-    id: number
-    batchNumber: string
-    status: string
-    sortColor?: string | null
-  }
-  inputBatch?: {
-    id: number
-    batchNumber: string
-    sortColor?: string | null
-    material?: { name: string }
-  }
-  machine?: {
-    id: number
-    name: string
-    code?: string
-    machineType?: string
-    ratedOutputPerHour?: string | number
-  }
-  product?: {
-    id: number
-    name: string
-    code?: string
-    uom?: string
-  }
-  shift?: {
-    id: number
-    name: string
-    startTime?: string
-    endTime?: string
-  }
-}
-
-type SingleStepFormValues = {
-  machineId: string
-  productId: string
-  inputBatchNumber: string
-  shiftId: string
-  operatorName: string
-  materialConsumed: string
-  startTime: string
-  endTime: string
-  runtimeMinutes: string
-  downtimeMinutes: string
-  downtimeReason: string
-  scheduledMinutes: string
-  goodDozen: string
-  goodPcs: string
-  wasteDozen: string
-  wastePcs: string
-  qtyGood: string
-  qtyReject: string
-  qtyProduced: string
-  labourRate: string
-  labourCost: string
-  energyCost: string
-  otherCost: string
-  notes: string
-  autoRelease: boolean
-  colorType: '' | 'master' | 'normal'
-  masterbatchColor?: string
-  masterbatchKg: string
-  masterbatchPrice?: string
-  normalColorName?: string
-  pigmentKg: string
-  pigmentPrice?: string
-  colorName: string
-  colorQty: string
-  colorCost: string
+function getTimeMinusMinutes(minutes: number, baseDate = new Date()): string {
+  const d = new Date(baseDate.getTime() - minutes * 60 * 1000)
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
 }
 
 function calculateMinutesBetween(startTime?: string, endTime?: string): number {
@@ -159,7 +178,6 @@ function calculateMinutesBetween(startTime?: string, endTime?: string): number {
 
   let diff = eh * 60 + em - (sh * 60 + sm)
   if (diff < 0) {
-    // Overnight shift (e.g. 22:00 to 06:00)
     diff += 24 * 60
   }
   return diff
@@ -167,1023 +185,1284 @@ function calculateMinutesBetween(startTime?: string, endTime?: string): number {
 
 export function RecordProductionPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-  const urlRunId = searchParams.get('runId') || ''
+  const { id: pathId } = useParams<{ id: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
-  const [serverError, setServerError] = useState('')
-  const [warning, setWarning] = useState<{ rejectPercent: number } | null>(null)
-  const [selectedRunId, setSelectedRunId] = useState<string>(urlRunId)
-  const [downtimeCategory, setDowntimeCategory] = useState<string>('None')
-  const [customDowntimeReason, setCustomDowntimeReason] = useState<string>('')
+  const urlRunId = pathId || searchParams.get('runId') || ''
 
+  // Fetch all production runs
   const runsQuery = useQuery({
     queryKey: ['production-runs'],
     queryFn: async () => {
       const { data } = await api.get('/production/runs')
-      return (data.data || []) as IssuedRunRow[]
+      return (data.data || []) as ProductionRunSummary[]
     },
+    refetchInterval: 12_000,
   })
 
   const inProgressRuns = useMemo(() => {
     return (runsQuery.data || []).filter(
-      (r) => r.status === 'IN_PROGRESS' || r.batch?.status === 'IN_PROGRESS'
+      (r) => r.batch?.status === 'IN_PROGRESS' || r.status === 'IN_PROGRESS'
     )
   }, [runsQuery.data])
 
-  const selectedRun = useMemo(() => {
-    if (!selectedRunId) return null
-    return inProgressRuns.find((r) => String(r.id) === selectedRunId) || null
-  }, [inProgressRuns, selectedRunId])
+  // Current active run selection
+  const [selectedRunId, setSelectedRunId] = useState<string>(urlRunId)
 
-  const machines = useQuery({
-    queryKey: ['machines'],
+  useEffect(() => {
+    if (urlRunId) {
+      setSelectedRunId(urlRunId)
+    } else if (inProgressRuns.length > 0 && !selectedRunId) {
+      setSelectedRunId(String(inProgressRuns[0].id))
+      setSearchParams({ runId: String(inProgressRuns[0].id) }, { replace: true })
+    }
+  }, [urlRunId, inProgressRuns, selectedRunId, setSearchParams])
+
+  const handleSelectRun = (idStr: string) => {
+    setSelectedRunId(idStr)
+    setSearchParams({ runId: idStr })
+  }
+
+  // Fetch detailed shifts and faults for selected run
+  const scorecardQuery = useQuery({
+    queryKey: ['run-shifts-and-faults', selectedRunId],
     queryFn: async () => {
-      const { data } = await api.get('/machines')
-      return (data.data || []) as MasterItem[]
+      if (!selectedRunId) return null
+      const { data } = await api.get(`/production/runs/${selectedRunId}/shifts-and-faults`)
+      return data.data
     },
+    enabled: Boolean(selectedRunId),
+    refetchInterval: 10_000,
   })
 
-  const products = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/products')
-      return (data.data || []) as MasterItem[]
-    },
-  })
-
-  const shifts = useQuery({
+  const shiftsQuery = useQuery({
     queryKey: ['shifts'],
     queryFn: async () => {
       const { data } = await api.get('/masters/shifts')
-      return (data.data || []) as MasterItem[]
+      return (data.data || []) as ShiftItem[]
     },
   })
 
-  const staff = useQuery({
-    queryKey: ['masters-employees'],
+  const employeesQuery = useQuery({
+    queryKey: ['employees'],
     queryFn: async () => {
       const { data } = await api.get('/masters/employees')
-      return (data.data || []) as Array<{
-        id: number
-        firstname?: string
-        lastname?: string
-        employeeCode?: string
-      }>
+      return (data.data || []) as EmployeeItem[]
     },
   })
 
-  const inputs = useQuery({
-    queryKey: ['production-inputs'],
-    queryFn: async () => {
-      const { data } = await api.get('/production/inputs')
-      return (data.data || []) as InputBatch[]
-    },
-  })
+  const runDetail = scorecardQuery.data?.run || runsQuery.data?.find((r) => String(r.id) === selectedRunId)
+  const isRunActive = runDetail?.batch?.status === 'IN_PROGRESS'
+  const activeShift = scorecardQuery.data?.shiftLogs?.find((s: ShiftLogItem) => s.status === 'ACTIVE')
 
-  const productOptions = useMemo(() => {
-    return (products.data || []).map((p) => ({
-      value: String(p.id),
-      label: p.name,
-      sublabel: p.code ? `Code: ${p.code}` : undefined,
-      badge: p.uom || 'pcs',
-    }))
-  }, [products.data])
+  // Clock In State
+  const [clockInOperatorType, setClockInOperatorType] = useState<'SELECT' | 'CUSTOM'>('SELECT')
+  const [clockInEmployeeId, setClockInEmployeeId] = useState<string>('')
+  const [clockInCustomName, setClockInCustomName] = useState<string>('')
+  const [clockInShiftId, setClockInShiftId] = useState<string>('')
+  const [clockInTime, setClockInTime] = useState<string>(getCurrentTimeString())
+  const [isClockingIn, setIsClockingIn] = useState(false)
+  const [clockInError, setClockInError] = useState('')
+  const [clockInSuccess, setClockInSuccess] = useState('')
 
-  // Filter ONLY production machines
-  const machineOptions = useMemo(() => {
-    return (machines.data || [])
-      .filter((m) => {
-        if (!m.machineType) return true
-        const t = m.machineType.toUpperCase()
-        return (
-          t === 'PRODUCTION' ||
-          t.includes('PROD') ||
-          t.includes('INJECT') ||
-          t.includes('BLOW') ||
-          t.includes('MOULD')
-        )
-      })
-      .map((m) => ({
-        value: String(m.id),
-        label: m.name,
-        sublabel: m.code ? `Code: ${m.code}` : undefined,
-      }))
-  }, [machines.data])
-
-  const issueRunOptions = useMemo(() => {
-    return [
-      {
-        value: '',
-        label: '⚡ Direct 1-Step Run (No prior machine issue)',
-        sublabel: 'Manually select machine, product, and input material',
-      },
-      ...inProgressRuns.map((r) => ({
-        value: String(r.id),
-        label: `${r.machine?.name || 'Machine'} · ${r.product?.name || 'Product'} (${r.batch?.batchNumber || `Run #${r.id}`})`,
-        sublabel: `Issued: ${fmt(r.materialConsumed, 1)} kg (${r.inputBatch?.material?.name || 'Material'}${r.batch?.sortColor ? ` · ${colorName(r.batch.sortColor)}` : ''})${r.operatorName ? ` · Operator: ${r.operatorName}` : ''}`,
-        badge: `${fmt(r.materialConsumed, 1)} kg`,
-      })),
-    ]
-  }, [inProgressRuns])
-
-  const operatorOptions = useMemo(() => {
-    const list = Array.isArray(staff.data)
-      ? staff.data
-      : Array.isArray((staff.data as any)?.rows)
-        ? (staff.data as any).rows
-        : Array.isArray((staff.data as any)?.data)
-          ? (staff.data as any).data
-          : []
-    return list.map((e: any) => {
-      const name =
-        `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
-        e.employeeCode ||
-        `Staff ${e.id}`
-      return {
-        value: name,
-        label: name,
-        sublabel: e.employeeCode ? `Code: ${e.employeeCode}` : undefined,
-      }
-    })
-  }, [staff.data])
-
-  const inputBatchOptions = useMemo(() => {
-    return (inputs.data || []).map((b) => ({
-      value: b.batchNumber,
-      label: `${b.batchNumber} · ${b.material?.name || b.batchType}`,
-      sublabel: `${fmt(b.qtyRemaining, 1)} ${b.uom}${b.sortColor ? ` · ${colorName(b.sortColor)}` : ''}`,
-      badge: b.batchType,
-    }))
-  }, [inputs.data])
-
-  const form = useForm<SingleStepFormValues>({
-    defaultValues: {
-      machineId: '',
-      productId: '',
-      inputBatchNumber: '',
-      shiftId: '',
-      operatorName: '',
-      materialConsumed: '',
-      startTime: '06:00',
-      endTime: '14:00',
-      runtimeMinutes: '480',
-      downtimeMinutes: '0',
-      downtimeReason: '',
-      scheduledMinutes: '480',
-      goodDozen: '',
-      goodPcs: '',
-      wasteDozen: '',
-      wastePcs: '',
-      qtyGood: '0',
-      qtyReject: '0',
-      qtyProduced: '0',
-      labourRate: '10',
-      labourCost: '0',
-      energyCost: '0',
-      otherCost: '0',
-      notes: '',
-      autoRelease: true,
-      colorType: '',
-      masterbatchColor: '',
-      masterbatchKg: '',
-      masterbatchPrice: '',
-      normalColorName: '',
-      pigmentKg: '',
-      pigmentPrice: '',
-      colorName: '',
-      colorQty: '',
-      colorCost: '',
-    },
-  })
-
-  // Auto-fill form values when an issued floor run is selected
   useEffect(() => {
-    if (selectedRun) {
-      if (selectedRun.machineId) {
-        form.setValue('machineId', String(selectedRun.machineId), { shouldValidate: true })
-      }
-      if (selectedRun.productId) {
-        form.setValue('productId', String(selectedRun.productId), { shouldValidate: true })
-      }
-      if (selectedRun.inputBatch?.batchNumber) {
-        form.setValue('inputBatchNumber', selectedRun.inputBatch.batchNumber, { shouldValidate: true })
-      }
-      if (selectedRun.materialConsumed != null) {
-        form.setValue('materialConsumed', String(selectedRun.materialConsumed), { shouldValidate: true })
-      }
-      if (selectedRun.shiftId) {
-        form.setValue('shiftId', String(selectedRun.shiftId), { shouldValidate: true })
-      }
-      if (selectedRun.operatorName) {
-        form.setValue('operatorName', selectedRun.operatorName, { shouldValidate: true })
-      }
-      if (selectedRun.shift?.startTime && selectedRun.shift?.endTime) {
-        form.setValue('startTime', selectedRun.shift.startTime)
-        form.setValue('endTime', selectedRun.shift.endTime)
-        const mins = calculateMinutesBetween(selectedRun.shift.startTime, selectedRun.shift.endTime)
-        form.setValue('runtimeMinutes', String(mins))
-        form.setValue('scheduledMinutes', String(mins))
-      }
-      if (Number(selectedRun.downtimeMinutes || 0) > 0) {
-        form.setValue('downtimeMinutes', String(selectedRun.downtimeMinutes))
-        if (selectedRun.downtimeReason) {
-          setDowntimeCategory(selectedRun.downtimeReason)
-        }
-      }
+    if (shiftsQuery.data && shiftsQuery.data.length > 0 && !clockInShiftId) {
+      setClockInShiftId(String(shiftsQuery.data[0].id))
     }
-  }, [selectedRun, form])
+  }, [shiftsQuery.data, clockInShiftId])
 
-  // Watch shift changes to pre-populate start and end time
-  const selectedShiftId = form.watch('shiftId')
+  // Shift Output State
+  const [outputGoodDozen, setOutputGoodDozen] = useState('')
+  const [outputGoodPcs, setOutputGoodPcs] = useState('')
+  const [outputRejectPcs, setOutputRejectPcs] = useState('0')
+  const [outputMaterialKg, setOutputMaterialKg] = useState('')
+  const [outputNotes, setOutputNotes] = useState('')
+  const [outputClockOutTime, setOutputClockOutTime] = useState<string>(getCurrentTimeString())
+  const [isSavingOutput, setIsSavingOutput] = useState(false)
+  const [outputError, setOutputError] = useState('')
+  const [outputSuccess, setOutputSuccess] = useState('')
+
   useEffect(() => {
-    if (selectedShiftId && shifts.data) {
-      const shift = shifts.data.find((s) => String(s.id) === selectedShiftId)
-      if (shift && shift.startTime && shift.endTime) {
-        form.setValue('startTime', shift.startTime)
-        form.setValue('endTime', shift.endTime)
-        const mins = calculateMinutesBetween(shift.startTime, shift.endTime)
-        form.setValue('runtimeMinutes', String(mins))
-        form.setValue('scheduledMinutes', String(mins))
-      }
-    }
-  }, [selectedShiftId, shifts.data, form])
+    setOutputClockOutTime(getCurrentTimeString())
+  }, [activeShift])
 
-  // Watch time changes to calculate runtime
-  const watchStartTime = form.watch('startTime')
-  const watchEndTime = form.watch('endTime')
-  const handleTimeChange = (start: string, end: string) => {
-    const mins = calculateMinutesBetween(start, end)
-    form.setValue('runtimeMinutes', String(mins))
-    form.setValue('scheduledMinutes', String(mins))
+  // Automatically calculate net operating runtime from clock-in to clock-out minus shift downtime
+  const calculatedShiftMinutes = useMemo(() => {
+    if (!activeShift?.clockInAt || !outputClockOutTime) return 0
+    const clockInDate = new Date(activeShift.clockInAt)
+    const [oh, om] = outputClockOutTime.split(':').map(Number)
+    if (Number.isNaN(oh) || Number.isNaN(om)) return 0
+
+    const clockOutDate = new Date(clockInDate)
+    clockOutDate.setHours(oh, om, 0, 0)
+    if (clockOutDate.getTime() < clockInDate.getTime()) {
+      clockOutDate.setDate(clockOutDate.getDate() + 1)
+    }
+
+    const elapsedMinutes = Math.max(0, Math.round((clockOutDate.getTime() - clockInDate.getTime()) / 60000))
+    const dt = Number(activeShift.downtimeMinutes || 0)
+    return Math.max(0, elapsedMinutes - dt)
+  }, [activeShift?.clockInAt, activeShift?.downtimeMinutes, outputClockOutTime])
+
+  // Machine Fault Modal State
+  const [isFaultModalOpen, setIsFaultModalOpen] = useState(false)
+  const [faultCategory, setFaultCategory] = useState<string>('ELECTRICAL')
+  const [faultMinutes, setFaultMinutes] = useState<string>('30')
+  const [faultFrom, setFaultFrom] = useState<string>(getTimeMinusMinutes(30))
+  const [faultTo, setFaultTo] = useState<string>(getCurrentTimeString())
+  const [faultRootCause, setFaultRootCause] = useState<string>('')
+  const [faultActionTaken, setFaultActionTaken] = useState<string>('')
+  const [isLoggingFault, setIsLoggingFault] = useState(false)
+  const [faultError, setFaultError] = useState('')
+  const [faultSuccess, setFaultSuccess] = useState('')
+
+  // Finalize Run Dialog State
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false)
+  const [isFinalizing, setIsFinalizing] = useState(false)
+  const [finalizeError, setFinalizeError] = useState('')
+
+  // HANDLERS
+  const handleFaultTimeChange = (from: string, to: string) => {
+    setFaultFrom(from)
+    setFaultTo(to)
+    if (from && to) {
+      const diff = calculateMinutesBetween(from, to)
+      setFaultMinutes(String(diff))
+    }
   }
 
-  // Watch dozen & pcs for good units and waste units
-  const watchGoodDozen = form.watch('goodDozen')
-  const watchGoodPcs = form.watch('goodPcs')
-  const watchWasteDozen = form.watch('wasteDozen')
-  const watchWastePcs = form.watch('wastePcs')
-
-  useEffect(() => {
-    const totalGood = Math.round(Number(watchGoodDozen || 0) * 12) + Number(watchGoodPcs || 0)
-    form.setValue('qtyGood', String(totalGood))
-  }, [watchGoodDozen, watchGoodPcs, form])
-
-  useEffect(() => {
-    const totalWaste = Math.round(Number(watchWasteDozen || 0) * 12) + Number(watchWastePcs || 0)
-    form.setValue('qtyReject', String(totalWaste))
-  }, [watchWasteDozen, watchWastePcs, form])
-
-  // Calculate total produced automatically: Good + Reject = Total
-  const watchGood = Number(form.watch('qtyGood') || 0)
-  const watchReject = Number(form.watch('qtyReject') || 0)
-  const totalProduced = watchGood + watchReject
-
-  useEffect(() => {
-    form.setValue('qtyProduced', String(totalProduced))
-  }, [totalProduced, form])
-
-  // Additives & Production Material calculations
-  const watchMbKg = form.watch('masterbatchKg') || ''
-  const watchMbPrice = form.watch('masterbatchPrice') || ''
-  const watchPigmentKg = form.watch('pigmentKg') || ''
-  const watchPigmentPrice = form.watch('pigmentPrice') || ''
-  const watchMaterialConsumed = form.watch('materialConsumed') || ''
-
-  const mbSubtotal = useMemo(() => {
-    return Number(watchMbKg || 0) * Number(watchMbPrice || 0)
-  }, [watchMbKg, watchMbPrice])
-
-  const pigSubtotal = useMemo(() => {
-    return Number(watchPigmentKg || 0) * Number(watchPigmentPrice || 0)
-  }, [watchPigmentKg, watchPigmentPrice])
-
-  const totalAdditiveCost = useMemo(() => {
-    return Math.round(mbSubtotal + pigSubtotal)
-  }, [mbSubtotal, pigSubtotal])
-
-  const totalAdditiveKg = useMemo(() => {
-    return +(Number(watchMbKg || 0) + Number(watchPigmentKg || 0)).toFixed(2)
-  }, [watchMbKg, watchPigmentKg])
-
-  const totalMaterialMix = useMemo(() => {
-    return +(Number(watchMaterialConsumed || 0) + totalAdditiveKg).toFixed(2)
-  }, [watchMaterialConsumed, totalAdditiveKg])
-
-  useEffect(() => {
-    if (totalAdditiveCost > 0) {
-      form.setValue('colorCost', String(totalAdditiveCost))
+  const handleFaultPresetMinutes = (minsStr: string) => {
+    setFaultMinutes(minsStr)
+    const m = Number(minsStr) || 0
+    if (faultTo && m > 0) {
+      const [eh, em] = faultTo.split(':').map(Number)
+      if (!Number.isNaN(eh) && !Number.isNaN(em)) {
+        let totalMins = eh * 60 + em - m
+        if (totalMins < 0) totalMins += 24 * 60
+        const sh = String(Math.floor(totalMins / 60)).padStart(2, '0')
+        const sm = String(totalMins % 60).padStart(2, '0')
+        setFaultFrom(`${sh}:${sm}`)
+      }
     }
-  }, [totalAdditiveCost, form])
+  }
 
-  // Live metrics calculations
-  const runtimeMins = Number(form.watch('runtimeMinutes') || 0)
-  const scheduledMins = Number(form.watch('scheduledMinutes') || 0) || runtimeMins
-  const selectedMachineId = form.watch('machineId')
-  const selectedMachine = machines.data?.find((m) => String(m.id) === selectedMachineId)
+  // 1. Submit Shift Clock In
+  const handleClockInSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRunId) return
 
-  const liveMetrics = useMemo(() => {
-    const yieldPct = totalProduced > 0 ? +((watchGood / totalProduced) * 100).toFixed(1) : 0
-    const rejectPct = totalProduced > 0 ? +((watchReject / totalProduced) * 100).toFixed(1) : 0
-    const hours = runtimeMins / 60
-    const perHour = hours > 0 ? +(totalProduced / hours).toFixed(1) : 0
-    const availability = scheduledMins > 0 ? +((runtimeMins / scheduledMins) * 100).toFixed(1) : 0
-    const rated = Number(selectedMachine?.ratedOutputPerHour || 0)
-    const performance = rated > 0 && hours > 0 ? +((totalProduced / (rated * hours)) * 100).toFixed(1) : 0
-    const quality = totalProduced > 0 ? +((watchGood / totalProduced) * 100).toFixed(1) : 0
-    const oee =
-      availability && performance && quality
-        ? +(((availability / 100) * (performance / 100) * (quality / 100)) * 100).toFixed(1)
-        : 0
-    const materialPerUnit = totalProduced > 0 ? +(totalMaterialMix / totalProduced).toFixed(3) : 0
-    return { yieldPct, rejectPct, perHour, oee, materialPerUnit }
-  }, [totalProduced, watchGood, watchReject, runtimeMins, scheduledMins, selectedMachine, totalMaterialMix])
+    let finalName = ''
+    let empId: number | null = null
+    if (clockInOperatorType === 'SELECT') {
+      const emp = employeesQuery.data?.find((e) => String(e.id) === clockInEmployeeId)
+      if (!emp) {
+        setClockInError('Please select an employee or switch to manual entry')
+        return
+      }
+      finalName = `${emp.firstname} ${emp.lastname || ''}`.trim()
+      empId = emp.id
+    } else {
+      finalName = clockInCustomName.trim()
+      if (!finalName) {
+        setClockInError('Please enter operator name')
+        return
+      }
+    }
 
-  const onSubmit = async (values: SingleStepFormValues, confirmUnusualRun = false) => {
-    setServerError('')
-    setWarning(null)
-    const good = Number(values.qtyGood || 0)
-    const reject = Number(values.qtyReject || 0)
-    const produced = good + reject
+    setIsClockingIn(true)
+    setClockInError('')
+    try {
+      const now = new Date()
+      const [ch, cm] = clockInTime.split(':').map(Number)
+      if (!Number.isNaN(ch) && !Number.isNaN(cm)) {
+        now.setHours(ch, cm, 0, 0)
+      }
 
-    if (produced <= 0) {
-      setServerError('Please enter finished units produced (dozen and/or pieces)')
+      await api.post(`/production/runs/${selectedRunId}/shift-login`, {
+        operatorName: finalName,
+        operatorId: empId,
+        shiftId: clockInShiftId ? Number(clockInShiftId) : undefined,
+        clockInAt: now.toISOString(),
+      })
+
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      setClockInSuccess(`${finalName} clocked in successfully!`)
+      setClockInCustomName('')
+      setTimeout(() => setClockInSuccess(''), 3000)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
+      setClockInError(axiosErr.response?.data?.errors?.operatorName || axiosErr.response?.data?.err || 'Failed to clock into shift')
+    } finally {
+      setIsClockingIn(false)
+    }
+  }
+
+  // 2. Submit Shift Output & Clock Out
+  const handleOutputSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRunId || !activeShift) return
+
+    const dozen = Number(outputGoodDozen || 0)
+    const pieces = Number(outputGoodPcs || 0)
+    const totalGood = dozen * 12 + pieces
+    const reject = Number(outputRejectPcs || 0)
+    const runtime = calculatedShiftMinutes
+
+    if (totalGood < 0) {
+      setOutputError('Good output cannot be negative')
       return
     }
 
+    setIsSavingOutput(true)
+    setOutputError('')
     try {
-      const mbKg = Number(values.masterbatchKg || 0)
-      const mbPrice = Number(values.masterbatchPrice || 0)
-      const pigKg = Number(values.pigmentKg || 0)
-      const pigPrice = Number(values.pigmentPrice || 0)
-      const computedAdditiveCost = Math.round(mbKg * mbPrice + pigKg * pigPrice)
-      const finalAdditiveCost = computedAdditiveCost > 0 ? computedAdditiveCost : Number(values.colorCost || 0)
-
-      const colorParts = []
-      if (pigKg > 0) colorParts.push(`Normal Pigment (${pigKg}kg${pigPrice > 0 ? ` @ ₦${pigPrice.toLocaleString()}/kg` : ''})`)
-      if (mbKg > 0) colorParts.push(`Masterbatch (${mbKg}kg${mbPrice > 0 ? ` @ ₦${mbPrice.toLocaleString()}/kg` : ''})`)
-      const finalColorName = colorParts.join(' + ') || undefined
-
-      const effectiveDowntimeReason =
-        downtimeCategory === 'None' || !downtimeCategory
-          ? null
-          : downtimeCategory === 'Other'
-            ? (customDowntimeReason.trim() || 'Other')
-            : downtimeCategory
-
-      if (selectedRunId) {
-        // Complete the issued run directly
-        await api.post(`/production/runs/${selectedRunId}/complete`, {
-          qtyProduced: produced,
-          qtyGood: good,
-          qtyReject: reject,
-          runtimeMinutes: Number(values.runtimeMinutes || 0),
-          downtimeMinutes: Number(values.downtimeMinutes || 0),
-          downtimeReason: effectiveDowntimeReason,
-          scheduledMinutes: Number(values.scheduledMinutes || 0),
-          labourCost: 0,
-          energyCost: 0,
-          otherCost: 0,
-          autoRelease: values.autoRelease !== false,
-          notes: values.notes || null,
-          confirmUnusualRun,
-        })
-      } else {
-        // Direct 1-step run creation (no prior issue)
-        await api.post('/production/runs', {
-          machineId: Number(values.machineId),
-          productId: Number(values.productId),
-          inputBatchNumber: values.inputBatchNumber,
-          shiftId: values.shiftId ? Number(values.shiftId) : null,
-          operatorName: values.operatorName || null,
-          materialConsumed: Number(values.materialConsumed),
-          qtyProduced: produced,
-          qtyGood: good,
-          qtyReject: reject,
-          runtimeMinutes: Number(values.runtimeMinutes || 0),
-          downtimeMinutes: Number(values.downtimeMinutes || 0),
-          downtimeReason: effectiveDowntimeReason,
-          scheduledMinutes: Number(values.scheduledMinutes || 0),
-          labourCost: 0,
-          energyCost: 0,
-          otherCost: 0,
-          autoRelease: values.autoRelease !== false,
-          notes: values.notes || null,
-          confirmUnusualRun,
-          colorType: mbKg > 0 && pigKg > 0 ? 'both' : mbKg > 0 ? 'master' : pigKg > 0 ? 'normal' : undefined,
-          colorName: finalColorName,
-          masterbatchColor: mbKg > 0 ? `Masterbatch (${mbKg}kg)` : undefined,
-          normalColorName: pigKg > 0 ? `Normal Pigment (${pigKg}kg)` : undefined,
-          masterbatchKg: mbKg,
-          pigmentKg: pigKg,
-          colorQty: +(mbKg + pigKg).toFixed(2),
-          colorCost: finalAdditiveCost,
-        })
+      const now = new Date()
+      const [ch, cm] = outputClockOutTime.split(':').map(Number)
+      if (!Number.isNaN(ch) && !Number.isNaN(cm)) {
+        now.setHours(ch, cm, 0, 0)
       }
+
+      await api.post(`/production/runs/${selectedRunId}/shift-logout`, {
+        shiftLogId: activeShift.id,
+        qtyGood: totalGood,
+        qtyReject: reject,
+        runtimeMinutes: runtime,
+        materialConsumed: outputMaterialKg ? Number(outputMaterialKg) : undefined,
+        handoverNotes: outputNotes.trim() || undefined,
+        clockOutAt: now.toISOString(),
+      })
+
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
-      navigate('/production')
+      await queryClient.invalidateQueries({ queryKey: ['inventory-balance'] })
+
+      setOutputSuccess(`Shift output recorded! ${totalGood} pcs deposited into FG Store inventory.`)
+      setOutputGoodDozen('')
+      setOutputGoodPcs('')
+      setOutputRejectPcs('0')
+      setOutputMaterialKg('')
+      setOutputNotes('')
+      setTimeout(() => setOutputSuccess(''), 4000)
     } catch (err: unknown) {
-      const axiosErr = err as {
-        response?: {
-          status?: number
-          data?: {
-            warning?: boolean
-            message?: string
-            rejectPercent?: number
-            errors?: Record<string, string>
-            err?: string
-          }
-        }
-      }
-      const res = axiosErr.response
-      if (res?.status === 422 && res.data?.warning) {
-        setWarning({ rejectPercent: res.data.rejectPercent ?? 0 })
-        return
-      }
-      if (res?.data?.errors) {
-        setServerError(Object.values(res.data.errors).join(' · '))
-        return
-      }
-      setServerError(res?.data?.err || res?.data?.message || 'Failed to save production run')
+      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
+      setOutputError(axiosErr.response?.data?.errors?.qtyGood || axiosErr.response?.data?.err || 'Failed to record shift output')
+    } finally {
+      setIsSavingOutput(false)
     }
   }
 
-  const selectedBatch = inputs.data?.find((b) => b.batchNumber === form.watch('inputBatchNumber'))
+  // 3. Submit Machine Fault
+  const handleFaultSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRunId) return
+
+    const mins = Number(faultMinutes)
+    if (Number.isNaN(mins) || mins <= 0) {
+      setFaultError('Please specify valid downtime minutes (greater than 0)')
+      return
+    }
+
+    setIsLoggingFault(true)
+    setFaultError('')
+    try {
+      await api.post(`/production/runs/${selectedRunId}/faults`, {
+        category: faultCategory,
+        downtimeMinutes: mins,
+        startTime: faultFrom || undefined,
+        endTime: faultTo || undefined,
+        rootCause: faultRootCause.trim() || undefined,
+        actionTaken: faultActionTaken.trim() || undefined,
+      })
+
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      setFaultSuccess(`Logged ${mins}m machine fault (${faultCategory.replace(/_/g, ' ')}) successfully!`)
+      setFaultRootCause('')
+      setFaultActionTaken('')
+      setTimeout(() => {
+        setFaultSuccess('')
+        setIsFaultModalOpen(false)
+      }, 750)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
+      setFaultError(axiosErr.response?.data?.errors?.downtimeMinutes || axiosErr.response?.data?.err || 'Failed to log fault')
+    } finally {
+      setIsLoggingFault(false)
+    }
+  }
+
+  // 4. Finalize & Complete Run
+  const handleFinalizeRun = async () => {
+    if (!selectedRunId || !runDetail) return
+
+    setIsFinalizing(true)
+    setFinalizeError('')
+    try {
+      const totalGood = Number(scorecardQuery.data?.totals?.totalGood || runDetail.qtyGood || 0)
+      const totalReject = Number(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)
+      const totalProduced = totalGood + totalReject
+      const totalRuntime = Number(scorecardQuery.data?.totals?.totalRuntimeMinutes || runDetail.runtimeMinutes || 0)
+      const totalDowntime = Number(scorecardQuery.data?.totals?.totalDowntimeMinutes || runDetail.downtimeMinutes || 0)
+
+      await api.post(`/production/runs/${selectedRunId}/complete`, {
+        qtyProduced: totalProduced > 0 ? totalProduced : 1,
+        qtyGood: totalGood,
+        qtyReject: totalReject,
+        runtimeMinutes: totalRuntime,
+        downtimeMinutes: totalDowntime,
+        autoRelease: true,
+        confirmUnusualRun: true,
+      })
+
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
+      setIsFinalizeModalOpen(false)
+      navigate('/production')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; message?: string } } }
+      setFinalizeError(axiosErr.response?.data?.message || axiosErr.response?.data?.err || 'Failed to finalize production run')
+    } finally {
+      setIsFinalizing(false)
+    }
+  }
 
   return (
     <PageLayout
-      title="Record Production Run"
-      description="One-step completion of machine run, material consumption, finished pieces and waste breakdown."
+      title={
+        <div className="flex items-center gap-2">
+          <span>Production Work & Shift Operations</span>
+          {isRunActive && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+              <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+              Active Run
+            </span>
+          )}
+        </div>
+      }
+      description="Assign operators to shifts, log good pieces and defect scrap, record categorized machine downtime, and monitor floor scorecards."
       back={true}
       backTo="/production"
-      backLabel="Back to Runs"
-      className="max-w-7xl mx-auto"
-    >
-
-        {serverError && (
-          <div className="mt-3 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-700 border border-red-200">
-            {serverError}
+      backLabel="Back to Production"
+      actions={
+        <div className="flex items-center gap-2">
+          {/* Quick Active Run Switcher - hidden on mobile */}
+          <div className="hidden sm:block sm:w-64 md:w-72">
+            <Select value={selectedRunId} onValueChange={handleSelectRun}>
+              <SelectTrigger className="h-8 text-xs bg-white font-medium">
+                <SelectValue placeholder="Select active run…" />
+              </SelectTrigger>
+              <SelectContent>
+                {inProgressRuns.map((r) => (
+                  <SelectItem key={r.id} value={String(r.id)}>
+                    <div className="flex items-center justify-between w-full gap-2">
+                      <span className="font-mono font-semibold">{r.batch?.batchNumber || `RUN-${r.id}`}</span>
+                      <span className="text-zinc-400 text-[11px]">({r.machine?.name})</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        )}
 
-        {warning && (
-          <div className="mt-3 rounded-xl bg-amber-50 p-3 border border-amber-200">
-            <p className="text-xs font-semibold text-amber-900">
-              Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
-            </p>
+          {isRunActive && (
             <Button
               type="button"
-              variant="default"
-              size="sm"
-              className="mt-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
-              onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
+              onClick={() => setIsFinalizeModalOpen(true)}
+              className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
             >
-              Confirm unusual run
+              <CheckCircle2 className="size-3.5" />
+              <span>Finalize Run</span>
             </Button>
-          </div>
-        )}
-
-        <form className="mt-3.5 space-y-3.5" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
-          {/* Active Floor Issue / Machine Selection */}
-          <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-zinc-100 pb-2">
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <Factory className="size-4 text-emerald-600" />
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
-                    Select Machine Issue / Factory Floor Run
-                  </h2>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {/* ========================================================================= */}
+        {/* TOP STATUS RIBBON: SELECTED RUN DETAILS (COMPACT)                         */}
+        {/* ========================================================================= */}
+        {runDetail ? (
+          <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-zinc-100">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 items-center justify-center rounded-lg bg-blue-600 text-white shadow-xs">
+                  <Factory className="size-4.5" />
                 </div>
-                <p className="text-[11px] text-zinc-500">
-                  Select an issued run from the factory floor to auto-fill machine, product, and material, or record a direct run.
-                </p>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-zinc-900 font-mono">
+                      {runDetail.batch?.batchNumber || `RUN-${runDetail.id}`}
+                    </span>
+                    <Link
+                      to={`/batches/${runDetail.batch?.batchNumber}`}
+                      className="text-zinc-400 hover:text-blue-600"
+                      title="View batch profile"
+                    >
+                      <Eye className="size-3.5" />
+                    </Link>
+                    {isRunActive ? (
+                      <span className="rounded-full bg-amber-50 border border-amber-200 px-2 py-0.2 text-[10px] font-bold text-amber-800 uppercase tracking-wide">
+                        In Progress
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.2 text-[10px] font-bold text-emerald-800 uppercase tracking-wide">
+                        Completed
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-zinc-600">
+                    <strong>Product:</strong> {runDetail.product?.name || '—'} · <strong>Machine:</strong> {runDetail.machine?.name || '—'} ({runDetail.machine?.code || '—'})
+                  </p>
+                </div>
               </div>
-              {inProgressRuns.length > 0 && (
-                <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
-                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                  {inProgressRuns.length} Active Floor Issue{inProgressRuns.length > 1 ? 's' : ''}
-                </span>
-              )}
-            </div>
 
-            <SearchableSelect
-              size="sm"
-              value={selectedRunId}
-              onChange={(val) => setSelectedRunId(val)}
-              options={issueRunOptions}
-              placeholder="Select an issued run from factory floor (or Direct 1-Step Run)..."
-              searchPlaceholder="Search by machine, product, batch # or operator..."
-            />
-
-            {selectedRun && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2.5 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="size-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs">
-                    LOT
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-xs text-emerald-950">
-                        {selectedRun.batch?.batchNumber || `Run #${selectedRun.id}`}
-                      </span>
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800">
-                        Active Machine Issue
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-emerald-700">
-                      Machine: <strong className="text-emerald-900">{selectedRun.machine?.name}</strong> · Product: <strong className="text-emerald-900">{selectedRun.product?.name}</strong> · Material Issued: <strong className="text-emerald-900">{selectedRun.materialConsumed} kg</strong>
-                    </p>
-                  </div>
-                </div>
+              {/* Feed lot and store notes badge */}
+              <div className="flex items-center gap-2">
+                {runDetail.inputBatch && (
+                  <span className="text-[11px] text-zinc-500 bg-zinc-100 border border-zinc-200 rounded-md px-2 py-0.5 font-mono">
+                    Feed: {runDetail.inputBatch.batchNumber}
+                  </span>
+                )}
+                {runDetail.notes && (
+                  <span className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-2 py-0.5 truncate max-w-[200px]" title={runDetail.notes}>
+                    {runDetail.notes.split('\n')[0]}
+                  </span>
+                )}
                 <Button
-                  type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="text-xs h-7 text-emerald-800 hover:text-emerald-950 hover:bg-emerald-100/80"
-                  onClick={() => setSelectedRunId('')}
+                  className="h-7 px-2 text-[11px] font-semibold"
+                  asChild
                 >
-                  Clear / Switch to Direct Run
+                  <Link to={`/batches/${runDetail.batch?.batchNumber}`}>
+                    <Eye className="size-3 mr-1" />
+                    Batch
+                  </Link>
                 </Button>
               </div>
-            )}
-          </div>
-
-          {/* Section 1: Machine, Product & Staff */}
-          <div>
-            <div className="border-b border-zinc-100 pb-1.5">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">1. Machine, Product & Staff</h2>
-            </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-              <Field label="Machine">
-                <SearchableSelect
-                  size="sm"
-                  value={form.watch('machineId') || ''}
-                  onChange={(val) =>
-                    form.setValue('machineId', val, { shouldValidate: true, shouldDirty: true })
-                  }
-                  options={machineOptions}
-                  placeholder="Select machine…"
-                  searchPlaceholder="Search machine name or code…"
-                />
-              </Field>
-
-              <Field label="Product">
-                <SearchableSelect
-                  size="sm"
-                  value={form.watch('productId') || ''}
-                  onChange={(val) =>
-                    form.setValue('productId', val, { shouldValidate: true, shouldDirty: true })
-                  }
-                  options={productOptions}
-                  placeholder="Select product…"
-                  searchPlaceholder="Search product name or code…"
-                />
-              </Field>
-
-              <Field label="Shift (Auto-sets standard times)">
-                <select className="dgn-input" {...form.register('shiftId')}>
-                  <option value="">Select shift</option>
-                  {shifts.data?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.startTime || ''} - {s.endTime || ''})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Operator">
-                <SearchableSelect
-                  size="sm"
-                  value={form.watch('operatorName') || ''}
-                  onChange={(val) =>
-                    form.setValue('operatorName', val, { shouldValidate: true, shouldDirty: true })
-                  }
-                  options={operatorOptions}
-                  placeholder="Select staff…"
-                  searchPlaceholder="Search staff by name or code…"
-                />
-              </Field>
-            </div>
-          </div>
-
-          {/* Section 2: Shift Timing & Runtime */}
-          <div>
-            <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">2. Shift Timing & Runtime</h2>
-              <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-bold text-zinc-700">
-                Runtime: {Math.floor(runtimeMins / 60)}h {runtimeMins % 60}m ({runtimeMins} min)
-              </span>
-            </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-4">
-              <Field label="Start Time">
-                <input
-                  type="time"
-                  className="dgn-input font-medium"
-                  {...form.register('startTime', {
-                    onChange: (e) => handleTimeChange(e.target.value, watchEndTime),
-                  })}
-                />
-              </Field>
-
-              <Field label="End Time">
-                <input
-                  type="time"
-                  className="dgn-input font-medium"
-                  {...form.register('endTime', {
-                    onChange: (e) => handleTimeChange(watchStartTime, e.target.value),
-                  })}
-                />
-              </Field>
-
-              <Field label="Downtime (min)">
-                <input
-                  inputMode="numeric"
-                  type="number"
-                  placeholder="0"
-                  className="dgn-input"
-                  {...form.register('downtimeMinutes')}
-                />
-              </Field>
-
-              <Field label="Downtime Stoppage Reason">
-                <Select
-                  value={downtimeCategory}
-                  onValueChange={(val) => setDowntimeCategory(val)}
-                >
-                  <SelectTrigger className="h-8 text-xs bg-white font-medium">
-                    <SelectValue placeholder="Select stoppage reason…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="None">None (Normal Operation)</SelectItem>
-                    <SelectItem value="Power Outage / Generator switch">Power Outage / Generator switch</SelectItem>
-                    <SelectItem value="Voltage Fluctuation / Phase drop">Voltage Fluctuation / Phase drop</SelectItem>
-                    <SelectItem value="Mould Jammed / Cleaning">Mould Jammed / Cleaning</SelectItem>
-                    <SelectItem value="Machine Breakdown / Mechanical fault">Machine Breakdown / Mechanical fault</SelectItem>
-                    <SelectItem value="Heater / Temperature issue">Heater / Temperature issue</SelectItem>
-                    <SelectItem value="Hydraulic / Pneumatic issue">Hydraulic / Pneumatic issue</SelectItem>
-                    <SelectItem value="Raw Material shortage / feed issue">Raw Material shortage / feed issue</SelectItem>
-                    <SelectItem value="Additive / Color mismatch">Additive / Color mismatch</SelectItem>
-                    <SelectItem value="Operator Break / Shift change">Operator Break / Shift change</SelectItem>
-                    <SelectItem value="Preventive Maintenance">Preventive Maintenance</SelectItem>
-                    <SelectItem value="Other">Other (Type custom reason)…</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
             </div>
 
-            {downtimeCategory === 'Other' && (
-              <div className="mt-2.5">
-                <Field label="Specify Custom Stoppage Reason">
-                  <Input
-                    type="text"
-                    className="h-8 text-xs bg-white font-medium"
-                    placeholder="Type specific stoppage or downtime reason…"
-                    value={customDowntimeReason}
-                    onChange={(e) => setCustomDowntimeReason(e.target.value)}
-                    required
-                  />
-                </Field>
-              </div>
-            )}
-          </div>
-
-          {/* Section 3: Material & Finished Pieces Output */}
-          <div>
-            <div className="border-b border-zinc-100 pb-1.5">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">3. Material & Finished Pieces Output</h2>
-            </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
-              <Field label="Raw Material Batch">
-                <SearchableSelect
-                  size="sm"
-                  value={form.watch('inputBatchNumber') || ''}
-                  onChange={(val) =>
-                    form.setValue('inputBatchNumber', val, { shouldValidate: true, shouldDirty: true })
-                  }
-                  options={inputBatchOptions}
-                  placeholder="Select raw material batch…"
-                  searchPlaceholder="Search batch number or material…"
-                />
-              </Field>
-
-              <Field label="Material Consumed (kg)">
-                <input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  className="dgn-input font-bold"
-                  placeholder="e.g. 100"
-                  {...form.register('materialConsumed', { required: true })}
-                />
-              </Field>
-
-              {totalAdditiveKg > 0 && (
-                <div className="sm:col-span-2 flex items-center justify-between rounded-lg bg-zinc-100/90 px-3 py-1.5 text-xs text-zinc-700">
-                  <span>
-                    Total Production Material Mix: <strong>{totalMaterialMix} kg</strong>
-                  </span>
-                  <span className="text-[11px] text-zinc-500">
-                    (Base: {Number(watchMaterialConsumed || 0).toFixed(1)} kg + Additives: {totalAdditiveKg} kg)
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {selectedBatch && (
-              <div className="mt-2.5 rounded-xl border border-emerald-300 bg-emerald-50/90 p-3 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
-                    Selected Material
-                  </span>
-                  <p className="text-sm font-black text-emerald-950">
-                    {selectedBatch.material?.name || selectedBatch.batchType || 'Raw Material'}
-                    {selectedBatch.sortColor ? ` · ${colorName(selectedBatch.sortColor)}` : ''}
-                  </p>
-                  <p className="text-xs font-semibold text-emerald-700">
-                    Batch #{selectedBatch.batchNumber}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
-                    Available in Store
-                  </span>
-                  <p className="text-xl font-black text-emerald-900 tabular-nums">
-                    {fmt(selectedBatch.qtyRemaining, 1)}{' '}
-                    <span className="text-xs font-extrabold uppercase">{selectedBatch.uom || 'kg'}</span>
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Color Formulation Inputs (Masterbatch & Normal Pigment) */}
-            <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Palette className="size-3.5 text-violet-600" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-700">
-                    Color Formulation & Additives (Masterbatch & Normal Pigment)
-                  </span>
-                </div>
-                <span className="text-[10px] text-zinc-500">
-                  Enter quantity and unit price to compute additive cost and mix
+            {/* Quick Metrics Grid (Compact) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2.5">
+              <div className="bg-zinc-50 rounded-lg p-2 border border-zinc-200/70">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+                  Material Issued
+                </span>
+                <span className="text-sm font-bold text-zinc-900 tabular-nums">
+                  {fmt(runDetail.materialConsumed, 1)} kg
                 </span>
               </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* Masterbatch Column */}
-                <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-800">Masterbatch</span>
-                    {mbSubtotal > 0 && (
-                      <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded border border-violet-200">
-                        ₦{mbSubtotal.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid gap-2 grid-cols-2">
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="0.0"
-                        className="dgn-input text-xs font-semibold h-8"
-                        {...form.register('masterbatchKg')}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="₦/kg"
-                        className="dgn-input text-xs font-semibold h-8"
-                        {...form.register('masterbatchPrice')}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Normal Pigment Column */}
-                <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-800">Normal Pigment</span>
-                    {pigSubtotal > 0 && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                        ₦{pigSubtotal.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid gap-2 grid-cols-2">
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="0.0"
-                        className="dgn-input text-xs font-semibold h-8"
-                        {...form.register('pigmentKg')}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="₦/kg"
-                        className="dgn-input text-xs font-semibold h-8"
-                        {...form.register('pigmentPrice')}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Total Additive Cost & Mix Row */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-200/80 text-xs">
-                <div className="text-zinc-600 text-[11px] flex flex-wrap items-center gap-2">
-                  <span>
-                    Total Material Mix:{' '}
-                    <strong className="text-zinc-900 font-bold">{totalMaterialMix} kg</strong>
+              <div className="bg-emerald-50/60 rounded-lg p-2 border border-emerald-200/70">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 block">
+                  Cumulative Good Output
+                </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-sm font-black text-emerald-700 tabular-nums">
+                    {fmt(scorecardQuery.data?.totals?.totalGood || runDetail.qtyGood || 0)} {runDetail.uom || 'pcs'}
                   </span>
-                  {totalAdditiveKg > 0 && (
-                    <span className="text-[10px] text-zinc-500">
-                      (Base: {Number(watchMaterialConsumed || 0).toFixed(1)}kg + Additives: {totalAdditiveKg}kg)
+                  {Number(scorecardQuery.data?.totals?.totalGood || runDetail.qtyGood || 0) >= 12 && (
+                    <span className="text-[10px] text-emerald-600 font-semibold">
+                      ({Math.floor(Number(scorecardQuery.data?.totals?.totalGood || runDetail.qtyGood || 0) / 12)} dz)
                     </span>
                   )}
                 </div>
+              </div>
+              <div className="bg-red-50/50 rounded-lg p-2 border border-red-200/70">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-red-700 block">
+                  Defect Scrap / Waste
+                </span>
+                <span className="text-sm font-bold text-red-700 tabular-nums">
+                  {fmt(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)} {runDetail.uom || 'pcs'}
+                </span>
+              </div>
+              <div className="bg-amber-50/60 rounded-lg p-2 border border-amber-200/70">
+                <span className="text-[9px] font-bold uppercase tracking-wider text-amber-800 block">
+                  Total Downtime
+                </span>
+                <span className="text-sm font-bold text-amber-900 tabular-nums">
+                  {scorecardQuery.data?.totals?.totalDowntimeMinutes || runDetail.downtimeMinutes || 0} mins
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center shadow-xs max-w-lg mx-auto space-y-3 my-4">
+            <div className="flex size-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 mx-auto">
+              <Factory className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-zinc-900">No Active Production Run Selected</h3>
+              <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
+                Production runs are created when raw material and color additives are issued to a machine from the Material Store. Select an active run from the dropdown above, or visit the Material Store.
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 pt-1">
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/production">
+                  View Floor Table
+                </Link>
+              </Button>
+              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                <Link to="/production/store">
+                  Go to Material Store
+                </Link>
+              </Button>
+            </div>
+          </div>
+        )}
 
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-zinc-700 text-xs">Additive Cost (₦):</span>
-                  <input
-                    type="number"
-                    step="any"
-                    placeholder="0"
-                    className="dgn-input text-xs font-bold w-28 h-8 text-right text-emerald-700"
-                    {...form.register('colorCost')}
+        {/* ========================================================================= */}
+        {/* TWO-COLUMN WORKSPACE: LEFT (ACTIONS) / RIGHT (SCORECARD & FAULTS)         */}
+        {/* ========================================================================= */}
+        {runDetail && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+            {/* LEFT COLUMN: ACTIVE SHIFT & OUTPUT LOGGING (7 Cols) */}
+            <div className="lg:col-span-7 space-y-3">
+              {/* 1. OPERATOR SHIFT CARD */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3.5 sm:p-4 shadow-2xs">
+                <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                      <UserCheck className="size-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-zinc-900">
+                        Operator Shift Assignment
+                      </h3>
+                      <p className="text-[11px] text-zinc-500">
+                        Assign operators to machines by shift to track hours, outputs, and downtime attribution.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* If an operator is currently active */}
+                {activeShift ? (
+                  <div className="mt-3 rounded-lg bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-300 p-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="relative flex size-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full size-2 bg-emerald-500" />
+                          </span>
+                          <span className="text-[10px] font-black text-emerald-900 uppercase tracking-wide">
+                            Current Active Operator
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-zinc-900">
+                          {activeShift.operatorName}
+                        </h4>
+                        <p className="text-[11px] text-zinc-600">
+                          {activeShift.shift?.name || 'On Shift'} · In at{' '}
+                          <strong>
+                            {new Date(activeShift.clockInAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </strong>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 self-start sm:self-auto sm:border-l sm:border-emerald-200/80 sm:pl-3">
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">
+                            Downtime
+                          </span>
+                          <span className="text-xs font-bold text-amber-900 tabular-nums">
+                            {activeShift.downtimeMinutes || 0}m
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsFaultModalOpen(true)}
+                          className="h-7 px-2 text-[11px] font-semibold border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 gap-1 shadow-2xs"
+                        >
+                          <AlertTriangle className="size-3 text-amber-700" />
+                          <span>Log Fault</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ) : isRunActive ? (
+                  <div className="mt-3 space-y-2.5">
+                    <div className="rounded-lg bg-amber-50/70 border border-amber-200 p-2.5 flex items-center gap-2 text-xs text-amber-900 font-medium">
+                      <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />
+                      <span>No operator clocked in. Clock in an operator below to begin recording shift output.</span>
+                    </div>
+
+                    {clockInSuccess && (
+                      <div className="rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                        <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+                        <span>{clockInSuccess}</span>
+                      </div>
+                    )}
+
+                    {clockInError && (
+                      <div className="rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
+                        {clockInError}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleClockInSubmit} className="space-y-2.5 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <Label className="text-xs font-bold text-zinc-800">
+                              Operator Name *
+                            </Label>
+                            <button
+                              type="button"
+                              className="text-[10px] text-blue-600 hover:underline"
+                              onClick={() =>
+                                setClockInOperatorType(clockInOperatorType === 'SELECT' ? 'CUSTOM' : 'SELECT')
+                              }
+                            >
+                              {clockInOperatorType === 'SELECT' ? 'Manual name' : 'From staff list'}
+                            </button>
+                          </div>
+                          {clockInOperatorType === 'SELECT' ? (
+                            <Select
+                              value={clockInEmployeeId}
+                              onValueChange={(val) => setClockInEmployeeId(val)}
+                            >
+                              <SelectTrigger className="w-full text-xs h-8 bg-white">
+                                <SelectValue placeholder="Select staff member…" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {employeesQuery.data?.map((emp) => (
+                                  <SelectItem key={emp.id} value={String(emp.id)}>
+                                    {emp.firstname} {emp.lastname || ''} {emp.designation ? `(${emp.designation})` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type="text"
+                              className="h-8 text-xs"
+                              placeholder="e.g. Musa Ibrahim"
+                              value={clockInCustomName}
+                              onChange={(e) => setClockInCustomName(e.target.value)}
+                              required
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
+                            Shift *
+                          </Label>
+                          <Select
+                            value={clockInShiftId}
+                            onValueChange={(val) => setClockInShiftId(val)}
+                          >
+                            <SelectTrigger className="w-full text-xs h-8 bg-white">
+                              <SelectValue placeholder="Select shift…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {shiftsQuery.data?.map((s) => (
+                                <SelectItem key={s.id} value={String(s.id)}>
+                                  {s.name} {s.startTime && s.endTime ? `(${s.startTime} - ${s.endTime})` : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex-1">
+                          <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
+                            Clock-In Time
+                          </Label>
+                          <Input
+                            type="time"
+                            className="h-8 text-xs bg-white"
+                            value={clockInTime}
+                            onChange={(e) => setClockInTime(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="self-end">
+                          <Button
+                            type="submit"
+                            disabled={isClockingIn}
+                            className="h-8 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-xs"
+                          >
+                            <LogIn className="size-3.5" />
+                            {isClockingIn ? 'Starting…' : 'Clock In Shift'}
+                          </Button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-400 mt-1">This run is completed. Shift logins are closed.</p>
+                )}
+              </div>
+
+              {/* 2. RECORD SHIFT OUTPUT & CLOCK OUT - ONLY WHEN OPERATOR IS ACTIVE */}
+              {isRunActive && activeShift && (
+                <div className="rounded-xl border border-zinc-200 bg-white p-3.5 sm:p-4 shadow-2xs">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                        <LogOut className="size-4" />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold text-zinc-900">
+                          Record Shift Output & Clock Out
+                        </h3>
+                        <p className="text-[11px] text-zinc-500">
+                          Save output for <strong>{activeShift.operatorName}</strong>. Added to FG Store inventory.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {outputSuccess && (
+                    <div className="mt-2.5 rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                      <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+                      <span>{outputSuccess}</span>
+                    </div>
+                  )}
+
+                  {outputError && (
+                    <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
+                      {outputError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleOutputSubmit} className="space-y-3 pt-2.5">
+                    {/* Good output (Dozens & Pieces inputs) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2.5 space-y-1.5">
+                        <Label className="block text-xs font-bold text-emerald-900">
+                          Good Output ({runDetail?.uom || 'pcs'}) *
+                        </Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-emerald-800 block mb-0.5">Dozens</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              className="h-8 text-xs font-bold text-emerald-900 bg-white"
+                              placeholder="dz"
+                              value={outputGoodDozen}
+                              onChange={(e) => setOutputGoodDozen(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <span className="text-[9px] uppercase font-bold text-emerald-800 block mb-0.5">Pieces</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              className="h-8 text-xs font-bold text-emerald-900 bg-white"
+                              placeholder="pcs"
+                              value={outputGoodPcs}
+                              onChange={(e) => setOutputGoodPcs(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[11px] font-semibold text-emerald-700">
+                          Total Good: {Number(outputGoodDozen || 0) * 12 + Number(outputGoodPcs || 0)} pcs
+                        </p>
+                      </div>
+
+                      <div className="rounded-lg border border-red-200 bg-red-50/40 p-2.5 space-y-1.5">
+                        <Label className="block text-xs font-bold text-red-900">
+                          Defects / Rejects / Scrap ({runDetail?.uom || 'pcs'})
+                        </Label>
+                        <div>
+                          <span className="text-[9px] uppercase font-bold text-red-800 block mb-0.5">Scrap Pieces</span>
+                          <Input
+                            type="number"
+                            min="0"
+                            className="h-8 text-xs font-bold text-red-700 bg-white"
+                            placeholder="0"
+                            value={outputRejectPcs}
+                            onChange={(e) => setOutputRejectPcs(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Clock out time & Calculated Runtime Badge */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
+                          Clock Out Time *
+                        </Label>
+                        <Input
+                          type="time"
+                          className="h-8 text-xs bg-white"
+                          value={outputClockOutTime}
+                          onChange={(e) => setOutputClockOutTime(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="flex flex-col justify-end">
+                        <div className="rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-1 flex items-center justify-between text-xs h-8">
+                          <span className="text-zinc-500 font-medium text-[11px]">Operating Runtime:</span>
+                          <span className="font-bold text-zinc-900 tabular-nums">
+                            {calculatedShiftMinutes} mins
+                            {calculatedShiftMinutes >= 60 && (
+                              <span className="text-[11px] text-zinc-500 font-normal ml-1">
+                                ({(calculatedShiftMinutes / 60).toFixed(1)}h)
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Handover notes */}
+                    <div>
+                      <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
+                        Shift Handover Notes (Optional)
+                      </Label>
+                      <textarea
+                        rows={2}
+                        className="w-full rounded-lg border border-zinc-200 bg-white p-2 text-xs text-zinc-800 outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        placeholder="e.g. Cleared nozzle at 02:00 PM; barrel heating stable; handed over to next operator..."
+                        value={outputNotes}
+                        onChange={(e) => setOutputNotes(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-zinc-400">
+                        * Finished goods are automatically added to FG inventory.
+                      </span>
+                      <Button
+                        type="submit"
+                        disabled={isSavingOutput || !activeShift}
+                        className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                      >
+                        <Check className="size-3.5" />
+                        {isSavingOutput ? 'Saving Output…' : 'Clock Out & Save Output'}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              )}
+            </div>
+
+            {/* RIGHT COLUMN: OPERATOR SCORECARD & CHRONOLOGICAL SESSIONS (5 Cols) */}
+            <div className="lg:col-span-5 space-y-3">
+              {/* SCORECARD TABLE */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
+                <h3 className="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Users className="size-3.5 text-zinc-500" />
+                  <span>Operator Performance Comparison</span>
+                </h3>
+
+                {scorecardQuery.data?.operatorScorecard && scorecardQuery.data.operatorScorecard.length > 0 ? (
+                  <div className="rounded-lg border border-zinc-200 overflow-hidden">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-zinc-50 text-zinc-500 border-b border-zinc-200 text-[9px] uppercase">
+                        <tr>
+                          <th className="py-1.5 px-2 font-semibold">Operator</th>
+                          <th className="py-1.5 px-2 font-semibold text-right">Hrs</th>
+                          <th className="py-1.5 px-2 font-semibold text-right">Good</th>
+                          <th className="py-1.5 px-2 font-semibold text-right">Scrap</th>
+                          <th className="py-1.5 px-2 font-semibold text-right">Stop</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {scorecardQuery.data.operatorScorecard.map((op: {
+                          operatorName: string
+                          shiftsCount: number
+                          runtimeHours: number
+                          goodProduced: number
+                          rejectProduced: number
+                          scrapRatePercent: number
+                          outputPerHour: number
+                          downtimeMinutes: number
+                          downtimeEvents: number
+                        }) => (
+                          <tr key={op.operatorName} className="hover:bg-zinc-50/50">
+                            <td className="py-1.5 px-2 font-bold text-zinc-900 truncate max-w-[90px]">
+                              {op.operatorName}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-medium text-zinc-700">
+                              {op.runtimeHours}h
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-bold text-emerald-700">
+                              {fmt(op.goodProduced)}
+                            </td>
+                            <td className="py-1.5 px-2 text-right">
+                              <span
+                                className={`px-1 py-0.2 rounded font-bold text-[9px] ${
+                                  op.scrapRatePercent > 5
+                                    ? 'bg-red-50 text-red-700 border border-red-200'
+                                    : 'text-zinc-600'
+                                }`}
+                              >
+                                {op.scrapRatePercent}%
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-semibold text-amber-900">
+                              {op.downtimeMinutes}m
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-400 py-2 italic">No operator records yet.</p>
+                )}
+              </div>
+
+              {/* CHRONOLOGICAL SHIFTS TIMELINE */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
+                <h3 className="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <History className="size-3.5 text-zinc-500" />
+                  <span>Shift Sessions ({scorecardQuery.data?.shiftLogs?.length || 0})</span>
+                </h3>
+
+                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                  {scorecardQuery.data?.shiftLogs?.map((shift: ShiftLogItem) => {
+                    const isActive = shift.status === 'ACTIVE'
+                    return (
+                      <div
+                        key={shift.id}
+                        className={`rounded-lg border p-2 text-xs ${
+                          isActive
+                            ? 'bg-emerald-50/40 border-emerald-300'
+                            : 'bg-white border-zinc-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            {isActive ? (
+                              <span className="rounded-full bg-emerald-500 size-2 animate-pulse" />
+                            ) : (
+                              <span className="rounded-full bg-zinc-300 size-1.5" />
+                            )}
+                            <strong className="text-zinc-900">{shift.operatorName}</strong>
+                            {shift.shift?.name && (
+                              <span className="text-[10px] text-zinc-500">· {shift.shift.name}</span>
+                            )}
+                          </div>
+                          <span className="font-bold text-emerald-700">
+                            {fmt(shift.qtyGood)} pcs
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10px] text-zinc-400">
+                          <span>
+                            {new Date(shift.clockInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {shift.clockOutAt ? ` → ${new Date(shift.clockOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ' (Active)'}
+                          </span>
+                          <span>
+                            Run: {shift.runtimeMinutes || 0}m · Stop: {shift.downtimeMinutes || 0}m
+                          </span>
+                        </div>
+                        {shift.handoverNotes && (
+                          <p className="mt-1 text-[10px] text-zinc-600 bg-zinc-50 p-1.5 rounded border border-zinc-100 italic">
+                            &ldquo;{shift.handoverNotes}&rdquo;
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* RECORDED MACHINE FAULTS */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-zinc-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <AlertTriangle className="size-3.5 text-amber-600" />
+                    <span>Machine Stops & Faults ({scorecardQuery.data?.faultLogs?.length || 0})</span>
+                  </h3>
+                  {isRunActive && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsFaultModalOpen(true)}
+                      className="h-6 px-2 text-[10px] font-semibold border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 gap-1"
+                    >
+                      <Plus className="size-2.5 text-amber-700" />
+                      <span>Log Fault</span>
+                    </Button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 max-h-[250px] overflow-y-auto pr-1">
+                  {scorecardQuery.data?.faultLogs?.map((f: FaultLogItem) => (
+                    <div key={f.id} className="rounded-lg border border-zinc-200 bg-zinc-50/50 p-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[9px] uppercase bg-amber-100 text-amber-900 px-1.5 py-0.2 rounded">
+                          {f.category.replace(/_/g, ' ')}
+                        </span>
+                        <span className="font-bold text-zinc-900 text-[11px]">{f.downtimeMinutes}m stop</span>
+                      </div>
+                      {f.rootCause && (
+                        <p className="mt-0.5 text-zinc-800 text-[11px]">
+                          <strong>Cause:</strong> {f.rootCause}
+                        </p>
+                      )}
+                      {f.actionTaken && (
+                        <p className="text-zinc-500 text-[10px]">
+                          <strong>Fix:</strong> {f.actionTaken}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                  {(!scorecardQuery.data?.faultLogs || scorecardQuery.data.faultLogs.length === 0) && (
+                    <p className="text-xs text-zinc-400 italic py-1.5">No machine faults recorded.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MODAL: LOG MACHINE FAULT & DOWNTIME                                       */}
+        {/* ========================================================================= */}
+        {isFaultModalOpen && (
+          <Dialog open={isFaultModalOpen} onOpenChange={setIsFaultModalOpen}>
+            <DialogContent className="max-w-lg p-0 overflow-hidden rounded-2xl shadow-2xl border-zinc-200">
+              <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-200/60 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm shadow-amber-500/30">
+                    <AlertTriangle className="size-5" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                      <span>Log Machine Fault & Stoppage</span>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-extrabold text-amber-800 border border-amber-200 uppercase tracking-wide">
+                        Downtime
+                      </span>
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-zinc-600 mt-0.5">
+                      {runDetail?.machine?.name || 'Machine'} · Batch #{runDetail?.batch?.batchNumber || `RUN-${runDetail?.id}`}
+                      {activeShift ? ` · Active Operator: ${activeShift.operatorName}` : ''}
+                    </DialogDescription>
+                  </div>
+                </div>
+              </div>
+
+              {faultSuccess && (
+                <div className="mx-5 mt-4 rounded-lg bg-emerald-50 p-2.5 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-2">
+                  <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
+                  <span>{faultSuccess}</span>
+                </div>
+              )}
+
+              {faultError && (
+                <div className="mx-5 mt-4 rounded-lg bg-red-50 p-2.5 text-xs font-medium text-red-700 border border-red-200">
+                  {faultError}
+                </div>
+              )}
+
+              <form onSubmit={handleFaultSubmit} className="p-5 space-y-3.5">
+                <div>
+                  <Label className="block text-xs font-bold text-zinc-800 mb-1">
+                    Fault Category *
+                  </Label>
+                  <Select value={faultCategory} onValueChange={(val) => setFaultCategory(val)}>
+                    <SelectTrigger className="w-full text-xs h-9 bg-white">
+                      <SelectValue placeholder="Select fault category…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FAULT_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          <span className="mr-1.5">{cat.icon}</span>
+                          <span>{cat.label}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Stopped At</span>
+                    <Input
+                      type="time"
+                      className="h-8 text-xs bg-white"
+                      value={faultFrom}
+                      onChange={(e) => handleFaultTimeChange(e.target.value, faultTo)}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-0.5">Resumed At</span>
+                    <Input
+                      type="time"
+                      className="h-8 text-xs bg-white"
+                      value={faultTo}
+                      onChange={(e) => handleFaultTimeChange(faultFrom, e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider mr-1">
+                    Presets ({faultMinutes}m):
+                  </span>
+                  {['15', '30', '45', '60', '90', '120'].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => handleFaultPresetMinutes(m)}
+                      className={`rounded-lg px-2 py-0.5 text-xs font-bold transition-all ${
+                        faultMinutes === m
+                          ? 'bg-amber-600 text-white shadow-xs'
+                          : 'bg-zinc-100 text-zinc-700 hover:bg-amber-100'
+                      }`}
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <Label className="block text-xs font-bold text-zinc-800 mb-1">
+                    Root Cause & Problem Description *
+                  </Label>
+                  <Input
+                    type="text"
+                    className="h-8 text-xs bg-white"
+                    placeholder="e.g. Thermocouple wire detached causing temperature fluctuation"
+                    value={faultRootCause}
+                    onChange={(e) => setFaultRootCause(e.target.value)}
+                    required
                   />
                 </div>
-              </div>
-            </div>
 
-            {/* Finished Units Breakdown (Dozen & Pieces for Good & Waste) */}
-            <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-700">
-                  Finished Units Breakdown
-                </span>
-                <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-md border border-emerald-200">
-                  Total Output: {totalProduced.toLocaleString()} pcs {totalProduced > 0 ? `(${fmtDozensPcs(totalProduced)})` : ''}
-                </span>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* Good Units: 2 inputs (Dozen & Pcs) */}
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                      <span className="size-2 rounded-full bg-emerald-500" />
-                      Good Units
-                    </span>
-                    <span className="text-xs font-black text-emerald-800 tabular-nums">
-                      = {watchGood.toLocaleString()} pcs
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <Field label="Dozen (dz)">
-                      <input
-                        inputMode="decimal"
-                        type="number"
-                        step="any"
-                        min="0"
-                        placeholder="0"
-                        className="dgn-input font-bold text-emerald-800 bg-white"
-                        {...form.register('goodDozen')}
-                      />
-                    </Field>
-                    <Field label="Pieces (pcs)">
-                      <input
-                        inputMode="numeric"
-                        type="number"
-                        step="1"
-                        min="0"
-                        placeholder="0"
-                        className="dgn-input font-bold text-emerald-800 bg-white"
-                        {...form.register('goodPcs')}
-                      />
-                    </Field>
-                  </div>
+                <div>
+                  <Label className="block text-xs font-bold text-zinc-800 mb-1">
+                    Corrective Action Taken
+                  </Label>
+                  <Input
+                    type="text"
+                    className="h-8 text-xs bg-white"
+                    placeholder="e.g. Reconnected sensor wire and tested heater zone 3"
+                    value={faultActionTaken}
+                    onChange={(e) => setFaultActionTaken(e.target.value)}
+                  />
                 </div>
 
-                {/* Waste Units: 2 inputs (Dozen & Pcs) */}
-                <div className="rounded-xl border border-red-200 bg-red-50/40 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-red-950 flex items-center gap-1.5">
-                      <span className="size-2 rounded-full bg-red-500" />
-                      Waste Units
-                    </span>
-                    <span className="text-xs font-black text-red-700 tabular-nums">
-                      = {watchReject.toLocaleString()} pcs
-                    </span>
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-semibold"
+                    onClick={() => setIsFaultModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={isLoggingFault}
+                    className="h-8 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white gap-1.5 shadow-xs"
+                  >
+                    <Clock className="size-3.5" />
+                    {isLoggingFault ? 'Saving Fault…' : 'Record Machine Fault'}
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MODAL: FINALIZE RUN CONFIRMATION                                          */}
+        {/* ========================================================================= */}
+        {isFinalizeModalOpen && (
+          <Dialog open={isFinalizeModalOpen} onOpenChange={setIsFinalizeModalOpen}>
+            <DialogContent className="max-w-md p-0 overflow-hidden rounded-2xl shadow-2xl border-zinc-200">
+              <div className="bg-gradient-to-r from-emerald-600/10 via-emerald-500/5 to-transparent border-b border-emerald-200 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm shadow-emerald-500/30">
+                    <CheckCircle2 className="size-5" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <Field label="Dozen (dz)">
-                      <input
-                        inputMode="decimal"
-                        type="number"
-                        step="any"
-                        min="0"
-                        placeholder="0"
-                        className="dgn-input font-semibold text-red-700 bg-white"
-                        {...form.register('wasteDozen')}
-                      />
-                    </Field>
-                    <Field label="Pieces (pcs)">
-                      <input
-                        inputMode="numeric"
-                        type="number"
-                        step="1"
-                        min="0"
-                        placeholder="0"
-                        className="dgn-input font-semibold text-red-700 bg-white"
-                        {...form.register('wastePcs')}
-                      />
-                    </Field>
+                  <div>
+                    <DialogTitle className="text-base font-bold text-zinc-900">
+                      Finalize & Complete Run
+                    </DialogTitle>
+                    <DialogDescription className="text-xs text-zinc-600 mt-0.5">
+                      Confirm all issued material ({runDetail?.materialConsumed} kg) is consumed and complete this run.
+                    </DialogDescription>
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Section 4: Notes */}
-          <div>
-            <Field label="Notes / Shift Remarks">
-              <textarea rows={2} className="dgn-input" placeholder="Optional notes on this run..." {...form.register('notes')} />
-            </Field>
-          </div>
+              {finalizeError && (
+                <div className="mx-5 mt-4 rounded-lg bg-red-50 p-2.5 text-xs font-medium text-red-700 border border-red-200">
+                  {finalizeError}
+                </div>
+              )}
 
-          {/* Quality Control Auto-Approval Checkbox */}
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 transition-colors hover:bg-emerald-50/80">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
-                {...form.register('autoRelease')}
-              />
-              <div className="space-y-0.5">
-                <span className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-                  <CheckCircle2 className="size-3.5 text-emerald-600" />
-                  Auto-approve for sale (Skip Quality Control & ready to sell)
-                </span>
-                <p className="text-[11px] text-emerald-700">
-                  When active, finishes with <strong>ACCEPTED</strong> status so it is immediately available for sale in the Sales module. Uncheck if this batch must go through manual inspection in the QC queue.
+              <div className="p-5 space-y-4 text-xs text-zinc-700">
+                <div className="rounded-xl bg-zinc-50 p-3 border border-zinc-200/80 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Total Good Produced:</span>
+                    <strong className="text-emerald-700 font-bold">
+                      {fmt(scorecardQuery.data?.totals?.totalGood || runDetail?.qtyGood || 0)} pcs
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Total Scrap / Waste:</span>
+                    <strong className="text-red-600 font-bold">
+                      {fmt(scorecardQuery.data?.totals?.totalReject || runDetail?.qtyReject || 0)} pcs
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Total Operating Hours:</span>
+                    <strong className="text-zinc-900">
+                      {scorecardQuery.data?.totals?.totalRuntimeHours || ((runDetail?.runtimeMinutes || 0) / 60).toFixed(1)} hrs
+                    </strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Total Downtime:</span>
+                    <strong className="text-amber-800">
+                      {scorecardQuery.data?.totals?.totalDowntimeMinutes || runDetail?.downtimeMinutes || 0} mins
+                    </strong>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-zinc-500 leading-relaxed">
+                  Completing the run closes all shifts on this machine and releases the batch to Finished Goods store.
                 </p>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-semibold"
+                    onClick={() => setIsFinalizeModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={isFinalizing}
+                    onClick={handleFinalizeRun}
+                    className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                  >
+                    <CheckCircle2 className="size-3.5" />
+                    {isFinalizing ? 'Finalizing…' : 'Confirm & Complete Run'}
+                  </Button>
+                </div>
               </div>
-            </label>
-          </div>
-
-          {/* Live Metrics Summary */}
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-2 border-t border-zinc-100">
-            <StatPill label="Yield %" value={`${liveMetrics.yieldPct}%`} tone="success" />
-            <StatPill
-              label="Reject %"
-              value={`${liveMetrics.rejectPct}%`}
-              tone={liveMetrics.rejectPct > 5 ? 'danger' : 'default'}
-            />
-            <StatPill label="Output / hr" value={String(liveMetrics.perHour)} />
-            <StatPill label="Total Mix (kg)" value={`${totalMaterialMix} kg`} />
-            <StatPill label="Mix / Unit" value={`${liveMetrics.materialPerUnit} kg`} />
-            <StatPill
-              label="OEE (live)"
-              value={`${liveMetrics.oee}%`}
-              tone={liveMetrics.oee >= 80 ? 'success' : liveMetrics.oee >= 60 ? 'accent' : 'default'}
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-100">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate('/production')}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={form.formState.isSubmitting}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-9 px-4 flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <CheckCircle2 className="size-4" />
-              {form.formState.isSubmitting
-                ? 'Saving…'
-                : selectedRunId
-                  ? 'Complete Issued Run'
-                  : 'Save Completed Run'}
-            </Button>
-          </div>
-        </form>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
     </PageLayout>
   )
 }

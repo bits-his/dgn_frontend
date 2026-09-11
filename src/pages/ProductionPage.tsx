@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import {
   CheckCircle2,
-  Clock,
   Search,
   Eye,
-  Plus,
   ExternalLink,
+  UserCheck,
+  Wrench,
 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import CustomTable1 from '@/components/CustomTable1'
@@ -16,7 +16,6 @@ import { Card } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -24,20 +23,48 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
-import { useAuthStore } from '@/stores/auth-store'
-import { hasPermission } from '@/lib/auth'
 
 type MasterItem = {
   id: number
   name: string
   code?: string
   isActive?: boolean
+}
+
+export type ShiftLogItem = {
+  id: number
+  productionRunId: number
+  machineId: number
+  shiftId: number | null
+  operatorId: number | null
+  operatorName: string
+  clockInAt: string
+  clockOutAt: string | null
+  status: 'ACTIVE' | 'COMPLETED'
+  runtimeMinutes: number
+  downtimeMinutes: number
+  qtyGood: string | number
+  qtyReject: string | number
+  materialConsumed: string | number
+  handoverNotes: string | null
+  shift?: { id: number; name: string; code: string }
+}
+
+export type FaultLogItem = {
+  id: number
+  productionRunId: number
+  productionShiftLogId: number | null
+  machineId: number
+  shiftId: number | null
+  operatorName: string
+  category: string
+  downtimeMinutes: number
+  startTime: string | null
+  endTime: string | null
+  rootCause: string | null
+  actionTaken: string | null
+  createdAt: string
+  shift?: { id: number; name: string }
 }
 
 type ProductionRunRow = {
@@ -104,6 +131,8 @@ type ProductionRunRow = {
     name: string
     code: string
   }
+  shiftLogs?: ShiftLogItem[]
+  faultLogs?: FaultLogItem[]
 }
 
 function fmt(value: string | number | null | undefined, digits = 0) {
@@ -114,55 +143,11 @@ function fmt(value: string | number | null | undefined, digits = 0) {
     : String(value)
 }
 
-
-function getCurrentTimeString(date = new Date()): string {
-  const h = String(date.getHours()).padStart(2, '0')
-  const m = String(date.getMinutes()).padStart(2, '0')
-  return `${h}:${m}`
-}
-
-function getTimeMinusMinutes(minutes: number, baseDate = new Date()): string {
-  const d = new Date(baseDate.getTime() - minutes * 60 * 1000)
-  const h = String(d.getHours()).padStart(2, '0')
-  const m = String(d.getMinutes()).padStart(2, '0')
-  return `${h}:${m}`
-}
-
-function calculateMinutesBetween(startTime?: string, endTime?: string): number {
-  if (!startTime || !endTime) return 0
-  const [sh, sm] = startTime.split(':').map(Number)
-  const [eh, em] = endTime.split(':').map(Number)
-  if (Number.isNaN(sh) || Number.isNaN(sm) || Number.isNaN(eh) || Number.isNaN(em)) return 0
-
-  let diff = eh * 60 + em - (sh * 60 + sm)
-  if (diff < 0) {
-    diff += 24 * 60
-  }
-  return diff
-}
-
 export function ProductionPage() {
-  const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const user = useAuthStore((s) => s.user)
-  const canCreate = hasPermission(user, 'production.create')
-
   // Search & filter state
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'IN_PROGRESS' | 'COMPLETED'>('ALL')
   const [machineFilter, setMachineFilter] = useState('')
-
-  // Downtime modal states
-  const [downtimeRun, setDowntimeRun] = useState<ProductionRunRow | null>(null)
-  const [downtimeFrom, setDowntimeFrom] = useState<string>('')
-  const [downtimeTo, setDowntimeTo] = useState<string>('')
-  const [downtimeMinutes, setDowntimeMinutes] = useState<string>('30')
-  const [downtimeReason, setDowntimeReason] = useState<string>('Power Outage / Generator switch')
-  const [customReason, setCustomReason] = useState<string>('')
-  const [downtimeNotes, setDowntimeNotes] = useState<string>('')
-  const [isSubmittingDowntime, setIsSubmittingDowntime] = useState(false)
-  const [downtimeError, setDowntimeError] = useState('')
-  const [downtimeSuccess, setDowntimeSuccess] = useState('')
 
   // Queries
   const machines = useQuery({
@@ -172,7 +157,6 @@ export function ProductionPage() {
       return (data.data || []) as MasterItem[]
     },
   })
-
 
   const runsQuery = useQuery({
     queryKey: ['production-runs'],
@@ -185,80 +169,7 @@ export function ProductionPage() {
 
   const runs = runsQuery.data || []
 
-  const handleOpenDowntimeModal = (run: ProductionRunRow) => {
-    setDowntimeRun(run)
-    const to = getCurrentTimeString()
-    const from = getTimeMinusMinutes(30)
-    setDowntimeFrom(from)
-    setDowntimeTo(to)
-    setDowntimeMinutes('30')
-    setDowntimeReason('Power Outage / Generator switch')
-    setCustomReason('')
-    setDowntimeNotes('')
-    setDowntimeError('')
-    setDowntimeSuccess('')
-  }
-
-  const handleDowntimeTimeChange = (from: string, to: string) => {
-    setDowntimeFrom(from)
-    setDowntimeTo(to)
-    if (from && to) {
-      const diff = calculateMinutesBetween(from, to)
-      setDowntimeMinutes(String(diff))
-    }
-  }
-
-  const handleSelectPresetMinutes = (minsStr: string) => {
-    setDowntimeMinutes(minsStr)
-    const m = Number(minsStr) || 0
-    if (downtimeTo && m > 0) {
-      const [eh, em] = downtimeTo.split(':').map(Number)
-      if (!Number.isNaN(eh) && !Number.isNaN(em)) {
-        let totalMins = eh * 60 + em - m
-        if (totalMins < 0) totalMins += 24 * 60
-        const sh = String(Math.floor(totalMins / 60)).padStart(2, '0')
-        const sm = String(totalMins % 60).padStart(2, '0')
-        setDowntimeFrom(`${sh}:${sm}`)
-      }
-    }
-  }
-
-  const handleSaveDowntime = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!downtimeRun) return
-    const mins = Number(downtimeMinutes)
-    if (Number.isNaN(mins) || mins <= 0) {
-      setDowntimeError('Please enter valid downtime minutes (greater than 0)')
-      return
-    }
-
-    const reason = downtimeReason === 'Other' ? customReason.trim() || 'Other' : downtimeReason
-
-    setIsSubmittingDowntime(true)
-    setDowntimeError('')
-    try {
-      await api.post(`/production/runs/${downtimeRun.id}/downtime`, {
-        downtimeMinutes: mins,
-        downtimeReason: reason,
-        notes: downtimeNotes.trim() || undefined,
-      })
-      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
-      setDowntimeSuccess(`Logged ${mins}m downtime successfully!`)
-      setTimeout(() => {
-        setDowntimeRun(null)
-      }, 900)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
-      const msg =
-        axiosErr.response?.data?.errors?.downtimeMinutes ||
-        axiosErr.response?.data?.err ||
-        'Failed to log downtime'
-      setDowntimeError(msg)
-    } finally {
-      setIsSubmittingDowntime(false)
-    }
-  }
-
+  // Run Table Columns
   const runColumns: ColumnDef<ProductionRunRow>[] = useMemo(
     () => [
       {
@@ -282,19 +193,17 @@ export function ProductionPage() {
                   from {run.inputBatch.batchNumber}
                 </p>
               )}
-{
-                isRunning ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200">
-                    <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
-                    In progress
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 border border-emerald-200">
-                    <CheckCircle2 className="size-3 text-emerald-600" />
-                    Completed
-                  </span>
-                )
-}
+              {isRunning ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800 border border-amber-200 mt-0.5">
+                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  In progress
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 border border-emerald-200 mt-0.5">
+                  <CheckCircle2 className="size-3 text-emerald-600" />
+                  Completed
+                </span>
+              )}
             </div>
           )
         },
@@ -316,7 +225,6 @@ export function ProductionPage() {
           )
         },
       },
-     
       {
         id: 'machine',
         header: 'Machine',
@@ -328,7 +236,7 @@ export function ProductionPage() {
             <div className="space-y-1 min-w-[100px]">
               <div>
                 <p className="font-semibold text-xs text-zinc-800">{m?.name || '—'}</p>
-                {m?.code && <p className="text-[10px] text-zinc-400">{m.code}</p>}
+                {m?.code && <p className="text-[10px] text-zinc-400 font-mono">{m.code}</p>}
               </div>
               {!isRunning && oee > 0 && (
                 <div>
@@ -363,14 +271,58 @@ export function ProductionPage() {
         header: 'Shift & Operator',
         cell: ({ row }) => {
           const run = row.original
+          const isRunning = run.batch?.status === 'IN_PROGRESS'
+          const activeShift = run.shiftLogs?.find((s) => s.status === 'ACTIVE')
+
+          if (isRunning) {
+            if (activeShift) {
+              const clockInFormatted = new Date(activeShift.clockInAt).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+              return (
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800 border border-emerald-200">
+                    <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>{activeShift.operatorName}</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-500 flex items-center gap-1">
+                    <span className="font-semibold text-zinc-700">{activeShift.shift?.name || 'On Shift'}</span>
+                    <span>•</span>
+                    <span>Clocked in {clockInFormatted}</span>
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+                  <UserCheck className="size-3 text-amber-600" />
+                  No Active Operator
+                </span>
+                {run.shiftLogs && run.shiftLogs.length > 0 && (
+                  <p className="text-[10px] text-zinc-400">
+                    {run.shiftLogs.length} previous shift{run.shiftLogs.length > 1 ? 's' : ''}
+                  </p>
+                )}
+              </div>
+            )
+          }
+
+          // Completed run
+          const shiftsCount = run.shiftLogs?.length || 0
           return (
             <div>
               <p className="font-medium text-xs text-zinc-800">{run.operatorName || '—'}</p>
-              {run.shift?.name && (
+              {shiftsCount > 1 ? (
+                <span className="inline-block mt-0.5 rounded bg-blue-50 px-1.5 py-0.2 text-[10px] font-semibold text-blue-700 border border-blue-200">
+                  {shiftsCount} operators / shifts
+                </span>
+              ) : run.shift?.name ? (
                 <span className="inline-block mt-0.5 rounded bg-zinc-100 px-1.5 py-0.2 text-[10px] font-medium text-zinc-600 border border-zinc-200/60">
                   {run.shift.name}
                 </span>
-              )}
+              ) : null}
             </div>
           )
         },
@@ -390,85 +342,86 @@ export function ProductionPage() {
         cell: ({ row }) => {
           const run = row.original
           const isRunning = run.batch?.status === 'IN_PROGRESS'
+          const goodPcs = Number(run.qtyGood || 0)
+          const rejectPcs = Number(run.qtyReject || 0)
+
           if (isRunning) {
+            if (goodPcs > 0 || rejectPcs > 0) {
+              return (
+                <div className="tabular-nums text-xs">
+                  <div className="flex items-center gap-1 text-emerald-700 font-bold">
+                    <span>{fmt(goodPcs)} good</span>
+                    <span className="text-zinc-400 font-normal">so far</span>
+                  </div>
+                  {rejectPcs > 0 && (
+                    <p className="text-[10px] text-red-600 font-medium">({fmt(rejectPcs)} scrap)</p>
+                  )}
+                  {goodPcs >= 12 && (
+                    <p className="text-[10px] text-zinc-400">
+                      {Math.floor(goodPcs / 12)} dz{goodPcs % 12 > 0 ? ` ${goodPcs % 12} pcs` : ''}
+                    </p>
+                  )}
+                </div>
+              )
+            }
             return <span className="text-[11px] text-amber-700 font-medium italic">Running…</span>
           }
+
           return (
             <div className="tabular-nums text-xs">
               <span className="font-semibold text-emerald-700">
                 {fmt(run.qtyGood)} {run.uom || 'pcs'}
               </span>
-              {Number(run.qtyReject || 0) > 0 && (
+              {rejectPcs > 0 && (
                 <span className="ml-1 text-[11px] text-red-600 font-medium">
-                  ({fmt(run.qtyReject)} waste)
+                  ({fmt(run.qtyReject)} scrap)
                 </span>
               )}
-              {Number(run.qtyGood || 0) >= 12 && (
+              {goodPcs >= 12 && (
                 <p className="text-[10px] text-zinc-400 font-medium">
-                  {Math.floor(Number(run.qtyGood) / 12)} dz{Number(run.qtyGood) % 12 > 0 ? ` ${Number(run.qtyGood) % 12} pcs` : ''}
+                  {Math.floor(goodPcs / 12)} dz{goodPcs % 12 > 0 ? ` ${goodPcs % 12} pcs` : ''}
                 </p>
               )}
             </div>
           )
         },
       },
-
       {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => {
           const run = row.original
-          const isRunning = run.batch?.status === 'IN_PROGRESS'
           return (
-            <div className="flex flex-col gap-1 ">
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap"
+                className="h-8 px-2.5 text-xs font-semibold gap-1.5"
                 asChild
               >
-                <Link
-                  to={`/batches/${run.batch?.batchNumber}`}
-                  className="inline-flex items-center gap-1.5 whitespace-nowrap"
-                >
+                <Link to={`/batches/${run.batch?.batchNumber}`}>
                   <Eye className="size-3.5 shrink-0" />
                   <span>View</span>
                 </Link>
               </Button>
-              {isRunning && canCreate && (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100"
-                    onClick={() => handleOpenDowntimeModal(run)}
-                  >
-                    <Clock className="size-3.5 text-amber-700 shrink-0" />
-                    <span>Downtime{Number(run.downtimeMinutes || 0) > 0 ? ` (${run.downtimeMinutes}m)` : ''}</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap bg-emerald-600 hover:bg-emerald-700 text-white"
-                    asChild
-                  >
-                    <Link
-                      to={`/production/${run.id}/complete`}
-                      className="inline-flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <CheckCircle2 className="size-3.5 shrink-0" />
-                      <span>Complete</span>
-                    </Link>
-                  </Button>
-                </>
-              )}
+              <Button
+                size="sm"
+                className="h-8 px-2.5 text-xs font-semibold gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
+                asChild
+              >
+                <Link to={`/production/${run.id}/work`}>
+                  <Wrench className="size-3.5 shrink-0" />
+                  <span>Work & Logs</span>
+                </Link>
+              </Button>
             </div>
           )
         },
       },
     ],
-    [canCreate]
+    []
   )
+
   // Filtered runs
   const filteredRuns = useMemo(() => {
     return runs.filter((r) => {
@@ -524,349 +477,126 @@ export function ProductionPage() {
           )}
         </div>
       }
-      description="Monitor active machine execution and record outputs for material issued by the store."
-      actions={
-        <div className="flex items-center gap-1.5 sm:gap-2">
-       
-          {canCreate && (
-            <Button
-              type="button"
-              onClick={() => navigate('/production/new')}
-              className="gap-1.5 font-semibold text-xs h-8"
-            >
-              <Plus className="size-3.5" />
-              <span>1-Step Record</span>
-            </Button>
-          )}
-        </div>
-      }
+      description="Monitor active machine execution, track operator shift hours and outputs, log machine faults, and view operator scorecards."
     >
       <div className="space-y-3 sm:space-y-4">
-
-      {/* 2. Compact Horizontal Stats Ribbon */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-            Active Runs
-          </p>
-          <p className="text-base font-bold text-amber-800">
-            {metricsSummary.inProgressCount} on floor
-          </p>
-        </div>
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-            Total Good Output
-          </p>
-          <p className="text-base font-bold text-emerald-700">
-            {fmt(metricsSummary.totalProduced)} pcs
-          </p>
-        </div>
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-            Material Consumed
-          </p>
-          <p className="text-base font-bold text-zinc-800">
-            {fmt(metricsSummary.totalConsumed, 1)} kg
-          </p>
-        </div>
-        <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-            Average OEE
-          </p>
-          <p className="text-base font-bold text-zinc-900">
-            {metricsSummary.avgOee > 0 ? `${metricsSummary.avgOee}%` : '—'}
-          </p>
-        </div>
-      </div>
-
-      {/* 3. The Table inside a beautiful, structured Card with embedded Search & Filters */}
-      <Card className="!p-0 overflow-hidden shadow-xs border border-zinc-200">
-        {/* Card Header Toolbar with Search and Filters */}
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2.5 sm:p-3 border-b border-zinc-200/80 bg-zinc-50/70">
-          {/* Search Input (less rounded, shadcn Input) */}
-          <div className="relative flex-1 sm:max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-            <Input
-              type="text"
-              className="pl-8 h-8 text-xs bg-white"
-              placeholder="Search batch, machine, operator…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        {/* Compact Horizontal Stats Ribbon */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Active Runs
+            </p>
+            <p className="text-base font-bold text-amber-800">
+              {metricsSummary.inProgressCount} on floor
+            </p>
           </div>
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Total Good Output
+            </p>
+            <p className="text-base font-bold text-emerald-700">
+              {fmt(metricsSummary.totalProduced)} pcs
+            </p>
+          </div>
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Material Consumed
+            </p>
+            <p className="text-base font-bold text-zinc-800">
+              {fmt(metricsSummary.totalConsumed, 1)} kg
+            </p>
+          </div>
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-3.5 py-2 shadow-2xs">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              Average OEE
+            </p>
+            <p className="text-base font-bold text-zinc-900">
+              {metricsSummary.avgOee > 0 ? `${metricsSummary.avgOee}%` : '—'}
+            </p>
+          </div>
+        </div>
 
-          {/* Filters: Status Select and Machine Select */}
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
-            {/* Status Select (replaces old tab control) */}
-            <Select
-              value={statusFilter}
-              onValueChange={(val) => setStatusFilter(val as 'ALL' | 'IN_PROGRESS' | 'COMPLETED')}
-            >
-              <SelectTrigger className="w-full sm:w-[145px] h-8 text-xs bg-white font-medium">
-                <SelectValue placeholder="All status">
-                  {statusFilter === 'ALL' && 'All Status'}
-                  {statusFilter === 'IN_PROGRESS' && (
-                    <span className="flex items-center gap-1.5">
+        {/* The Table inside a structured Card with embedded Search & Filters */}
+        <Card className="!p-0 overflow-hidden shadow-xs border border-zinc-200">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2.5 sm:p-3 border-b border-zinc-200/80 bg-zinc-50/70">
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+              <Input
+                type="text"
+                className="pl-8 h-8 text-xs bg-white"
+                placeholder="Search batch, machine, operator…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-2">
+              <Select
+                value={statusFilter}
+                onValueChange={(val) => setStatusFilter(val as 'ALL' | 'IN_PROGRESS' | 'COMPLETED')}
+              >
+                <SelectTrigger className="w-full sm:w-[145px] h-8 text-xs bg-white font-medium">
+                  <SelectValue placeholder="All status">
+                    {statusFilter === 'ALL' && 'All Status'}
+                    {statusFilter === 'IN_PROGRESS' && (
+                      <span className="flex items-center gap-1.5">
+                        <span>In Progress</span>
+                        {metricsSummary.inProgressCount > 0 && (
+                          <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
+                            {metricsSummary.inProgressCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    {statusFilter === 'COMPLETED' && 'Completed'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Status</SelectItem>
+                  <SelectItem value="IN_PROGRESS">
+                    <div className="flex items-center justify-between w-full gap-2">
                       <span>In Progress</span>
                       {metricsSummary.inProgressCount > 0 && (
                         <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
                           {metricsSummary.inProgressCount}
                         </span>
                       )}
-                    </span>
-                  )}
-                  {statusFilter === 'COMPLETED' && 'Completed'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All Status</SelectItem>
-                <SelectItem value="IN_PROGRESS">
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <span>In Progress</span>
-                    {metricsSummary.inProgressCount > 0 && (
-                      <span className="rounded-full bg-amber-500 px-1.5 py-0.2 text-[10px] font-bold text-white">
-                        {metricsSummary.inProgressCount}
-                      </span>
-                    )}
-                  </div>
-                </SelectItem>
-                <SelectItem value="COMPLETED">Completed</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Machine Filter Select */}
-            <Select
-              value={machineFilter || 'ALL'}
-              onValueChange={(val) => setMachineFilter(val === 'ALL' ? '' : val)}
-            >
-              <SelectTrigger className="w-full sm:w-[150px] h-8 text-xs bg-white font-medium">
-                <SelectValue placeholder="All machines">
-                  {!machineFilter || machineFilter === 'ALL'
-                    ? 'All machines'
-                    : machines.data?.find((m) => String(m.id) === String(machineFilter))?.name || 'All machines'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All machines</SelectItem>
-                {machines.data?.map((m) => (
-                  <SelectItem key={m.id} value={String(m.id)}>
-                    {m.name}
+                    </div>
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+                  <SelectItem value="COMPLETED">Completed</SelectItem>
+                </SelectContent>
+              </Select>
 
-        <CustomTable1
-          data={filteredRuns}
-          columns={runColumns}
-          loading={runsQuery.isLoading}
-          card={true}
-        />
-      </Card>
-
-      {/* MODAL: LOG DOWNTIME ON IN-PROGRESS RUN */}
-      {downtimeRun && (
-        <Dialog open={Boolean(downtimeRun)} onOpenChange={(open) => !open && setDowntimeRun(null)}>
-          <DialogContent className="max-w-lg p-0 overflow-hidden rounded-2xl shadow-2xl border-zinc-200 dark:border-zinc-800">
-            {/* Header with amber accent banner */}
-            <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border-b border-amber-200/60 dark:border-amber-900/40 p-5">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-amber-500 text-white shadow-sm shadow-amber-500/30">
-                  <Clock className="size-5" />
-                </div>
-                <div>
-                  <DialogTitle className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                    <span>Log Machine Downtime</span>
-                    <span className="rounded-full bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 text-[10px] font-extrabold text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 uppercase tracking-wide">
-                      Stop event
-                    </span>
-                  </DialogTitle>
-                  <DialogDescription className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-                    {downtimeRun.machine?.name || 'Machine'} · Batch #{downtimeRun.batch?.batchNumber || `RUN-${downtimeRun.id}`}
-                    {downtimeRun.operatorName ? ` · Operator: ${downtimeRun.operatorName}` : ''}
-                  </DialogDescription>
-                </div>
-              </div>
-
-              {/* Previously logged downtime banner */}
-              {Number(downtimeRun.downtimeMinutes || 0) > 0 && (
-                <div className="mt-3 flex items-center justify-between rounded-lg bg-white/80 dark:bg-zinc-900/80 px-3 py-1.5 text-xs border border-amber-200/80 dark:border-amber-900/60">
-                  <span className="text-zinc-500">Previously Recorded:</span>
-                  <span className="font-bold text-amber-900 dark:text-amber-200">
-                    {downtimeRun.downtimeMinutes}m total{downtimeRun.downtimeReason ? ` (${downtimeRun.downtimeReason})` : ''}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {downtimeSuccess && (
-              <div className="mx-5 mt-4 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 p-2.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-800 flex items-center gap-2">
-                <CheckCircle2 className="size-4 text-emerald-600 shrink-0" />
-                <span>{downtimeSuccess}</span>
-              </div>
-            )}
-
-            {downtimeError && (
-              <div className="mx-5 mt-4 rounded-lg bg-red-50 dark:bg-red-950/50 p-2.5 text-xs font-medium text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">
-                {downtimeError}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveDowntime} className="p-5 space-y-4">
-              {/* FROM & TO TIME SELECTION */}
-              <div>
-                <Label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-1.5">
-                  Downtime Period (Stopped At → Resumed At)
-                </Label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 p-2.5">
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
-                      Stopped At
-                    </span>
-                    <input
-                      type="time"
-                      className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-zinc-900 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-amber-500/20"
-                      value={downtimeFrom}
-                      onChange={(e) => handleDowntimeTimeChange(e.target.value, downtimeTo)}
-                      required
-                    />
-                  </div>
-                  <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 p-2.5">
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block mb-1">
-                      Resumed At
-                    </span>
-                    <input
-                      type="time"
-                      className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-zinc-900 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-amber-500/20"
-                      value={downtimeTo}
-                      onChange={(e) => handleDowntimeTimeChange(downtimeFrom, e.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Calculated duration & presets banner */}
-              <div className="rounded-xl bg-gradient-to-br from-amber-50 to-orange-50/50 dark:from-amber-950/30 dark:to-orange-950/20 border border-amber-200 dark:border-amber-900/50 p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-950 dark:text-amber-200">
-                    Calculated Downtime Duration:
-                  </span>
-                  <div className="text-right">
-                    <span className="text-base font-black text-amber-900 dark:text-amber-300 tabular-nums">
-                      {downtimeMinutes} mins
-                    </span>
-                    {Number(downtimeMinutes) >= 60 && (
-                      <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 ml-1.5">
-                        ({Math.floor(Number(downtimeMinutes) / 60)}h {Number(downtimeMinutes) % 60}m)
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-amber-200/60 dark:border-amber-900/40">
-                  <span className="text-[10px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider mr-1">
-                    Quick presets:
-                  </span>
-                  {['15', '30', '45', '60', '90', '120'].map((mins) => (
-                    <button
-                      key={mins}
-                      type="button"
-                      onClick={() => handleSelectPresetMinutes(mins)}
-                      className={`rounded-lg px-2 py-1 text-xs font-bold transition-all ${
-                        downtimeMinutes === mins
-                          ? 'bg-amber-600 text-white shadow-xs'
-                          : 'bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-amber-100 dark:hover:bg-amber-950 border border-amber-200 dark:border-amber-800/80'
-                      }`}
-                    >
-                      {mins}m
-                    </button>
+              <Select
+                value={machineFilter || 'ALL'}
+                onValueChange={(val) => setMachineFilter(val === 'ALL' ? '' : val)}
+              >
+                <SelectTrigger className="w-full sm:w-[150px] h-8 text-xs bg-white font-medium">
+                  <SelectValue placeholder="All machines">
+                    {!machineFilter || machineFilter === 'ALL'
+                      ? 'All machines'
+                      : machines.data?.find((m) => String(m.id) === String(machineFilter))?.name || 'All machines'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All machines</SelectItem>
+                  {machines.data?.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.name}
+                    </SelectItem>
                   ))}
-                </div>
-              </div>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-              {/* Categorized Downtime Reason */}
-              <div>
-                <Label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-1.5">
-                  Reason for Stoppage
-                </Label>
-                <select
-                  className="dgn-input text-xs font-medium"
-                  value={downtimeReason}
-                  onChange={(e) => setDowntimeReason(e.target.value)}
-                >
-                  <optgroup label="⚡ Power & Energy">
-                    <option value="Power Outage / Generator switch">Power Outage / Generator switch</option>
-                    <option value="Voltage Fluctuation / Phase drop">Voltage Fluctuation / Phase drop</option>
-                  </optgroup>
-                  <optgroup label="⚙️ Mechanical & Tooling">
-                    <option value="Mould Jammed / Cleaning">Mould Jammed / Cleaning</option>
-                    <option value="Machine Breakdown / Mechanical fault">Machine Breakdown / Mechanical fault</option>
-                    <option value="Heater / Temperature issue">Heater / Temperature issue</option>
-                    <option value="Hydraulic / Pneumatic issue">Hydraulic / Pneumatic issue</option>
-                  </optgroup>
-                  <optgroup label="📦 Raw Material & Feed">
-                    <option value="Raw Material shortage / feed issue">Raw Material shortage / feed issue</option>
-                    <option value="Additive / Color mismatch">Additive / Color mismatch</option>
-                  </optgroup>
-                  <optgroup label="👥 Operational & Shift">
-                    <option value="Operator Break / Shift change">Operator Break / Shift change</option>
-                    <option value="Preventive Maintenance">Preventive Maintenance</option>
-                    <option value="Other">Other reason…</option>
-                  </optgroup>
-                </select>
-                {downtimeReason === 'Other' && (
-                  <Input
-                    type="text"
-                    className="h-8 text-xs mt-2"
-                    placeholder="Specify the specific stoppage reason…"
-                    value={customReason}
-                    onChange={(e) => setCustomReason(e.target.value)}
-                    required
-                  />
-                )}
-              </div>
-
-              {/* Floor Notes */}
-              <div>
-                <Label className="block text-xs font-bold text-zinc-800 dark:text-zinc-200 mb-1.5">
-                  Floor Notes & Action Taken (Optional)
-                </Label>
-                <textarea
-                  rows={2}
-                  className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 text-xs text-zinc-800 dark:text-zinc-200 outline-none focus:ring-2 focus:ring-amber-500/20"
-                  placeholder="e.g. Cleared stuck plastic from nozzle, switched to backup generator, replaced heating band..."
-                  value={downtimeNotes}
-                  onChange={(e) => setDowntimeNotes(e.target.value)}
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs font-semibold"
-                  onClick={() => setDowntimeRun(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={isSubmittingDowntime}
-                  className="h-8 text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white gap-1.5 shadow-xs"
-                >
-                  <Clock className="size-3.5" />
-                  {isSubmittingDowntime ? 'Saving…' : 'Save Downtime Log'}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
-      )}
+          <CustomTable1
+            data={filteredRuns}
+            columns={runColumns}
+            loading={runsQuery.isLoading}
+            card={true}
+          />
+        </Card>
       </div>
     </PageLayout>
   )

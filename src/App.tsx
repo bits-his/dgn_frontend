@@ -107,6 +107,7 @@ function App() {
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
                 <Route path="/production/new" element={<RecordProductionPage />} />
+                <Route path="/production/:id/work" element={<RecordProductionPage />} />
                 <Route path="/production/:id" element={<ProductionRunRedirect />} />
                 <Route path="/production/:id/complete" element={<CompleteProductionPage />} />
                 <Route path="/machines" element={<MachinePerformancePage />} />

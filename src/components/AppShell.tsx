@@ -24,12 +24,10 @@ import {
   PackagePlus,
   Hammer,
   Droplets,
-  Flame,
   Store,
   Warehouse,
   Play,
   RotateCcw,
-  Recycle,
   Download,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
@@ -100,14 +98,11 @@ const recyclingGroup: NavGroup = {
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
-    { to: '/process/drying', label: 'Drying', icon: Flame, menuKey: 'drying', permission: 'batch.create' },
     { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'recrushing', permission: 'batch.create' },
   ],
 }
 
-const recyclingNav: NavItem[] = [
-  { to: '/process/recycling', label: 'Recycling', icon: Recycle, menuKey: 'recycling', permission: 'batch.create' },
-]
+const recyclingNav: NavItem[] = []
 
 const productionNav: NavItem[] = [
   { to: '/production/store', label: 'Material store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },

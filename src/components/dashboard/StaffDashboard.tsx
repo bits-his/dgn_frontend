@@ -6,7 +6,6 @@ import {
   PackagePlus,
   Hammer,
   Droplets,
-  Flame,
   RotateCcw,
   Play,
   ShieldCheck,
@@ -177,16 +176,9 @@ export function StaffDashboard() {
         tone: 'bg-cyan-600 text-white',
       })
       list.push({
-        to: '/process/drying',
-        title: 'Drying Stage',
-        desc: 'Dry washed lots for production',
-        icon: Flame,
-        tone: 'bg-orange-600 text-white',
-      })
-      list.push({
         to: '/process/recrushing',
         title: 'Re-crushing',
-        desc: 'Re-crush oversized scrap',
+        desc: 'Re-crush washed and dried lots for material store',
         icon: RotateCcw,
         tone: 'bg-slate-700 text-white',
       })
@@ -194,8 +186,8 @@ export function StaffDashboard() {
     if (canProdCreate) {
       list.push({
         to: '/production/new',
-        title: 'Record Production',
-        desc: 'Log machine run and finished goods',
+        title: 'Floor Operations & Shifts',
+        desc: 'Manage machine shifts, outputs & downtime',
         icon: Play,
         tone: 'bg-violet-600 text-white',
       })

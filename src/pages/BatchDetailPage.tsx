@@ -7,7 +7,7 @@ import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Wrench } from 'lucide-react'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -616,11 +616,12 @@ export function BatchDetailPage() {
         isNotCompleted && productionRun ? (
           <Button
             size="sm"
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold gap-1.5 shadow-xs"
             asChild
           >
-            <Link to={`/production/${productionRun.id}/complete`}>
-              Complete Run →
+            <Link to={`/production/${productionRun.id}/work`}>
+              <Wrench className="size-3.5" />
+              <span>Work & Logs →</span>
             </Link>
           </Button>
         ) : batch.batchType === 'CRUSH' && Number(batch.qtyRemaining || 0) > 0 ? (
@@ -645,7 +646,7 @@ export function BatchDetailPage() {
             <div>
               <p className="text-sm font-semibold text-[var(--ink)]">Production in progress · Not completed</p>
               <p className="text-xs text-[var(--ink-muted)]">
-                Material has been issued ({materialConsumed} kg). Enter good units, rejects, and runtime when finished.
+                Material has been issued ({materialConsumed} kg). Track shifts, record operator output, and log downtime in Work & Logs.
               </p>
             </div>
           </div>
@@ -739,12 +740,12 @@ export function BatchDetailPage() {
                     Process Washing →
                   </Link>
                 ) : batch.batchType === 'WASH' ? (
-                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-                    Process Drying →
+                  <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process Re-crushing →
                   </Link>
                 ) : (
-                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-                    Move to Production →
+                  <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process Re-crushing →
                   </Link>
                 )}
               </Button>

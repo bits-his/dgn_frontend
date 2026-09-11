@@ -9,13 +9,14 @@ import {
   X,
   AlertTriangle,
   Palette,
-  Package,
   Send,
   Cpu,
   ArrowRight,
   ChevronDown,
   ChevronUp,
   PackageCheck,
+  Layers,
+  Sparkles,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -31,7 +32,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
-import { ColorCombobox } from '@/components/ui/color-combobox'
 import { SORT_COLORS } from '@/lib/sortColors'
 
 type BatchColorItem = {
@@ -190,26 +190,7 @@ export function ProductionStorePage() {
     },
   })
 
-  const shiftsQuery = useQuery({
-    queryKey: ['shifts'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/shifts')
-      return (data.data || []) as MasterItem[]
-    },
-  })
 
-  const staffQuery = useQuery({
-    queryKey: ['masters-employees'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/employees')
-      return (data.data || []) as Array<{
-        id: number
-        firstname?: string
-        lastname?: string
-        employeeCode?: string
-      }>
-    },
-  })
 
   const runsQuery = useQuery({
     queryKey: ['production-runs'],
@@ -357,17 +338,19 @@ export function ProductionStorePage() {
   const [issueSelectedLineKey, setIssueSelectedLineKey] = useState('')
   const [issueMachineId, setIssueMachineId] = useState('')
   const [issueProductId, setIssueProductId] = useState('')
-  const [issueQtyKg, setIssueQtyKg] = useState('')
-  const [issueShiftId, setIssueShiftId] = useState('')
-  const [issueOperatorName, setIssueOperatorName] = useState('')
+
+  // Material to issue (amount only, no pricing)
+  const [issueMaterialQtyKg, setIssueMaterialQtyKg] = useState('0')
+
+  // Master Batch additive (amount & price)
+  const [issueMasterBatchKg, setIssueMasterBatchKg] = useState('0')
+  const [issueMasterBatchPricePerKg, setIssueMasterBatchPricePerKg] = useState('0')
+
+  // Batching additive (amount & price)
+  const [issueBatchingKg, setIssueBatchingKg] = useState('0')
+  const [issueBatchingPricePerKg, setIssueBatchingPricePerKg] = useState('0')
+
   const [issueNotes, setIssueNotes] = useState('')
-
-  // Color additive for run
-  const [issueColorStrategy, setIssueColorStrategy] = useState<'natural' | 'master' | 'normal'>('natural')
-  const [issueMasterbatchColor, setIssueMasterbatchColor] = useState('')
-  const [issueMasterbatchKg, setIssueMasterbatchKg] = useState('')
-  const [issueNormalColor, setIssueNormalColor] = useState('')
-
   const [isIssueSubmitting, setIsIssueSubmitting] = useState(false)
   const [issueModalError, setIssueModalError] = useState('')
 
@@ -380,24 +363,20 @@ export function ProductionStorePage() {
     setIssueModalError('')
     if (preselected) {
       setIssueSelectedLineKey(preselected.key)
-      setIssueQtyKg(String(preselected.qtyRemaining || ''))
     } else if (rawMaterialLines.length > 0) {
       const first = rawMaterialLines[0]
       setIssueSelectedLineKey(first.key)
-      setIssueQtyKg(String(first.qtyRemaining || ''))
     } else {
       setIssueSelectedLineKey('')
-      setIssueQtyKg('')
     }
+    setIssueMaterialQtyKg('0')
+    setIssueMasterBatchKg('0')
+    setIssueMasterBatchPricePerKg('0')
+    setIssueBatchingKg('0')
+    setIssueBatchingPricePerKg('0')
     setIssueMachineId(productionMachines[0] ? String(productionMachines[0].id) : '')
     setIssueProductId(productsQuery.data?.[0] ? String(productsQuery.data[0].id) : '')
-    setIssueShiftId(shiftsQuery.data?.[0] ? String(shiftsQuery.data[0].id) : '')
-    setIssueOperatorName('')
     setIssueNotes('')
-    setIssueColorStrategy('natural')
-    setIssueMasterbatchColor('')
-    setIssueMasterbatchKg('')
-    setIssueNormalColor('')
     setIsIssueModalOpen(true)
   }
 
@@ -419,49 +398,49 @@ export function ProductionStorePage() {
       setIssueModalError('Please select the product to manufacture.')
       return
     }
-    const qty = Number(issueQtyKg)
-    if (!(qty > 0)) {
-      setIssueModalError('Please enter a valid quantity (kg) to issue.')
+    const materialQty = Number(issueMaterialQtyKg)
+    if (!(materialQty > 0)) {
+      setIssueModalError('Please enter a valid material amount (kg) to issue (must be greater than zero).')
       return
     }
     const available = selectedLineForIssue.qtyRemaining
-    if (qty > available + 0.001) {
-      setIssueModalError(`Cannot issue ${qty} kg. Only ${available} kg available for this color lot.`)
+    if (materialQty > available + 0.001) {
+      setIssueModalError(`Cannot issue ${materialQty} kg. Only ${available} kg available for this batch lot.`)
       return
     }
 
     setIsIssueSubmitting(true)
     try {
+      const mbKg = Number(issueMasterBatchKg || 0)
+      const mbPrice = Number(issueMasterBatchPricePerKg || 0)
+      const batchingKg = Number(issueBatchingKg || 0)
+      const batchingPrice = Number(issueBatchingPricePerKg || 0)
+
       const payload: Record<string, unknown> = {
         inputBatchNumber: selectedLineForIssue.batchNumber,
         colorItemId: selectedLineForIssue.colorItemId || undefined,
         inputColor: selectedLineForIssue.color || undefined,
         machineId: Number(issueMachineId),
         productId: Number(issueProductId),
-        shiftId: issueShiftId ? Number(issueShiftId) : undefined,
-        operatorName: issueOperatorName.trim() || undefined,
-        materialConsumed: qty,
+        materialConsumed: materialQty,
+        masterbatchKg: mbKg > 0 ? mbKg : undefined,
+        masterbatchPricePerKg: mbPrice > 0 ? mbPrice : undefined,
+        batchingKg: batchingKg > 0 ? batchingKg : undefined,
+        batchingPricePerKg: batchingPrice > 0 ? batchingPrice : undefined,
+        colorCost: mbKg > 0 && mbPrice > 0 ? +(mbKg * mbPrice).toFixed(2) : undefined,
         notes: issueNotes.trim() || undefined,
-      }
-
-      if (issueColorStrategy === 'master' && issueMasterbatchColor) {
-        payload.colorType = 'master'
-        payload.colorName = issueMasterbatchColor
-        payload.masterbatchColor = issueMasterbatchColor
-        if (issueMasterbatchKg) {
-          payload.masterbatchKg = Number(issueMasterbatchKg)
-        }
-      } else if (issueColorStrategy === 'normal' && issueNormalColor) {
-        payload.colorType = 'normal'
-        payload.colorName = issueNormalColor
-        payload.normalColorName = issueNormalColor
       }
 
       await api.post('/production/runs/start', payload)
 
       const targetMachine = productionMachines.find((m) => m.id === Number(issueMachineId))
+      const additivesList = [
+        mbKg > 0 ? `${mbKg} kg Master Batch` : '',
+        batchingKg > 0 ? `${batchingKg} kg Batching` : '',
+      ].filter(Boolean).join(', ')
+
       setSuccessBanner(
-        `Successfully issued ${qty} kg of ${colorName(selectedLineForIssue.color)} from ${selectedLineForIssue.batchNumber} to Machine ${targetMachine?.name || issueMachineId}!`
+        `Successfully issued ${materialQty} kg of ${colorName(selectedLineForIssue.color)} from ${selectedLineForIssue.batchNumber}${additivesList ? ` with ${additivesList}` : ''} to Machine ${targetMachine?.name || issueMachineId}!`
       )
 
       await Promise.all([
@@ -483,60 +462,6 @@ export function ProductionStorePage() {
     }
   }
 
-  // -------------------------------------------------------------
-  // MODAL STATE: ADD COLOR TO STORE
-  // -------------------------------------------------------------
-  const [isAddColorModalOpen, setIsAddColorModalOpen] = useState(false)
-  const [colorType, setColorType] = useState<'master' | 'normal'>('master')
-  const [colorNameInput, setColorNameInput] = useState('')
-  const [colorQtyKg, setColorQtyKg] = useState('')
-  const [colorCostPerKg, setColorCostPerKg] = useState('')
-  const [colorNotes, setColorNotes] = useState('')
-  const [colorError, setColorError] = useState('')
-  const [isColorSubmitting, setIsColorSubmitting] = useState(false)
-
-  const handleExecuteAddColorToStore = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setColorError('')
-
-    const qty = Number(colorQtyKg)
-    if (!colorNameInput.trim()) {
-      setColorError('Please choose or enter a color formulation name.')
-      return
-    }
-    if (!(qty > 0)) {
-      setColorError('Please enter a valid positive quantity in kilograms.')
-      return
-    }
-
-    setIsColorSubmitting(true)
-    try {
-      const cost = colorCostPerKg ? Number(colorCostPerKg) : undefined
-      await api.post('/production/store/add-color', {
-        type: colorType,
-        colorName: colorNameInput.trim(),
-        qtyKg: qty,
-        costPerKg: cost,
-        notes: colorNotes || undefined,
-      })
-
-      setSuccessBanner(
-        `Added ${qty} kg of ${colorNameInput} (${colorType === 'master' ? 'Masterbatch' : 'Normal Pigment'}) to Store!`
-      )
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['production-store'] }),
-        queryClient.invalidateQueries({ queryKey: ['production-store-colors'] }),
-      ])
-
-      setIsAddColorModalOpen(false)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string } } }
-      setColorError(axiosErr.response?.data?.err || 'Failed to add color stock to store.')
-    } finally {
-      setIsColorSubmitting(false)
-    }
-  }
-
   // Options for SearchableSelect
   const materialLineOptions = useMemo(() => {
     return rawMaterialLines.map((l) => ({
@@ -546,13 +471,7 @@ export function ProductionStorePage() {
     }))
   }, [rawMaterialLines])
 
-  const operatorOptions = useMemo(() => {
-    return (staffQuery.data || []).map((s) => ({
-      value: [s.firstname, s.lastname].filter(Boolean).join(' '),
-      label: [s.firstname, s.lastname].filter(Boolean).join(' '),
-      sublabel: s.employeeCode || '',
-    }))
-  }, [staffQuery.data])
+
 
   // -------------------------------------------------------------
   // Table Columns: Raw Material in Store (Separated Color Lots)
@@ -953,35 +872,15 @@ export function ProductionStorePage() {
       title="Material Store"
       description="Central inventory control: manage separated color flake lots, additives, finished goods, and issue directly to production machines."
       actions={
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="gap-1.5 font-semibold text-xs h-9"
-            onClick={() => {
-              setColorType('master')
-              setColorNameInput('')
-              setColorQtyKg('')
-              setColorCostPerKg('')
-              setColorNotes('')
-              setColorError('')
-              setIsAddColorModalOpen(true)
-            }}
-          >
-            <Palette className="size-3.5 text-violet-600" />
-            <span>+ Add Color<span className="hidden sm:inline"> Additive</span></span>
-          </Button>
-
-          <Button
-            type="button"
-            className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
-            onClick={() => handleOpenIssueModal()}
-            disabled={rawMaterialLines.length === 0}
-          >
-            <Send className="size-3.5" />
-            <span>Issue to Machine</span>
-          </Button>
-        </div>
+        <Button
+          type="button"
+          className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
+          onClick={() => handleOpenIssueModal()}
+          disabled={rawMaterialLines.length === 0}
+        >
+          <Send className="size-3.5" />
+          <span>Issue to Machine</span>
+        </Button>
       }
     >
       <div className="space-y-4">
@@ -1092,23 +991,6 @@ export function ProductionStorePage() {
                   <Palette className="size-3.5 text-violet-600" />
                   Masterbatch & Pigment Additive Stock ({totalColorStockKg.toFixed(1)} kg)
                 </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs bg-white text-violet-700"
-                  onClick={() => {
-                    setColorType('master')
-                    setColorNameInput('')
-                    setColorQtyKg('')
-                    setColorCostPerKg('')
-                    setColorNotes('')
-                    setColorError('')
-                    setIsAddColorModalOpen(true)
-                  }}
-                >
-                  + Stock Additive
-                </Button>
               </div>
               <CustomTable1
                 data={colorBatches}
@@ -1261,53 +1143,7 @@ export function ProductionStorePage() {
               )}
 
               <form className="mt-3 space-y-3.5" onSubmit={handleExecuteIssueToMachine}>
-                {/* 1. Pick Material Batch & Color Lot with SearchableSelect */}
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    Select Material & Color Lot <span className="text-red-500">*</span>
-                  </label>
-                  <SearchableSelect
-                    size="sm"
-                    value={issueSelectedLineKey}
-                    onChange={(val) => {
-                      setIssueSelectedLineKey(val)
-                      const found = rawMaterialLines.find((l) => l.key === val)
-                      if (found) {
-                        setIssueQtyKg(String(found.qtyRemaining || ''))
-                      }
-                    }}
-                    options={materialLineOptions}
-                    placeholder="Choose material lot & color…"
-                    searchPlaceholder="Search batch lot number, material, or color…"
-                  />
-
-                  {/* Selected Batch Details Callout */}
-                  {selectedLineForIssue && (
-                    <div className="mt-2 rounded-xl border border-zinc-200 bg-zinc-50/90 p-2.5 text-xs space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-zinc-700">Selected Lot:</span>
-                        <span className="font-mono font-bold text-zinc-900">
-                          {selectedLineForIssue.batchNumber}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-zinc-500">Color Shade:</span>
-                        <span className="inline-flex items-center gap-1 font-bold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200">
-                          <span className="size-1.5 rounded-full bg-violet-600" />
-                          {colorName(selectedLineForIssue.color)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between pt-0.5">
-                        <span className="text-zinc-500">Available in Lot:</span>
-                        <span className="font-bold font-mono text-emerald-700">
-                          {fmt(selectedLineForIssue.qtyRemaining, 1)} {selectedLineForIssue.uom}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. Target Production Machine & Product using custom Select */}
+                {/* 1. Target Production Machine & Product to Produce */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
                     <label className="block text-xs font-semibold text-zinc-700 mb-1">
@@ -1352,173 +1188,234 @@ export function ProductionStorePage() {
                   </div>
                 </div>
 
-                {/* 3. Quantity to Issue (kg) */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-zinc-700">
-                      Quantity to Issue (kg) <span className="text-red-500">*</span>
-                    </label>
+                {/* 2. Material to Issue (Lot selection and Amount in kg - no pricing) */}
+                <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/70 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Layers className="size-3.5 text-violet-600" />
+                      <span className="text-xs font-bold text-zinc-800">Material to Issue</span>
+                    </div>
                     {selectedLineForIssue && (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          className="text-[10px] font-bold text-violet-700 hover:underline cursor-pointer"
-                          onClick={() => setIssueQtyKg(String(selectedLineForIssue.qtyRemaining || ''))}
-                        >
-                          Max ({fmt(selectedLineForIssue.qtyRemaining, 1)} kg)
-                        </button>
-                        <span className="text-zinc-300">·</span>
-                        <button
-                          type="button"
-                          className="text-[10px] font-bold text-violet-700 hover:underline cursor-pointer"
-                          onClick={() => {
-                            const half = selectedLineForIssue.qtyRemaining / 2
-                            setIssueQtyKg(String(half > 0 ? half.toFixed(1) : ''))
-                          }}
-                        >
-                          50%
-                        </button>
-                      </div>
+                      <span className="text-[11px] font-mono text-emerald-700 font-semibold">
+                        Available: {fmt(selectedLineForIssue.qtyRemaining, 1)} {selectedLineForIssue.uom}
+                      </span>
                     )}
                   </div>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0.1}
-                    max={Number(selectedLineForIssue?.qtyRemaining || 999999)}
-                    required
-                    className="dgn-input font-bold text-sm"
-                    placeholder="e.g. 50"
-                    value={issueQtyKg}
-                    onChange={(e) => setIssueQtyKg(e.target.value)}
-                  />
-                </div>
-
-                {/* 4. Shift & Operator using custom Selects */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Production Shift
-                    </label>
-                    <Select
-                      value={issueShiftId}
-                      onValueChange={(val) => setIssueShiftId(val)}
-                    >
-                      <SelectTrigger className="h-8 text-xs bg-white font-medium">
-                        <SelectValue placeholder="Select shift…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {shiftsQuery.data?.map((s) => (
-                          <SelectItem key={s.id} value={String(s.id)}>
-                            {s.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Machine Operator
+                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                      Select Material Lot <span className="text-red-500">*</span>
                     </label>
                     <SearchableSelect
                       size="sm"
-                      value={issueOperatorName}
-                      onChange={(val) => setIssueOperatorName(val)}
-                      options={operatorOptions}
-                      placeholder="Select staff…"
-                      searchPlaceholder="Search operator name…"
+                      value={issueSelectedLineKey}
+                      onChange={(val) => {
+                        setIssueSelectedLineKey(val)
+                      }}
+                      options={materialLineOptions}
+                      placeholder="Choose material lot & color…"
+                      searchPlaceholder="Search batch lot number, material, or color…"
+                    />
+
+                    {selectedLineForIssue && (
+                      <div className="mt-1.5 rounded-lg border border-zinc-200 bg-white p-2 text-xs flex flex-wrap items-center justify-between gap-1.5">
+                        <span className="font-mono font-bold text-zinc-900">
+                          Lot: {selectedLineForIssue.batchNumber}
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200 text-[11px]">
+                          <span className="size-1.5 rounded-full bg-violet-600" />
+                          {colorName(selectedLineForIssue.color)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-zinc-700">
+                        Amount to Issue (kg) <span className="text-red-500">*</span>
+                      </label>
+                      {selectedLineForIssue && (
+                        <div className="flex items-center gap-1.5 text-[10px]">
+                          <button
+                            type="button"
+                            className="font-bold text-violet-700 hover:underline cursor-pointer"
+                            onClick={() => setIssueMaterialQtyKg(String(selectedLineForIssue.qtyRemaining || ''))}
+                          >
+                            Max ({fmt(selectedLineForIssue.qtyRemaining, 1)} kg)
+                          </button>
+                          <span className="text-zinc-300">·</span>
+                          <button
+                            type="button"
+                            className="font-bold text-violet-700 hover:underline cursor-pointer"
+                            onClick={() => {
+                              const half = selectedLineForIssue.qtyRemaining / 2
+                              setIssueMaterialQtyKg(String(half > 0 ? half.toFixed(1) : ''))
+                            }}
+                          >
+                            50%
+                          </button>
+                          <span className="text-zinc-300">·</span>
+                          <button
+                            type="button"
+                            className="font-bold text-zinc-500 hover:underline cursor-pointer"
+                            onClick={() => setIssueMaterialQtyKg('0')}
+                          >
+                            Reset (0)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0.1}
+                      max={Number(selectedLineForIssue?.qtyRemaining || 999999)}
+                      required
+                      className="dgn-input font-bold text-xs"
+                      placeholder="0"
+                      value={issueMaterialQtyKg}
+                      onChange={(e) => setIssueMaterialQtyKg(e.target.value)}
+                      onFocus={(e) => {
+                        if (e.target.value === '0') setIssueMaterialQtyKg('')
+                      }}
                     />
                   </div>
                 </div>
 
-                {/* 5. Color Formulation / Additive */}
-                <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/50 space-y-2.5">
-                  <label className="block text-xs font-semibold text-zinc-800">
-                    Color & Additives Strategy
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      className={`p-2 rounded-lg border text-left transition cursor-pointer text-xs ${
-                        issueColorStrategy === 'natural'
-                          ? 'border-violet-600 bg-violet-50 text-violet-950 font-bold ring-1 ring-violet-500'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
-                      }`}
-                      onClick={() => setIssueColorStrategy('natural')}
-                    >
-                      <span>Lot Color ({colorName(selectedLineForIssue?.color)})</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`p-2 rounded-lg border text-left transition cursor-pointer text-xs ${
-                        issueColorStrategy === 'master'
-                          ? 'border-violet-600 bg-violet-50 text-violet-950 font-bold ring-1 ring-violet-500'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
-                      }`}
-                      onClick={() => setIssueColorStrategy('master')}
-                    >
-                      <span>+ Masterbatch</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`p-2 rounded-lg border text-left transition cursor-pointer text-xs ${
-                        issueColorStrategy === 'normal'
-                          ? 'border-violet-600 bg-violet-50 text-violet-950 font-bold ring-1 ring-violet-500'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
-                      }`}
-                      onClick={() => setIssueColorStrategy('normal')}
-                    >
-                      <span>+ Pigment</span>
-                    </button>
+                {/* 3. Additives Section: Master Batch & Batching (Amount in kg and Price for both) */}
+                <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/70 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Sparkles className="size-3.5 text-violet-600" />
+                      <span className="text-xs font-bold text-zinc-800">Additives (Master Batch & Batching)</span>
+                    </div>
+                    <span className="text-[10px] text-zinc-500">Optional additives feed</span>
                   </div>
 
-                  {issueColorStrategy === 'master' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {/* Master Batch */}
+                  <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-zinc-800">
+                        Master Batch
+                      </span>
+                      <span className="text-[10px] text-zinc-400 font-medium">Color additive</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                          Masterbatch Color
-                        </label>
-                        <ColorCombobox
-                          value={issueMasterbatchColor}
-                          onChange={(c) => setIssueMasterbatchColor(c)}
-                          placeholder="Select masterbatch…"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                          Additive Amount (kg)
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Amount (kg)
                         </label>
                         <input
                           type="number"
                           step="any"
-                          min={0.1}
+                          min={0}
+                          className="dgn-input font-bold text-xs"
+                          placeholder="0"
+                          value={issueMasterBatchKg}
+                          onChange={(e) => setIssueMasterBatchKg(e.target.value)}
+                          onFocus={(e) => {
+                            if (e.target.value === '0') setIssueMasterBatchKg('')
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Price (₦ / kg)
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          min={0}
                           className="dgn-input text-xs"
-                          placeholder="e.g. 2.5"
-                          value={issueMasterbatchKg}
-                          onChange={(e) => setIssueMasterbatchKg(e.target.value)}
+                          placeholder="0"
+                          value={issueMasterBatchPricePerKg}
+                          onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
+                          onFocus={(e) => {
+                            if (e.target.value === '0') setIssueMasterBatchPricePerKg('')
+                          }}
                         />
                       </div>
                     </div>
-                  )}
+                  </div>
 
-                  {issueColorStrategy === 'normal' && (
-                    <div className="pt-1">
-                      <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                        Pigment Color Name
-                      </label>
-                      <ColorCombobox
-                        value={issueNormalColor}
-                        onChange={(c) => setIssueNormalColor(c)}
-                        placeholder="Select pigment color…"
-                      />
+                  {/* Batching */}
+                  <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-zinc-800">
+                        Batching
+                      </span>
+                      <span className="text-[10px] text-zinc-400 font-medium">Batching additive</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Amount (kg)
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          min={0}
+                          className="dgn-input font-bold text-xs"
+                          placeholder="0"
+                          value={issueBatchingKg}
+                          onChange={(e) => setIssueBatchingKg(e.target.value)}
+                          onFocus={(e) => {
+                            if (e.target.value === '0') setIssueBatchingKg('')
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                          Price (₦ / kg)
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          min={0}
+                          className="dgn-input text-xs"
+                          placeholder="0"
+                          value={issueBatchingPricePerKg}
+                          onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
+                          onFocus={(e) => {
+                            if (e.target.value === '0') setIssueBatchingPricePerKg('')
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Callout for Feed & Total Additives Cost */}
+                  {(Number(issueMaterialQtyKg) > 0 || Number(issueMasterBatchKg) > 0 || Number(issueBatchingKg) > 0) && (
+                    <div className="rounded-lg bg-violet-50/80 border border-violet-200/70 p-2 text-xs space-y-1 text-violet-950">
+                      <div className="flex items-center justify-between font-semibold">
+                        <span className="text-zinc-600">Total Mix Weight:</span>
+                        <span className="font-mono font-bold text-violet-900">
+                          {(
+                            (Number(issueMaterialQtyKg) || 0) +
+                            (Number(issueMasterBatchKg) || 0) +
+                            (Number(issueBatchingKg) || 0)
+                          ).toFixed(2)}{' '}
+                          kg
+                        </span>
+                      </div>
+                      {(Number(issueMasterBatchPricePerKg) > 0 || Number(issueBatchingPricePerKg) > 0) && (
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-violet-200/50">
+                          <span className="text-zinc-500">Estimated Additives Cost:</span>
+                          <span className="font-mono font-bold text-emerald-800">
+                            ₦{' '}
+                            {(
+                              (Number(issueMasterBatchKg || 0) * Number(issueMasterBatchPricePerKg || 0)) +
+                              (Number(issueBatchingKg || 0) * Number(issueBatchingPricePerKg || 0))
+                            ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
-                {/* 6. Notes */}
+                {/* 4. Store Dispatch Notes */}
                 <div>
                   <label className="block text-xs font-semibold text-zinc-700 mb-1">
                     Store Dispatch Notes (Optional)
@@ -1526,7 +1423,7 @@ export function ProductionStorePage() {
                   <input
                     type="text"
                     className="dgn-input text-xs"
-                    placeholder="e.g. Issued to Machine 2 for morning production batch..."
+                    placeholder="e.g. Issued to Machine for production..."
                     value={issueNotes}
                     onChange={(e) => setIssueNotes(e.target.value)}
                   />
@@ -1545,163 +1442,11 @@ export function ProductionStorePage() {
                   <Button
                     type="submit"
                     disabled={isIssueSubmitting}
-                    className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
+                    className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5 cursor-pointer"
                     size="sm"
                   >
                     <Send className="size-3.5" />
                     {isIssueSubmitting ? 'Issuing to Machine…' : 'Confirm & Issue to Machine'}
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {/* ============================================================= */}
-        {/* MODAL: ADD COLOR (MASTERBATCH / PIGMENT) TO STORE             */}
-        {/* ============================================================= */}
-        {isAddColorModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-            <div className="relative w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl animate-in fade-in zoom-in-95">
-              <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
-                <div className="flex items-center gap-2">
-                  <div className="flex size-7 items-center justify-center rounded-lg bg-violet-100 text-violet-800">
-                    <Palette className="size-3.5" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-bold text-zinc-900">Add Color to Store</h2>
-                    <p className="text-[11px] text-zinc-500">
-                      Stock Masterbatch pellets or Normal Pigment powder directly into the store.
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 cursor-pointer"
-                  onClick={() => setIsAddColorModalOpen(false)}
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              {colorError && (
-                <div className="mt-2.5 rounded-xl bg-red-50 p-2 text-xs text-red-700 border border-red-200 flex items-center gap-2">
-                  <AlertTriangle className="size-3.5 text-red-600 shrink-0" />
-                  <span>{colorError}</span>
-                </div>
-              )}
-
-              <form className="mt-3 space-y-3" onSubmit={handleExecuteAddColorToStore}>
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1.5">
-                    Color Formulation Type
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        colorType === 'master'
-                          ? 'border-violet-500 bg-violet-50 text-violet-950 font-bold ring-1 ring-violet-400'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
-                      }`}
-                      onClick={() => setColorType('master')}
-                    >
-                      <span className="block text-xs font-semibold">Masterbatch</span>
-                      <span className="block text-[10px] text-zinc-500">Concentrated pellets</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-                        colorType === 'normal'
-                          ? 'border-violet-500 bg-violet-50 text-violet-950 font-bold ring-1 ring-violet-400'
-                          : 'border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700'
-                      }`}
-                      onClick={() => setColorType('normal')}
-                    >
-                      <span className="block text-xs font-semibold">Normal Pigment</span>
-                      <span className="block text-[10px] text-zinc-500">Standard powder / dye</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    Batch Color
-                  </label>
-                  <ColorCombobox
-                    value={colorNameInput}
-                    onChange={(col) => setColorNameInput(col)}
-                    placeholder="Search and select color…"
-                  />
-                  <p className="text-[10px] text-zinc-400 mt-1">
-                    Select a standard color preset or type a custom color formulation name.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Quantity (kg) <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      min={0.01}
-                      className="dgn-input font-bold"
-                      placeholder="e.g. 50"
-                      value={colorQtyKg}
-                      onChange={(e) => setColorQtyKg(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Cost per kg (₦)
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="dgn-input"
-                      placeholder="e.g. 3500"
-                      value={colorCostPerKg}
-                      onChange={(e) => setColorCostPerKg(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    Notes (Optional)
-                  </label>
-                  <textarea
-                    rows={2}
-                    className="dgn-input text-xs"
-                    placeholder="e.g. Received from supplier XYZ, batch code #449..."
-                    value={colorNotes}
-                    onChange={(e) => setColorNotes(e.target.value)}
-                  />
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsAddColorModalOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isColorSubmitting}
-                    className="bg-violet-700 hover:bg-violet-800 text-white font-semibold gap-1.5"
-                    size="sm"
-                  >
-                    <Package className="size-3.5" />
-                    {isColorSubmitting ? 'Adding…' : 'Add to Store'}
                   </Button>
                 </div>
               </form>
