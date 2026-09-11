@@ -143,9 +143,9 @@ h3 {
 .dgn-input {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
-  padding: 0.85rem 0.95rem;
+  padding: 0.55rem 0.75rem;
   font: inherit;
   color: var(--ink);
   outline: none;

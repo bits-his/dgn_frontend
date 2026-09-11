@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { QueryClientProvider, useQuery } from '@tanstack/react-query'
+import { queryClient } from '@/lib/queryClient'
 import { api } from '@/lib/api'
 import { AppShell } from '@/components/AppShell'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
@@ -40,16 +41,6 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { useAuthStore } from '@/stores/auth-store'
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
-})
-
 function ProductionRunRedirect() {
   const { id } = useParams()
   const runs = useQuery({
@@ -76,6 +67,24 @@ function AuthHydrator({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  // On mobile devices and web browsers, refetch active page queries immediately
+  // whenever returning from another app, backgrounding/foregrounding, or tab switching.
+  useEffect(() => {
+    const handleActive = () => {
+      if (document.visibilityState === 'visible') {
+        queryClient.refetchQueries({ type: 'active' })
+      }
+    }
+    document.addEventListener('visibilitychange', handleActive)
+    window.addEventListener('pageshow', handleActive)
+    window.addEventListener('focus', handleActive)
+    return () => {
+      document.removeEventListener('visibilitychange', handleActive)
+      window.removeEventListener('pageshow', handleActive)
+      window.removeEventListener('focus', handleActive)
+    }
+  }, [])
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthHydrator>
@@ -92,6 +101,7 @@ function App() {
                 <Route path="/floor" element={<Navigate to="/receiving" replace />} />
                 <Route path="/receiving" element={<ScrapReceivingListPage />} />
                 <Route path="/receiving/new" element={<ScrapReceivingPage />} />
+                <Route path="/receiving/:id/edit" element={<ScrapReceivingPage />} />
                 <Route path="/process/:stage" element={<ProcessStageListPage />} />
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />

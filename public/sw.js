@@ -1,5 +1,5 @@
 // DGN Factory Control PWA Service Worker
-const CACHE_NAME = 'dgn-control-v1';
+const CACHE_NAME = 'dgn-control-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -21,7 +21,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: Clean old caches
+// Activate: Clean old caches and flush any stale API cache entries
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -29,6 +29,18 @@ self.addEventListener('activate', (event) => {
         keys.map((key) => {
           if (key !== CACHE_NAME) {
             return caches.delete(key);
+          }
+        })
+      );
+    }).then(async () => {
+      // Clean any accidental API entries from current cache
+      const cache = await caches.open(CACHE_NAME);
+      const requests = await cache.keys();
+      await Promise.all(
+        requests.map((req) => {
+          const u = req.url.toLowerCase();
+          if (u.includes('/api/') || u.includes('/dgn_backend/') || u.includes('brainstorm.ng') || u.includes(':34567')) {
+            return cache.delete(req);
           }
         })
       );
@@ -46,8 +58,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API calls: Network-only with grace (never serve stale ERP operational data)
-  if (url.pathname.startsWith('/api/')) {
+  // API calls: STRICT NETWORK-ONLY (Never cache ERP/factory live operational data)
+  const isApiRequest =
+    url.pathname.includes('/api/') ||
+    url.pathname.includes('/dgn_backend/') ||
+    url.hostname.includes('brainstorm.ng') ||
+    url.port === '34567';
+
+  if (isApiRequest) {
     event.respondWith(
       fetch(req).catch(() => {
         return new Response(JSON.stringify({ error: 'Offline', offline: true }), {
@@ -79,20 +97,37 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static Assets (Vite assets, fonts, icons): Stale-While-Revalidate
-  event.respondWith(
-    caches.match(req).then((cached) => {
-      const fetchPromise = fetch(req).then((networkRes) => {
-        if (networkRes && networkRes.status === 200) {
-          const resClone = networkRes.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
-        }
-        return networkRes;
-      }).catch(() => null);
+  // Only cache local static assets (Vite assets, fonts, icons)
+  const isLocalStaticAsset =
+    url.origin === self.location.origin &&
+    (url.pathname.startsWith('/assets/') ||
+      url.pathname.endsWith('.js') ||
+      url.pathname.endsWith('.css') ||
+      url.pathname.endsWith('.woff2') ||
+      url.pathname.endsWith('.woff') ||
+      url.pathname.endsWith('.png') ||
+      url.pathname.endsWith('.svg') ||
+      url.pathname.endsWith('.ico'));
 
-      return cached || fetchPromise;
-    })
-  );
+  if (isLocalStaticAsset) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        const fetchPromise = fetch(req).then((networkRes) => {
+          if (networkRes && networkRes.status === 200) {
+            const resClone = networkRes.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
+          }
+          return networkRes;
+        }).catch(() => null);
+
+        return cached || fetchPromise;
+      })
+    );
+    return;
+  }
+
+  // All other requests: direct fetch
+  event.respondWith(fetch(req));
 });
 
 // Allow app to trigger update immediately
