@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Save, UserPlus, Search, Pencil } from 'lucide-react'
+import { Save, UserPlus, Search, Pencil, Trash2 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -470,9 +470,9 @@ function AttendanceSheet({ canManage }: { canManage: boolean }) {
                   <div>
                     <p className="font-semibold text-xs text-zinc-900">{row.name}</p>
                     <p className="text-[11px] text-zinc-400 mt-0.5">
-                      {row.employeeCode}
-                      {row.department ? ` · ${row.department}` : ''} ·{' '}
-                      {PAY_TYPE_LABEL[row.payType] ?? row.payType} {money(row.payRate)}
+                      {row.department ? row.department : 'Staff'} ·{' '}
+                      {PAY_TYPE_LABEL[row.payType] ?? row.payType}
+                      {Number(row.payRate) > 0 ? ` ${money(row.payRate)}` : ''}
                     </p>
                   </div>
                   {row.recorded && (
@@ -569,6 +569,9 @@ function Workforce({
   const [accessFor, setAccessFor] = useState<Employee | null>(null)
   const [shiftFor, setShiftFor] = useState<Employee | null>(null)
   const [editStaff, setEditStaff] = useState<Employee | null>(null)
+  const [deletingStaff, setDeletingStaff] = useState<Employee | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   const employees = useQuery({
@@ -591,6 +594,25 @@ function Workforce({
     },
   })
 
+  const handleDeleteStaff = async () => {
+    if (!deletingStaff) return
+    setDeleteError(null)
+    setIsDeleting(true)
+    try {
+      await api.delete(`/labour/employees/${deletingStaff.id}`)
+      setDeletingStaff(null)
+      queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
+      queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
+      queryClient.invalidateQueries({ queryKey: ['attendance'] })
+      queryClient.invalidateQueries({ queryKey: ['labour-summary'] })
+    } catch (err: unknown) {
+      const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
+      setDeleteError(String((body && (body.err || body.message)) || 'Failed to delete staff member'))
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const roleLabel = (row: Employee) => {
     const keys = row.access?.menuAccess || []
     if (keys.length) return `${keys.length} menu items`
@@ -609,7 +631,6 @@ function Workforce({
     return list.filter(
       (e) =>
         e.name.toLowerCase().includes(q) ||
-        e.employeeCode.toLowerCase().includes(q) ||
         (e.department && e.department.toLowerCase().includes(q)) ||
         (e.designation && e.designation.toLowerCase().includes(q))
     )
@@ -623,7 +644,6 @@ function Workforce({
         cell: ({ row }) => (
           <div>
             <p className="font-semibold text-xs text-zinc-900">{row.original.name}</p>
-            <p className="font-mono text-[11px] text-zinc-400 mt-0.5">{row.original.employeeCode}</p>
           </div>
         ),
       },
@@ -666,10 +686,16 @@ function Workforce({
               {PAY_TYPE_LABEL[row.original.payType] ?? row.original.payType}
             </p>
             <p className="font-semibold text-xs tabular-nums text-zinc-900">
-              {money(row.original.payRate)}
-              {row.original.payType === 'MONTHLY' ? (
-                <span className="text-[10px] font-normal text-zinc-500 ml-1">/mo</span>
-              ) : null}
+              {Number(row.original.payRate) > 0 ? (
+                <>
+                  {money(row.original.payRate)}
+                  {row.original.payType === 'MONTHLY' ? (
+                    <span className="text-[10px] font-normal text-zinc-500 ml-1">/mo</span>
+                  ) : null}
+                </>
+              ) : (
+                <span className="text-zinc-400 font-normal">Not set</span>
+              )}
             </p>
           </div>
         ),
@@ -742,6 +768,20 @@ function Workforce({
                 {row.original.access ? 'Edit access' : 'Give access'}
               </Button>
             )}
+            {canManage && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                onClick={() => {
+                  setDeleteError(null)
+                  setDeletingStaff(row.original)
+                }}
+              >
+                <Trash2 className="size-3 mr-1" />
+                Delete
+              </Button>
+            )}
           </div>
         ),
       },
@@ -757,7 +797,7 @@ function Workforce({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
           <Input
             className="pl-8 h-8 text-xs w-full"
-            placeholder="Search name, code, department…"
+            placeholder="Search name, department…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -772,6 +812,7 @@ function Workforce({
         columns={columns}
         data={filtered}
         loading={employees.isLoading}
+        card
       />
 
       {/* Add Staff Dialog */}
@@ -877,6 +918,71 @@ function Workforce({
                 queryClient.invalidateQueries({ queryKey: ['attendance'] })
               }}
             />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Delete Staff Dialog */}
+      {deletingStaff && (
+        <Dialog open={Boolean(deletingStaff)} onOpenChange={(open) => !open && setDeletingStaff(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-red-600 flex items-center gap-2">
+                <Trash2 className="size-4" />
+                Delete Staff Member
+              </DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete <strong className="text-zinc-900">{deletingStaff.name}</strong>?
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3 py-2 text-xs text-zinc-600">
+              {deletingStaff.access && (
+                <div className="rounded-lg bg-amber-50 p-3 border border-amber-200 text-amber-900 space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5 text-amber-800">
+                    Staff Login Account Active
+                  </p>
+                  <p className="text-[11px] leading-relaxed">
+                    This staff member has an active system login account with role <span className="font-semibold">{deletingStaff.access.roleCode}</span> ({deletingStaff.access.email}). Deleting them will also permanently remove their system access.
+                  </p>
+                </div>
+              )}
+              <p>
+                This action will delete the staff record, attendance history, and payroll associations. This action cannot be undone.
+              </p>
+
+              {deleteError && (
+                <p className="rounded-md bg-red-50 p-2.5 text-xs text-red-700 border border-red-200 font-medium">
+                  {deleteError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                disabled={isDeleting}
+                onClick={() => {
+                  setDeletingStaff(null)
+                  setDeleteError(null)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="h-8 text-xs font-semibold bg-red-600 hover:bg-red-700 text-white"
+                disabled={isDeleting}
+                onClick={handleDeleteStaff}
+              >
+                {isDeleting ? 'Deleting…' : 'Delete staff member'}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       )}
@@ -1206,8 +1312,11 @@ function NewEmployeeForm({
     try {
       await api.post('/labour/employees', {
         ...form,
-        payRate: Number(form.payRate),
-        overtimeRate: Number(form.overtimeRate) || 0,
+        firstname: form.firstname.trim(),
+        lastname: form.lastname.trim(),
+        phone: form.phone.trim() || null,
+        payRate: form.payRate ? Number(form.payRate) : 0,
+        overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
         shiftIds,
       })
       onSaved()
@@ -1312,16 +1421,15 @@ function NewEmployeeForm({
         </div>
         <div>
           <Label className="text-xs mb-1 block">
-            {form.payType === 'MONTHLY' ? 'Salary (₦)' : 'Rate (₦)'}
+            {form.payType === 'MONTHLY' ? 'Salary (₦) (optional)' : 'Rate (₦) (optional)'}
           </Label>
           <Input
             className="h-8 text-xs"
             type="number"
             inputMode="decimal"
-            required
             value={form.payRate}
             onChange={set('payRate')}
-            placeholder={form.payType === 'MONTHLY' ? 'e.g. 150000' : 'e.g. 3500'}
+            placeholder={form.payType === 'MONTHLY' ? 'e.g. 150000 (optional)' : 'e.g. 3500 (optional)'}
           />
         </div>
         <div>
@@ -1443,8 +1551,8 @@ function EditEmployeeForm({
         designation: form.designation,
         employmentType: form.employmentType,
         payType: form.payType,
-        payRate: Number(form.payRate),
-        overtimeRate: Number(form.overtimeRate) || 0,
+        payRate: form.payRate ? Number(form.payRate) : 0,
+        overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
         isActive: form.isActive,
         shiftIds,
       })
@@ -1464,10 +1572,6 @@ function EditEmployeeForm({
   return (
     <form onSubmit={submit} className="space-y-4 mt-2">
       <div className="grid gap-3 sm:grid-cols-3">
-        <div>
-          <Label className="text-xs mb-1 block">Employee code</Label>
-          <Input className="h-8 text-xs bg-zinc-50 font-mono" disabled value={employee.employeeCode} />
-        </div>
         <div>
           <Label className="text-xs mb-1 block">First name</Label>
           <Input className="h-8 text-xs" required value={form.firstname} onChange={set('firstname')} />
@@ -1554,16 +1658,15 @@ function EditEmployeeForm({
         </div>
         <div>
           <Label className="text-xs mb-1 block">
-            {form.payType === 'MONTHLY' ? 'Salary (₦)' : 'Rate (₦)'}
+            {form.payType === 'MONTHLY' ? 'Salary (₦) (optional)' : 'Rate (₦) (optional)'}
           </Label>
           <Input
             className="h-8 text-xs font-semibold"
             type="number"
             inputMode="decimal"
-            required
             value={form.payRate}
             onChange={set('payRate')}
-            placeholder={form.payType === 'MONTHLY' ? 'e.g. 150000' : 'e.g. 3500'}
+            placeholder={form.payType === 'MONTHLY' ? 'e.g. 150000 (optional)' : 'e.g. 3500 (optional)'}
           />
         </div>
         <div>
@@ -1627,9 +1730,8 @@ function EditEmployeeForm({
           className="h-8 text-xs font-semibold"
           disabled={
             saving ||
-            !form.firstname ||
-            !form.lastname ||
-            !(Number(form.payRate) > 0)
+            !form.firstname.trim() ||
+            !form.lastname.trim()
           }
         >
           {saving ? 'Saving…' : 'Save changes'}

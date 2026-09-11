@@ -298,6 +298,7 @@ export function MastersPage() {
                 data={rows.data || []}
                 columns={columns}
                 loading={rows.isLoading}
+                card
               />
             </TabsContent>
           ))}

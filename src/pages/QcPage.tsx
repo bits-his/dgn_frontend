@@ -370,6 +370,7 @@ export function QcPage() {
           data={queue.data || []}
           columns={queueColumns}
           loading={queue.isLoading}
+          card
         />
       </div>
 
@@ -412,6 +413,7 @@ export function QcPage() {
           data={checks.data || []}
           columns={checksColumns}
           loading={checks.isLoading}
+          card
         />
       </div>
       </div>

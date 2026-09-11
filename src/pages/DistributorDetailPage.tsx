@@ -47,16 +47,18 @@ type DistributorDetail = {
   region: string | null
   paymentTermsDays: number
   creditLimit: number
+  advanceBalance?: number
   notes: string | null
   distributorKind?: 'INTERNAL' | 'EXTERNAL' | string | null
   minOrderQty?: number | null
   isActive: boolean
-  credit: DistributorCredit & { unpaid: UnpaidInvoice[]; paymentTermsDays: number }
+  credit: DistributorCredit & { unpaid: UnpaidInvoice[]; paymentTermsDays: number; advanceBalance?: number }
   totals: {
     saleCount: number
     revenue: number
     collected: number
     outstanding: number
+    advanceBalance?: number
     qtySold: number
     qtyReturned: number
     returnRatePercent: number
@@ -118,6 +120,13 @@ export function DistributorDetailPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
+  const [advanceOpen, setAdvanceOpen] = useState(false)
+  const [advanceForm, setAdvanceForm] = useState({
+    amount: '',
+    paymentMethod: 'TRANSFER',
+    reference: '',
+    notes: '',
+  })
   const [form, setForm] = useState({
     name: '',
     contactPerson: '',
@@ -191,6 +200,42 @@ export function DistributorDetailPage() {
     },
   })
 
+  const advanceMutation = useMutation({
+    mutationFn: async () => {
+      if (!detail.data) throw new Error('Missing distributor')
+      const { data } = await api.post(`/distributors/${detail.data.code}/advance`, {
+        amount: Number(advanceForm.amount),
+        paymentMethod: advanceForm.paymentMethod,
+        reference: advanceForm.reference.trim() || null,
+        notes: advanceForm.notes.trim() || null,
+      })
+      return data.data
+    },
+    onSuccess: async () => {
+      setMessage('Advance deposit recorded')
+      setError('')
+      setAdvanceOpen(false)
+      setAdvanceForm({ amount: '', paymentMethod: 'TRANSFER', reference: '', notes: '' })
+      await qc.invalidateQueries({ queryKey: ['distributor', code] })
+      await qc.invalidateQueries({ queryKey: ['distributors'] })
+      await qc.invalidateQueries({ queryKey: ['distributor-credit'] })
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as {
+        response?: { data?: { err?: string; errors?: Record<string, string> } }
+        message?: string
+      }
+      const errors = axiosErr.response?.data?.errors
+      setMessage('')
+      setError(
+        (errors && Object.values(errors).join(' · ')) ||
+          axiosErr.response?.data?.err ||
+          axiosErr.message ||
+          'Could not record advance',
+      )
+    },
+  })
+
   if (detail.isLoading) {
     return <p className="text-sm text-zinc-800">Loading distributor…</p>
   }
@@ -210,6 +255,9 @@ export function DistributorDetailPage() {
   const c = d.credit
   const creditClosed = c.creditLimit > 0 && c.atLimit
   const unpaid = c.unpaid || []
+  const advanceBalance = Number(
+    d.advanceBalance ?? c.advanceBalance ?? d.totals.advanceBalance ?? 0,
+  )
 
   const refreshAfterPayment = async () => {
     setPaying(null)
@@ -292,8 +340,28 @@ export function DistributorDetailPage() {
           <span>Bought {money(d.totals.revenue)}</span>
           <span>{unpaidSummary(c)}</span>
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Fact label="Collected" value={money(d.totals.collected)} />
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">
+              Advance balance
+            </p>
+            <p className="mt-1 text-sm font-semibold tabular-nums text-teal-800">
+              {money(advanceBalance)}
+            </p>
+            {canEdit && (
+              <button
+                type="button"
+                className="mt-1 text-xs font-semibold text-[var(--accent-strong)]"
+                onClick={() => {
+                  setError('')
+                  setAdvanceOpen(true)
+                }}
+              >
+                Record advance
+              </button>
+            )}
+          </div>
           <Fact label="Units taken" value={fmt(d.totals.qtySold)} />
           <Fact
             label="Returned"
@@ -322,7 +390,10 @@ export function DistributorDetailPage() {
               <Fact label="Phone" value={d.phone || '—'} />
               <Fact label="Region" value={d.region || '—'} />
               <Fact label="Address" value={d.address || '—'} />
-              <Fact label="Payment terms" value={`${d.paymentTermsDays} days`} />
+              <Fact
+                label="Payment terms"
+                value={`${d.paymentTermsDays} days (unpaid invoices older than this count as overdue)`}
+              />
               <Fact label="Type" value={kindLabel(d.distributorKind)} />
               <Fact
                 label="Minimum quantity"
@@ -390,7 +461,10 @@ export function DistributorDetailPage() {
                   required
                 />
               </Field>
-              <Field label="Payment terms (days)">
+              <Field
+                label="Payment terms (days)"
+                hint="After this many days, unpaid invoices are marked overdue. Example: 7 means they should settle within a week."
+              >
                 <input
                   className="dgn-input"
                   type="number"
@@ -664,6 +738,75 @@ export function DistributorDetailPage() {
             unpaid={paying}
             onSaved={refreshAfterPayment}
           />
+        </Dialog>
+      )}
+
+      {advanceOpen && (
+        <Dialog title="Record advance payment" onClose={() => setAdvanceOpen(false)}>
+          <p className="mb-4 text-sm text-zinc-700">
+            Use this when {d.name} pays money before buying goods. The amount is held as their advance
+            balance and can be deducted on the next sale.
+          </p>
+          <form
+            className="grid gap-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              advanceMutation.mutate()
+            }}
+          >
+            <Field label="Amount">
+              <NairaAmountInput
+                value={advanceForm.amount}
+                onChange={(value) => setAdvanceForm((f) => ({ ...f, amount: value }))}
+                required
+              />
+            </Field>
+            <Field label="Payment method">
+              <select
+                className="dgn-input"
+                value={advanceForm.paymentMethod}
+                onChange={(e) => setAdvanceForm((f) => ({ ...f, paymentMethod: e.target.value }))}
+              >
+                <option value="TRANSFER">Transfer</option>
+                <option value="CASH">Cash</option>
+                <option value="POS">POS</option>
+              </select>
+            </Field>
+            <Field label="Reference">
+              <input
+                className="dgn-input"
+                value={advanceForm.reference}
+                onChange={(e) => setAdvanceForm((f) => ({ ...f, reference: e.target.value }))}
+                placeholder="Bank reference / receipt no."
+              />
+            </Field>
+            <Field label="Notes">
+              <textarea
+                className="dgn-input"
+                rows={2}
+                value={advanceForm.notes}
+                onChange={(e) => setAdvanceForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Optional"
+              />
+            </Field>
+            {error && <p className="text-sm text-red-700">{error}</p>}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="submit"
+                className="dgn-btn dgn-btn-primary"
+                disabled={advanceMutation.isPending || !(Number(advanceForm.amount) > 0)}
+              >
+                {advanceMutation.isPending ? 'Saving…' : 'Save advance'}
+              </button>
+              <button
+                type="button"
+                className="dgn-btn dgn-btn-ghost"
+                onClick={() => setAdvanceOpen(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
         </Dialog>
       )}
       </div>

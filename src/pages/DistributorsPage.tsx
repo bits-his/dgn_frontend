@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, ShoppingBag, Users, CreditCard, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Plus, Search, Users, CreditCard, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { NairaAmountInput } from '@/components/ui'
@@ -57,6 +57,7 @@ export type DistributorCredit = {
   revenue?: number
   collected?: number
   unpaid?: UnpaidInvoice[]
+  advanceBalance?: number
 }
 
 export type DistributorRow = {
@@ -69,6 +70,7 @@ export type DistributorRow = {
   region: string | null
   paymentTermsDays: number
   creditLimit: number
+  advanceBalance?: number
   notes: string | null
   distributorKind?: 'INTERNAL' | 'EXTERNAL' | string | null
   minOrderQty?: number | null
@@ -352,11 +354,10 @@ export function DistributorsPage() {
               <Button
                 asChild
                 size="sm"
-                className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap"
+                className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
               >
                 <Link to={`/sales/new?distributor=${encodeURIComponent(row.original.code)}`}>
-                  <ShoppingBag className="size-3.5" />
-                  <span>Sell</span>
+                  Sell
                 </Link>
               </Button>
             )}
@@ -550,11 +551,11 @@ export function DistributorsPage() {
           </div>
         </div>
 
-        {/* CustomTable1 with card removed around it */}
         <CustomTable1
           columns={columns}
           data={filtered}
           loading={distributors.isLoading}
+          card
         />
 
         {/* Add Distributor Modal Dialog */}
@@ -682,6 +683,9 @@ export function DistributorsPage() {
                   value={form.paymentTermsDays}
                   onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
                 />
+                <p className="text-[10px] text-zinc-500">
+                  How many days they have to settle credit sales. Unpaid after this is marked overdue (e.g. 7 = one week).
+                </p>
               </div>
 
               <div className="space-y-1 sm:col-span-2">

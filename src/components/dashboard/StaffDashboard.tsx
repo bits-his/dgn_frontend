@@ -512,6 +512,7 @@ export function StaffDashboard() {
             columns={batchColumns}
             filter={false}
             pagination={false}
+            card
             loading={batchesQuery.isLoading}
           />
         </div>

@@ -608,6 +608,7 @@ export function InventoryPage() {
             data={balances.data || []}
             columns={columns}
             loading={balances.isLoading}
+            card
           />
         )}
         {viewMode === 'location' && (

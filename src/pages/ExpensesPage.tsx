@@ -441,6 +441,7 @@ export function ExpensesPage() {
           columns={columns}
           data={filtered}
           loading={expenses.isLoading}
+          card
         />
 
         {/* Record Expense Modal Dialog */}
