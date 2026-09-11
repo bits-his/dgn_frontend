@@ -772,17 +772,27 @@ export function BatchDetailPage() {
           <Card className="!p-3 sm:!p-4">
             <h2 className="text-sm font-semibold sm:text-base">Summary</h2>
 
-            <div className="mt-3 rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
-                Cost / kg
-              </p>
-              <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
-                {usableKg > 0 && displayTotal > 0
-                  ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
-                  : unitCost > 0
-                    ? `${money(unitCost)}/kg`
-                    : '—'}
-              </p>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
+                  Cost / kg
+                </p>
+                <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
+                  {usableKg > 0 && displayTotal > 0
+                    ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
+                    : unitCost > 0
+                      ? `${money(unitCost)}/kg`
+                      : '—'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
+                  Qty available
+                </p>
+                <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
+                  {kg(usableKg)}
+                </p>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 sm:gap-4">
@@ -793,7 +803,6 @@ export function BatchDetailPage() {
               />
               <Fact compact label="Material" value={batch.material?.name || '—'} />
               <Fact compact label="Quantity purchased" value={kg(qtyKg)} />
-              <Fact compact label="Qty available" value={kg(usableKg)} />
               <Fact compact label="Waste" value={kg(wasteKg)} />
               <Fact compact label="Other cost" value={money(Number(otherExpenses))} />
             </div>
