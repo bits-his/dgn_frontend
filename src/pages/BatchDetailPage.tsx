@@ -614,6 +614,45 @@ export function BatchDetailPage() {
     const wasteKg = Number(batch.qtyReject || batch.qtyWaste || 0)
     const qtyKg = boughtKg
     const usableKg = Math.max(0, qtyKg - wasteKg)
+
+    const colorCurrentKg = (item: {
+      qtyCrushed?: number | null
+      qtyWashed?: number | null
+      qtyDried?: number | null
+    }) => {
+      if (item.qtyDried != null) return Number(item.qtyDried)
+      if (item.qtyWashed != null) return Number(item.qtyWashed)
+      return Number(item.qtyCrushed || 0)
+    }
+
+    const materialParts: Array<{ key: string; color: string; code?: string; rawKg: number }> =
+      batch.colorItems && batch.colorItems.length > 0
+        ? batch.colorItems.map((item) => ({
+            key: String(item.id),
+            color: item.color,
+            code: item.color,
+            rawKg: colorCurrentKg(item),
+          }))
+        : crushedColors.map((c, idx) => ({
+            key: `${c.color}-${idx}`,
+            color: c.color,
+            code: c.color,
+            rawKg: Number(c.qtyKg || 0),
+          }))
+
+    const materialRawTotal = +materialParts.reduce((s, p) => s + p.rawKg, 0).toFixed(3)
+    let materialAllocated = 0
+    const materialRows = materialParts.map((part, idx) => {
+      let kgVal = part.rawKg
+      if (materialRawTotal > 0 && Math.abs(materialRawTotal - usableKg) > 0.001) {
+        kgVal =
+          idx === materialParts.length - 1
+            ? +(usableKg - materialAllocated).toFixed(3)
+            : +((part.rawKg / materialRawTotal) * usableKg).toFixed(3)
+      }
+      materialAllocated += kgVal
+      return { ...part, kg: Math.max(0, kgVal) }
+    })
     const totalCost = Number(summary.totalCost || 0)
     const unitCost = usableKg > 0 ? +(totalCost / usableKg).toFixed(2) : 0
 
@@ -772,12 +811,12 @@ export function BatchDetailPage() {
           <Card className="!p-3 sm:!p-4">
             <h2 className="text-sm font-semibold sm:text-base">Summary</h2>
 
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
-              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
+              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-2.5 py-2.5 sm:px-4 sm:py-3">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
                   Cost / kg
                 </p>
-                <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
+                <p className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
                   {usableKg > 0 && displayTotal > 0
                     ? `${money(+(displayTotal / usableKg).toFixed(2))}/kg`
                     : unitCost > 0
@@ -785,11 +824,11 @@ export function BatchDetailPage() {
                       : '—'}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-3 py-3 sm:px-4">
+              <div className="rounded-xl border border-[var(--line)] bg-zinc-50/80 px-2.5 py-2.5 sm:px-4 sm:py-3">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-faint)]">
                   Qty available
                 </p>
-                <p className="mt-0.5 text-xl font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
+                <p className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-[var(--ink)] sm:text-2xl">
                   {kg(usableKg)}
                 </p>
               </div>
@@ -808,59 +847,34 @@ export function BatchDetailPage() {
             </div>
           </Card>
 
-          {((batch.colorItems && batch.colorItems.length > 0) || crushedColors.length > 0) && (
+          {materialRows.length > 0 && (
             <Card className="!overflow-hidden !p-0">
               <div className="border-b border-[var(--line)] px-3 py-2.5 sm:px-4 sm:py-3">
                 <h2 className="text-sm font-semibold sm:text-base">Materials</h2>
                 <p className="mt-0.5 text-[11px] text-[var(--ink-muted)] sm:text-xs">
-                  {receipt?.inboundForm === 'CRUSHED'
-                    ? 'Crushed colours and kg in this buy'
-                    : 'Colour breakdown and kg in this batch'}
+                  Colours and kg available in this lot
                 </p>
               </div>
               <ul className="divide-y divide-[var(--line)]">
-                {batch.colorItems && batch.colorItems.length > 0
-                  ? batch.colorItems.map((item) => (
-                      <li
-                        key={item.id}
-                        className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-[var(--ink)]">
-                            {colorLabel(item.color)}
-                          </p>
-                          <p className="text-[11px] font-mono text-[var(--ink-muted)]">{item.color}</p>
-                        </div>
-                        <p className="shrink-0 text-sm font-semibold tabular-nums">
-                          {kg(Number(item.qtyCrushed || 0))}
-                        </p>
-                      </li>
-                    ))
-                  : crushedColors.map((c, idx) => (
-                      <li
-                        key={`${c.color}-${idx}`}
-                        className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-[var(--ink)]">
-                            {colorLabel(c.color)}
-                          </p>
-                          <p className="text-[11px] font-mono text-[var(--ink-muted)]">{c.color}</p>
-                        </div>
-                        <p className="shrink-0 text-sm font-semibold tabular-nums">
-                          {kg(Number(c.qtyKg || 0))}
-                        </p>
-                      </li>
-                    ))}
+                {materialRows.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-4 sm:py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--ink)]">
+                        {colorLabel(row.color)}
+                      </p>
+                      {row.code && (
+                        <p className="text-[11px] font-mono text-[var(--ink-muted)]">{row.code}</p>
+                      )}
+                    </div>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums">{kg(row.kg)}</p>
+                  </li>
+                ))}
                 <li className="flex items-center justify-between gap-3 bg-zinc-50 px-3 py-2.5 sm:px-4 sm:py-3">
                   <span className="text-sm font-semibold">Total</span>
-                  <span className="text-sm font-semibold tabular-nums">
-                    {kg(
-                      batch.colorItems && batch.colorItems.length > 0
-                        ? batch.colorItems.reduce((s, i) => s + Number(i.qtyCrushed || 0), 0)
-                        : crushedColors.reduce((s, c) => s + Number(c.qtyKg || 0), 0),
-                    )}
-                  </span>
+                  <span className="text-sm font-semibold tabular-nums">{kg(usableKg)}</span>
                 </li>
               </ul>
             </Card>
