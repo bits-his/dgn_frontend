@@ -110,8 +110,8 @@ const recyclingNav: NavItem[] = [
 ]
 
 const productionNav: NavItem[] = [
-  { to: '/production', label: 'Production runs', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
-  { to: '/production/store', label: 'Production store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
+  { to: '/production/store', label: 'Material store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
+  { to: '/production', label: 'Production', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
 ]
 
 const mainNavRest: NavItem[] = [

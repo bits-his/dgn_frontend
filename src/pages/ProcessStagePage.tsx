@@ -78,7 +78,8 @@ export const STAGE_META: Record<
     machineLabel: 'Washing Machine',
     showDowntime: true,
     showLabourCost: true,
-    showEnergyCost: true,
+    labourPerKg: true,
+    showEnergyCost: false,
   },
   drying: {
     title: 'Drying',
@@ -91,7 +92,8 @@ export const STAGE_META: Record<
     showOperator: true,
     operatorLabel: 'Drying Attendant',
     showDowntime: false,
-    showLabourCost: false,
+    showLabourCost: true,
+    labourPerKg: true,
     showEnergyCost: false,
   },
   recrushing: {
@@ -165,11 +167,23 @@ export type InputBatch = {
   location?: { name: string }
   effectiveCostPerKg?: number | null
   pricePerKg?: number | null
+  colorItems?: Array<{
+    id: number
+    batchId?: number
+    color: string
+    qtyCrushed: number
+    qtyWashed?: number | null
+    qtyWashWaste?: number | null
+    qtyDried?: number | null
+    qtyDryWaste?: number | null
+    status?: string
+  }>
 }
 
 export type ColorLine = { color: string; qtyKg: number }
 export type LotLine = {
-  batchNumber: string
+  id?: number
+  batchNumber?: string
   color: string | null
   qtyIn: number
   qtyUsable: string
@@ -254,15 +268,15 @@ export function ProcessStageForm({
   /** Crushing / washing / drying / recrushing: weigh after stage. */
   const showsMeasuredOut = isCrushing || isWashing || isDrying || isRecrushing
   const showsWaste = isSorting || isRecycling
-  /** Washing: record usable per colour lot (same colour breakdown pattern as crushing). */
-  const isMultiLotStage = isWashing
+  /** Washing, drying, and recrushing: process all colours of a batch in a single run */
+  const isMultiLotStage = isWashing || isDrying || isRecrushing
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [activeBatch, setActiveBatch] = useState<string | null>(
-    () => (isMultiLotStage ? null : presetBatchNumber || searchParams.get('batch') || null),
+    () => presetBatchNumber || searchParams.get('batch') || null,
   )
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
   const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
@@ -377,9 +391,9 @@ export function ProcessStageForm({
     defaultValues: emptyForm(activeBatch || ''),
   })
 
-  // Reset when stage changes; keep ?batch= if present for single-lot stages.
+  // Reset when stage changes; keep ?batch= if present.
   useEffect(() => {
-    const fromUrl = isMultiLotStage ? null : searchParams.get('batch') || presetBatchNumber || null
+    const fromUrl = searchParams.get('batch') || presetBatchNumber || null
     setActiveBatch(fromUrl)
     setServerErrors([])
     setWarning(null)
@@ -391,23 +405,47 @@ export function ProcessStageForm({
     setEditingColor(null)
     setEditingKg('')
     reset(emptyForm(fromUrl || ''))
-  }, [stage, presetBatchNumber, reset, isMultiLotStage]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Washing: load every waiting colour lot into the form.
-  useEffect(() => {
-    if (!isMultiLotStage) return
-    const rows = inputs.data || []
-    setLotLines(
-      rows.map((b) => ({
-        batchNumber: b.batchNumber,
-        color: b.sortColor || null,
-        qtyIn: Number(b.qtyRemaining || 0),
-        qtyUsable: '',
-      })),
-    )
-  }, [isMultiLotStage, inputs.data])
+  }, [stage, presetBatchNumber, reset]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = inputs.data?.find((b) => b.batchNumber === activeBatch)
+
+  // Washing & Drying: load colors for the selected batch into lotLines
+  useEffect(() => {
+    if (!isMultiLotStage) return
+    if (!selected) {
+      setLotLines([])
+      return
+    }
+    if (selected.colorItems && selected.colorItems.length > 0) {
+      setLotLines(
+        selected.colorItems.map((item) => ({
+          id: item.id,
+          batchNumber: selected.batchNumber,
+          color: item.color,
+          qtyIn: isWashing
+            ? Number(item.qtyCrushed || 0)
+            : isDrying
+            ? Number(item.qtyWashed ?? item.qtyCrushed ?? 0)
+            : Number(item.qtyDried ?? item.qtyWashed ?? item.qtyCrushed ?? 0),
+          qtyUsable: isWashing
+            ? item.qtyWashed != null ? String(item.qtyWashed) : ''
+            : isDrying
+            ? item.qtyDried != null ? String(item.qtyDried) : ''
+            : '',
+        })),
+      )
+    } else {
+      setLotLines([
+        {
+          id: undefined,
+          batchNumber: selected.batchNumber,
+          color: selected.sortColor || null,
+          qtyIn: Number(selected.qtyRemaining || 0),
+          qtyUsable: '',
+        },
+      ])
+    }
+  }, [isMultiLotStage, isWashing, isDrying, selected])
 
   const openBatch = (batchNumber: string) => {
     setActiveBatch(batchNumber)
@@ -682,9 +720,8 @@ export function ProcessStageForm({
 
       const { data } = await api.post(`/process/${stage}`, {
         ...values,
-        inputBatchNumber: isMultiLotStage
-          ? lotLines[0]?.batchNumber
-          : activeBatch || values.inputBatchNumber,
+        inputBatchNumber:
+          activeBatch || selected?.batchNumber || lotLines[0]?.batchNumber || values.inputBatchNumber,
         qtyInput: isMultiLotStage ? lotTotalIn : Number(values.qtyInput),
         qtyUsable: isMultiLotStage
           ? lotTotalUsable
@@ -698,9 +735,19 @@ export function ProcessStageForm({
             : 0,
         qtyWaste: 0,
         colorLines: isSplitting ? colorLines : undefined,
+        colorUpdates: isMultiLotStage
+          ? lotLines.map((line) => ({
+              id: line.id,
+              color: line.color,
+              qtyInput: line.qtyIn,
+              qtyUsable: Number(line.qtyUsable || 0),
+            }))
+          : undefined,
         lots: isMultiLotStage
           ? lotLines.map((line) => ({
-              inputBatchNumber: line.batchNumber,
+              id: line.id,
+              inputBatchNumber:
+                activeBatch || selected?.batchNumber || line.batchNumber,
               color: line.color,
               qtyInput: line.qtyIn,
               qtyUsable: Number(line.qtyUsable || 0),
@@ -813,18 +860,16 @@ export function ProcessStageForm({
             : `Record ${meta.title}`
       }
       description={
-        isMultiLotStage
-          ? 'Enter usable kg for each colour after washing — waste is qty in − usable.'
-          : selected
-            ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
-            : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
+        selected
+          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
+          : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
       }
       back={true}
       backLabel={`Back to ${meta.title} queue`}
       onBack={backToQueue}
     >
       <div className="w-full space-y-4">
-        {!isMultiLotStage && !selected ? (
+        {!selected ? (
           <Card className="!p-5">
             <div className="space-y-3">
               <div>
@@ -851,18 +896,21 @@ export function ProcessStageForm({
               )}
             </div>
           </Card>
-        ) : !isMultiLotStage && selected ? (
-          <Card className="!p-4 bg-zinc-50 border-zinc-200">
+        ) : selected ? (
+          <Card className="p-3.5 sm:p-4 bg-zinc-50/90 border-zinc-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-[var(--ink-faint)]">
-                  Selected Batch
-                </span>
-                <h3 className="text-lg font-bold text-zinc-900">{selected.batchNumber}</h3>
-                <p className="text-xs text-[var(--ink-muted)] mt-0.5">
-                  {selected.material?.name || selected.batchType} · Colour:{' '}
-                  <strong>{colorName(selected.sortColor)}</strong> · Available:{' '}
-                  <strong className="text-emerald-700">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-200 text-zinc-700">
+                    Selected Batch
+                  </span>
+                  <h3 className="text-base sm:text-lg font-bold text-zinc-900">
+                    {selected.batchNumber}
+                  </h3>
+                </div>
+                <p className="text-xs text-[var(--ink-muted)] mt-1">
+                  {selected.material?.name || selected.batchType} · Available in queue:{' '}
+                  <strong className="text-emerald-700 font-bold">
                     {qtyLabel(selected.qtyRemaining, selected.uom)}
                   </strong>
                 </p>
@@ -871,7 +919,7 @@ export function ProcessStageForm({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs shrink-0 self-start sm:self-center"
+                className="h-8 px-3 text-xs font-semibold shrink-0 cursor-pointer self-start sm:self-center"
                 onClick={() => {
                   setActiveBatch(null)
                   setSearchParams({}, { replace: true })
@@ -884,122 +932,266 @@ export function ProcessStageForm({
           </Card>
         ) : null}
 
-        {(isMultiLotStage || selected) && (
+        {selected && (
           <form
             className="space-y-4"
             onSubmit={handleSubmit((values) => submitPayload(values, false))}
           >
-            {!isMultiLotStage && (
-              <input type="hidden" {...register('inputBatchNumber', { required: true })} />
-            )}
+            <input type="hidden" {...register('inputBatchNumber', { required: true })} />
 
             {isMultiLotStage && (
-              <Card>
+              <Card className="p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-2">
-                  <h2 className="text-base font-semibold tracking-tight">
-                    Colours · usable after washing
-                  </h2>
-                  <span className="text-xs text-[var(--ink-muted)]">
-                    {lotLines.length} lot{lotLines.length === 1 ? '' : 's'}
+                  <div>
+                    <h2 className="text-base sm:text-lg font-semibold tracking-tight text-zinc-900">
+                      Colours · usable after {meta.title.toLowerCase()}
+                    </h2>
+                    <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                      Enter usable kg for each separated colour. Waste and yield calculate automatically.
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-zinc-700 bg-zinc-100 px-2.5 py-1 rounded-full border border-zinc-200 shrink-0">
+                    {lotLines.length} colour{lotLines.length === 1 ? '' : 's'}
                   </span>
                 </div>
+
                 {inputs.isLoading ? (
-                  <p className="mt-3 text-sm text-[var(--ink-muted)]">Loading colour lots…</p>
+                  <p className="mt-4 text-sm text-[var(--ink-muted)]">Loading colour lots…</p>
                 ) : lotLines.length === 0 ? (
-                  <p className="mt-3 text-xs text-amber-700 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                  <p className="mt-4 text-xs text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
                     {meta.emptyHint}
                   </p>
                 ) : (
                   <>
-                    <div className="mt-3 rounded-xl border border-zinc-200/80 bg-zinc-50/70 p-2.5 sm:p-3">
-                      <div className="grid grid-cols-3 gap-1 sm:gap-2 text-center divide-x divide-zinc-200/60">
-                        <div className="px-1">
-                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Qty in
+                    {/* Batch Total Summary Strip */}
+                    <div className="mt-3.5 rounded-xl border border-zinc-200 bg-zinc-50/90 p-3 sm:p-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center divide-y sm:divide-y-0 sm:divide-x divide-zinc-200/80">
+                        <div className="pt-1 sm:pt-0 sm:px-2">
+                          <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                            Total In
                           </p>
-                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-800 font-mono">
+                          <p className="mt-1 text-base sm:text-lg font-bold text-zinc-900 font-mono">
                             {lotTotalIn.toLocaleString()}{' '}
-                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                            <span className="text-xs font-normal text-zinc-400">kg</span>
                           </p>
                         </div>
-                        <div className="px-1">
-                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Usable
+                        <div className="pt-1 sm:pt-0 sm:px-2">
+                          <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                            Total Usable
                           </p>
-                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-emerald-600 font-mono">
+                          <p className="mt-1 text-base sm:text-lg font-bold text-emerald-600 font-mono">
                             {lotTotalUsable.toLocaleString()}{' '}
-                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                            <span className="text-xs font-normal text-zinc-400">kg</span>
                           </p>
                         </div>
-                        <div className="px-1">
-                          <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                            Waste
+                        <div className="pt-3 sm:pt-0 sm:px-2">
+                          <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                            Total Waste
                           </p>
-                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-zinc-700 font-mono">
+                          <p className="mt-1 text-base sm:text-lg font-bold text-zinc-800 font-mono">
                             {lotTotalWaste.toLocaleString()}{' '}
-                            <span className="text-[10px] font-normal text-zinc-400">kg</span>
+                            <span className="text-xs font-normal text-zinc-400">kg</span>
+                          </p>
+                        </div>
+                        <div className="pt-3 sm:pt-0 sm:px-2">
+                          <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                            Overall Yield
+                          </p>
+                          <p className="mt-1 text-base sm:text-lg font-bold text-blue-600 font-mono">
+                            {lotTotalIn > 0 ? ((lotTotalUsable / lotTotalIn) * 100).toFixed(1) : 0}%
                           </p>
                         </div>
                       </div>
                     </div>
-                    <ul className="mt-3 divide-y divide-[var(--line)] rounded-xl ring-1 ring-[var(--line)]">
-                      {lotLines.map((line) => {
+
+                    {/* Desktop & Tablet Table (sm and up) */}
+                    <div className="mt-4 hidden sm:block overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-xs">
+                      <table className="w-full text-left text-sm border-collapse">
+                        <thead className="bg-zinc-50/90 border-b border-zinc-200 text-zinc-600 font-semibold uppercase tracking-wider text-xs">
+                          <tr>
+                            <th className="py-3 px-3.5 w-10 text-center text-zinc-400 font-normal">#</th>
+                            <th className="py-3 px-4">Colour</th>
+                            <th className="py-3 px-4 text-right">Inbound Qty</th>
+                            <th className="py-3 px-4 text-right">Usable Qty (kg)</th>
+                            <th className="py-3 px-4 text-right">Waste (kg)</th>
+                            <th className="py-3 px-4 text-right">Yield</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100">
+                          {lotLines.map((line, idx) => {
+                            const usableNum = Number(line.qtyUsable || 0)
+                            const over = usableNum - line.qtyIn > 0.001
+                            const wasteKg =
+                              usableNum > 0 ? Math.max(0, +(line.qtyIn - usableNum).toFixed(3)) : null
+                            const rowYield =
+                              line.qtyIn > 0 && usableNum > 0
+                                ? ((usableNum / line.qtyIn) * 100).toFixed(1)
+                                : null
+
+                            return (
+                              <tr
+                                key={line.id || line.color || idx}
+                                className="hover:bg-zinc-50/80 transition-colors"
+                              >
+                                <td className="py-3 px-3.5 text-center text-zinc-400 font-mono text-xs">
+                                  {idx + 1}
+                                </td>
+                                <td className="py-3 px-4 whitespace-nowrap">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="inline-block h-3.5 w-3.5 rounded-full border border-zinc-300 bg-zinc-400 shadow-2xs shrink-0" />
+                                    <span className="font-semibold text-zinc-900 text-sm">
+                                      {colorName(line.color)}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono font-semibold text-zinc-800 whitespace-nowrap text-sm">
+                                  {line.qtyIn.toLocaleString()} <span className="text-xs text-zinc-400 font-normal">kg</span>
+                                </td>
+                                <td className="py-3 px-4 text-right whitespace-nowrap">
+                                  <div className="inline-flex flex-col items-end">
+                                    <input
+                                      inputMode="decimal"
+                                      className={`h-10 w-32 text-right font-mono font-bold text-sm px-3 rounded-lg border transition-all ${
+                                        over
+                                          ? 'border-red-400 bg-red-50 text-red-900 ring-2 ring-red-200'
+                                          : 'border-zinc-300 bg-white text-zinc-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+                                      }`}
+                                      value={line.qtyUsable}
+                                      placeholder="0.00"
+                                      onChange={(e) => {
+                                        const val = e.target.value
+                                        setLotLines((prev) =>
+                                          prev.map((row, rIdx) =>
+                                            (row.id ? row.id === line.id : rIdx === idx)
+                                              ? { ...row, qtyUsable: val }
+                                              : row,
+                                          ),
+                                        )
+                                      }}
+                                    />
+                                    {over && (
+                                      <span className="text-xs text-red-600 font-medium mt-0.5">
+                                        Max {line.qtyIn} kg
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono font-semibold whitespace-nowrap text-sm">
+                                  {wasteKg == null ? (
+                                    <span className="text-zinc-300 font-normal">—</span>
+                                  ) : (
+                                    <span
+                                      className={
+                                        wasteKg > 0 ? 'text-amber-800 font-semibold' : 'text-zinc-400'
+                                      }
+                                    >
+                                      {wasteKg.toLocaleString()}{' '}
+                                      <span className="text-xs text-zinc-500 font-normal">kg</span>
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono text-sm whitespace-nowrap">
+                                  {rowYield == null ? (
+                                    <span className="text-zinc-300 font-normal">—</span>
+                                  ) : (
+                                    <span
+                                      className={
+                                        Number(rowYield) >= 90
+                                          ? 'text-emerald-700 font-bold'
+                                          : 'text-zinc-700 font-semibold'
+                                      }
+                                    >
+                                      {rowYield}%
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile View (< sm): Touch-friendly cards for comfortable recording */}
+                    <div className="mt-3.5 sm:hidden space-y-3">
+                      {lotLines.map((line, idx) => {
                         const usableNum = Number(line.qtyUsable || 0)
                         const over = usableNum - line.qtyIn > 0.001
                         const wasteKg =
                           usableNum > 0 ? Math.max(0, +(line.qtyIn - usableNum).toFixed(3)) : null
+                        const rowYield =
+                          line.qtyIn > 0 && usableNum > 0
+                            ? ((usableNum / line.qtyIn) * 100).toFixed(1)
+                            : null
+
                         return (
-                          <li
-                            key={line.batchNumber}
-                            className="grid grid-cols-1 gap-2 px-3 py-3 sm:grid-cols-[1.1fr_0.7fr_1fr_0.7fr] sm:items-end"
+                          <div
+                            key={line.id || line.color || idx}
+                            className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-2xs space-y-3"
                           >
-                            <div>
-                              <p className="font-semibold tracking-tight">{colorName(line.color)}</p>
-                              <p className="text-xs text-[var(--ink-muted)]">{line.batchNumber}</p>
+                            <div className="flex items-center justify-between border-b border-zinc-100 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-3.5 w-3.5 rounded-full border border-zinc-300 bg-zinc-400 shrink-0" />
+                                <span className="font-bold text-zinc-900 text-sm">
+                                  {colorName(line.color)}
+                                </span>
+                              </div>
+                              <span className="text-xs font-semibold text-zinc-700 font-mono bg-zinc-100 px-2.5 py-1 rounded-md border border-zinc-200/80">
+                                Inbound: <strong className="text-zinc-900">{line.qtyIn.toLocaleString()} kg</strong>
+                              </span>
                             </div>
-                            <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                                Qty in
-                              </p>
-                              <p className="font-mono text-sm font-semibold">
-                                {line.qtyIn.toLocaleString()} kg
-                              </p>
+
+                            <div className="grid grid-cols-2 gap-3 items-end">
+                              <div>
+                                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-1">
+                                  Usable (kg)
+                                </label>
+                                <input
+                                  inputMode="decimal"
+                                  className={`h-10 w-full text-right font-mono font-bold text-base px-3 rounded-lg border transition-all ${
+                                    over
+                                      ? 'border-red-400 bg-red-50 text-red-900 ring-2 ring-red-200'
+                                      : 'border-zinc-300 bg-white text-zinc-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+                                  }`}
+                                  value={line.qtyUsable}
+                                  placeholder="0.00"
+                                  onChange={(e) => {
+                                    const val = e.target.value
+                                    setLotLines((prev) =>
+                                      prev.map((row, rIdx) =>
+                                        (row.id ? row.id === line.id : rIdx === idx)
+                                          ? { ...row, qtyUsable: val }
+                                          : row,
+                                      ),
+                                    )
+                                  }}
+                                />
+                                {over && (
+                                  <span className="text-xs text-red-600 font-medium block mt-1">
+                                    Max {line.qtyIn} kg
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="rounded-lg bg-zinc-50 border border-zinc-200/80 p-2.5 text-right space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-zinc-500 font-medium">Waste:</span>
+                                  <span className="font-mono font-bold text-zinc-800">
+                                    {wasteKg == null ? '—' : `${wasteKg.toLocaleString()} kg`}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs pt-1 border-t border-zinc-200/60">
+                                  <span className="text-zinc-500 font-medium">Yield:</span>
+                                  <span className="font-mono font-bold text-emerald-600">
+                                    {rowYield == null ? '—' : `${rowYield}%`}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            <Field
-                              label="Usable after washing (kg)"
-                              hint={over ? 'Cannot exceed qty in' : undefined}
-                            >
-                              <input
-                                inputMode="decimal"
-                                className={`dgn-input ${
-                                  over ? 'border-red-400 ring-1 ring-red-300' : ''
-                                }`}
-                                value={line.qtyUsable}
-                                placeholder=""
-                                onChange={(e) => {
-                                  const val = e.target.value
-                                  setLotLines((prev) =>
-                                    prev.map((row) =>
-                                      row.batchNumber === line.batchNumber
-                                        ? { ...row, qtyUsable: val }
-                                        : row,
-                                    ),
-                                  )
-                                }}
-                              />
-                            </Field>
-                            <div>
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                                Waste
-                              </p>
-                              <p className="font-mono text-sm font-semibold text-zinc-700">
-                                {wasteKg == null ? '—' : `${wasteKg.toLocaleString()} kg`}
-                              </p>
-                            </div>
-                          </li>
+                          </div>
                         )
                       })}
-                    </ul>
+                    </div>
                   </>
                 )}
               </Card>
@@ -1325,8 +1517,8 @@ export function ProcessStageForm({
               </Card>
             ) : null}
 
-            <Card>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Card className="!p-2.5 sm:!p-3.5">
+              <div className="grid gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {meta.showMachine && (
                   <Field label={meta.machineLabel || 'Machine'}>
                     <SearchableSelect
@@ -1359,14 +1551,20 @@ export function ProcessStageForm({
                   </Field>
                 )}
 
-                {/* Cost fields: 2 per row on mobile to conserve space */}
+                {/* Cost fields: 4 per row on desktop for crushing/washing/drying, 2 on mobile */}
                 {(meta.showLabourCost !== false ||
                   meta.showEnergyCost !== false ||
                   meta.showWashFields ||
                   meta.showLoadingCost ||
                   meta.showTransportCost ||
                   meta.showOtherCost) && (
-                  <div className="col-span-full grid grid-cols-2 gap-2.5 sm:contents">
+                  <div
+                    className={
+                      isCrushing || isWashing || isDrying || isRecrushing
+                        ? 'col-span-full grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3'
+                        : 'col-span-full grid grid-cols-2 gap-2 sm:contents'
+                    }
+                  >
                     {meta.showLabourCost !== false && (
                       meta.labourPerKg ? (
                         <Field label="Labour rate / kg (₦)">
@@ -1402,6 +1600,20 @@ export function ProcessStageForm({
                           <input inputMode="decimal" className="dgn-input" {...register('labourCost')} />
                         </Field>
                       )
+                    )}
+                    {meta.showWashFields && (
+                      <>
+                        <Field label="Water cost (₦)">
+                          <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
+                        </Field>
+                        <Field label="Detergent cost (₦)">
+                          <input
+                            inputMode="decimal"
+                            className="dgn-input"
+                            {...register('detergentCost')}
+                          />
+                        </Field>
+                      </>
                     )}
                     {meta.showEnergyCost !== false && (
                       <Field label="Energy cost (₦)">
@@ -1439,52 +1651,38 @@ export function ProcessStageForm({
                       </Field>
                     )}
                     {meta.showLabourCost !== false && meta.labourPerKg && Number(watch('labourRatePerKg') || 0) > 0 && (
-                      <div className="col-span-full rounded-md bg-emerald-50/90 border border-emerald-200/80 px-3.5 py-2 text-xs font-medium text-emerald-900 flex items-center justify-between">
+                      <div className="col-span-full rounded-md bg-emerald-50/90 border border-emerald-200/80 px-3 py-1.5 text-xs font-medium text-emerald-900 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span>⚖️</span>
                           <span>
-                            Calculated crushing labour (₦{Number(watch('labourRatePerKg')).toLocaleString()}/kg × {((isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput) || 0).toLocaleString()} kg):
+                            Calculated {meta.title.toLowerCase()} labour (₦{Number(watch('labourRatePerKg')).toLocaleString()}/kg × {((isMultiLotStage ? (lotTotalUsable > 0 ? lotTotalUsable : lotTotalIn) : (isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput)) || 0).toLocaleString()} kg):
                           </span>
                         </span>
-                        <span className="font-bold text-sm text-emerald-700">
+                        <span className="font-bold text-xs sm:text-sm text-emerald-700">
                           ₦
                           {(
                             Number(watch('labourRatePerKg') || 0) *
-                            ((isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput) || 0)
+                            ((isMultiLotStage ? (lotTotalUsable > 0 ? lotTotalUsable : lotTotalIn) : (isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput)) || 0)
                           ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
                     )}
                     {meta.showLabourCost !== false && meta.labourHourly && Number(watch('labourHours') || 0) > 0 && Number(watch('labourRatePerHour') || 0) > 0 && (
-                      <div className="col-span-full rounded-md bg-blue-50/90 border border-blue-200/80 px-3.5 py-2 text-xs font-medium text-blue-900 flex items-center justify-between">
+                      <div className="col-span-full rounded-md bg-blue-50/90 border border-blue-200/80 px-3 py-1.5 text-xs font-medium text-blue-900 flex items-center justify-between">
                         <span className="flex items-center gap-1.5">
                           <span>⏱️</span>
                           <span>
-                            Calculated crushing labour ({watch('labourHours')} hrs × ₦
+                            Calculated {meta.title.toLowerCase()} labour ({watch('labourHours')} hrs × ₦
                             {Number(watch('labourRatePerHour')).toLocaleString()}/hr):
                           </span>
                         </span>
-                        <span className="font-bold text-sm text-blue-700">
+                        <span className="font-bold text-xs sm:text-sm text-blue-700">
                           ₦
                           {(
                             Number(watch('labourHours') || 0) * Number(watch('labourRatePerHour') || 0)
                           ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
                       </div>
-                    )}
-                    {meta.showWashFields && (
-                      <>
-                        <Field label="Water cost (₦)">
-                          <input inputMode="decimal" className="dgn-input" {...register('waterQty')} />
-                        </Field>
-                        <Field label="Detergent cost (₦)">
-                          <input
-                            inputMode="decimal"
-                            className="dgn-input"
-                            {...register('detergentCost')}
-                          />
-                        </Field>
-                      </>
                     )}
                   </div>
                 )}
@@ -1511,9 +1709,11 @@ export function ProcessStageForm({
                     </Field>
                   </>
                 )}
-                <Field label="Notes">
-                  <input className="dgn-input" {...register('notes')} />
-                </Field>
+                {!isCrushing && (
+                  <Field label="Notes">
+                    <input className="dgn-input" {...register('notes')} />
+                  </Field>
+                )}
               </div>
             </Card>
 
@@ -1534,18 +1734,18 @@ export function ProcessStageForm({
 
             {/* Action buttons: for drying, provide the 2 distinct destinations requested */}
             {isDrying ? (
-              <div className="pt-2 flex flex-col sm:flex-row items-center gap-3">
+              <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                 <Button
                   type="button"
                   variant="outline"
-                  size="lg"
+                  size="default"
                   disabled={
                     formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
                   }
-                  className="w-full sm:w-auto h-11 px-5 border-emerald-600/40 text-emerald-900 hover:bg-emerald-50 hover:text-emerald-950 font-semibold inline-flex items-center justify-center gap-2 leading-none"
+                  className="w-full sm:w-auto h-9 sm:h-10 px-4 text-xs sm:text-sm border-emerald-600/40 text-emerald-900 hover:bg-emerald-50 hover:text-emerald-950 font-semibold inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
                   onClick={handleSubmit((values) => submitPayload(values, false, 'recycling'))}
                 >
-                  <Recycle className="size-4 shrink-0 text-emerald-700" />
+                  <Recycle className="size-3.5 sm:size-4 shrink-0 text-emerald-700" />
                   <span>
                     {formState.isSubmitting && submitAction === 'recycling'
                       ? 'Moving to Recycling…'
@@ -1555,25 +1755,25 @@ export function ProcessStageForm({
 
                 <Button
                   type="button"
-                  size="lg"
+                  size="default"
                   disabled={
                     formState.isSubmitting || !selected || !(qtyUsable > 0) || measuredOverIn
                   }
-                  className="w-full sm:w-auto h-11 px-6 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-sm"
+                  className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-xs cursor-pointer"
                   onClick={handleSubmit((values) => submitPayload(values, false, 'production'))}
                 >
-                  <Warehouse className="size-4 shrink-0" />
+                  <Warehouse className="size-3.5 sm:size-4 shrink-0" />
                   <span>
                     {formState.isSubmitting && submitAction === 'production'
-                      ? 'Moving to Production Store…'
-                      : 'Move to Production'}
+                      ? 'Moving to Material…'
+                      : 'Move to Material'}
                   </span>
                 </Button>
               </div>
             ) : (
               <Button
                 type="submit"
-                size="lg"
+                size="default"
                 disabled={
                   formState.isSubmitting ||
                   (isMultiLotStage
@@ -1584,11 +1784,11 @@ export function ProcessStageForm({
                         showsMeasuredOut &&
                         (!(qtyUsable > 0) || measuredOverIn)))
                 }
-                className="w-full sm:w-auto h-11 px-6 font-semibold shadow-sm inline-flex items-center justify-center gap-2 leading-none"
+                className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
               >
                 {formState.isSubmitting ? (
                   <>
-                    <Loader2 className="size-4 animate-spin" />
+                    <Loader2 className="size-3.5 sm:size-4 animate-spin" />
                     <span>Saving…</span>
                   </>
                 ) : (

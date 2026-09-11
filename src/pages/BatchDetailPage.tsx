@@ -173,6 +173,17 @@ export function BatchDetailPage() {
           startedAt?: string
           endedAt?: string
           businessDate?: string | null
+          colorItems?: Array<{
+            id: number
+            batchId?: number
+            color: string
+            qtyCrushed: number
+            qtyWashed?: number | null
+            qtyWashWaste?: number | null
+            qtyDried?: number | null
+            qtyDryWaste?: number | null
+            status?: string
+          }>
           createdAt?: string
           createdBy?: { firstname: string; lastname: string }
           scrapReceipt?: {
@@ -372,6 +383,8 @@ export function BatchDetailPage() {
   const typeLabel = TYPE_LABEL[batch.batchType] || batch.batchType
   const stageRows = costSummary?.stageBreakdown || []
   const sortingRun = processRuns.find((r) => r.stage === 'SORTING')
+  const crushingRun = processRuns.find((r) => r.stage === 'CRUSHING')
+  const crushedColors = parseColorBreakdown(crushingRun?.colorBreakdown)
 
   // Merge any SORTING stage into Scrap Buying ('BUY') stage, as sorting is part of scrap buying
   const displayStageRows = (() => {
@@ -610,6 +623,16 @@ export function BatchDetailPage() {
               Complete Run →
             </Link>
           </Button>
+        ) : batch.batchType === 'CRUSH' && Number(batch.qtyRemaining || 0) > 0 ? (
+          <Button
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm"
+            asChild
+          >
+            <Link to={`/process/washing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+              Process Washing →
+            </Link>
+          </Button>
         ) : null
       }
     >
@@ -689,6 +712,136 @@ export function BatchDetailPage() {
           </span>
         </div>
       </Card>
+
+      {/* Colors & Process Lifecycle Breakdown Card for Crushed, Washed, or Dried Batches */}
+      {((batch.colorItems && batch.colorItems.length > 0) || crushedColors.length > 0) &&
+        (batch.batchType === 'CRUSH' || batch.batchType === 'WASH' || batch.batchType === 'DRY') && (
+        <Card className="!p-4 border-blue-200 bg-blue-50/30">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--line)] pb-3">
+            <div>
+              <h2 className="text-base font-semibold text-zinc-900">Colors &amp; Recycling Progression</h2>
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                {batch.batchType === 'CRUSH'
+                  ? 'Output colours from crushing run · Ready for washing'
+                  : batch.batchType === 'WASH'
+                  ? 'Washed colours · Ready for drying'
+                  : 'Dried colours · Ready for production or recycling'}
+              </p>
+            </div>
+            {Number(batch.qtyRemaining || 0) > 0 && (
+              <Button
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-semibold self-start sm:self-auto cursor-pointer"
+                asChild
+              >
+                {batch.batchType === 'CRUSH' ? (
+                  <Link to={`/process/washing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process Washing →
+                  </Link>
+                ) : batch.batchType === 'WASH' ? (
+                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process Drying →
+                  </Link>
+                ) : (
+                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Move to Production →
+                  </Link>
+                )}
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Fact label="Input weight" value={kg(batch.qtyIn)} strong />
+            <Fact label="Available output" value={kg(batch.qtyRemaining)} strong />
+            <Fact
+              label="Accumulated waste"
+              value={kg(batch.qtyReject || (crushingRun ? crushingRun.qtyReject : 0))}
+              strong
+            />
+            <Fact
+              label="Yield"
+              value={
+                crushingRun?.yieldPercent != null
+                  ? `${crushingRun.yieldPercent}%`
+                  : Number(batch.qtyIn || 0) > 0
+                  ? `${+(((Number(batch.qtyRemaining) || 0) / Number(batch.qtyIn)) * 100).toFixed(1)}%`
+                  : '—'
+              }
+              strong
+            />
+          </div>
+
+          {batch.colorItems && batch.colorItems.length > 0 ? (
+            <div className="mt-4 overflow-x-auto">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                Colour Lifecycle Tracking ({batch.colorItems.length})
+              </h3>
+              <table className="w-full text-xs text-left border border-zinc-200 rounded-xl overflow-hidden bg-white shadow-xs">
+                <thead className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-semibold uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="px-3 py-2">Colour</th>
+                    <th className="px-3 py-2 text-right">Crushed (kg)</th>
+                    <th className="px-3 py-2 text-right">Washed (kg)</th>
+                    <th className="px-3 py-2 text-right">Wash Waste</th>
+                    <th className="px-3 py-2 text-right">Dried (kg)</th>
+                    <th className="px-3 py-2 text-right">Dry Waste</th>
+                    <th className="px-3 py-2 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {batch.colorItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-zinc-50/70 transition-colors">
+                      <td className="px-3 py-1.5 font-semibold text-zinc-900">
+                        {colorLabel(item.color)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-medium">
+                        {Number(item.qtyCrushed).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-medium text-emerald-700">
+                        {item.qtyWashed != null ? Number(item.qtyWashed).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-zinc-500">
+                        {item.qtyWashWaste != null ? `${Number(item.qtyWashWaste).toLocaleString()} kg` : '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-medium text-blue-700">
+                        {item.qtyDried != null ? Number(item.qtyDried).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono text-zinc-500">
+                        {item.qtyDryWaste != null ? `${Number(item.qtyDryWaste).toLocaleString()} kg` : '—'}
+                      </td>
+                      <td className="px-3 py-1.5 text-center">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-zinc-100 text-zinc-700 border border-zinc-200">
+                          {item.status || 'CRUSHED'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : crushedColors.length > 0 ? (
+            <div className="mt-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">
+                Colors Crushed ({crushedColors.length})
+              </h3>
+              <div className="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white overflow-hidden">
+                {crushedColors.map((c, i) => (
+                  <div key={`${c.color}-${i}`} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-block h-3 w-3 rounded-full border border-zinc-300 bg-zinc-200" />
+                      <span className="font-semibold text-zinc-800">{colorLabel(c.color)}</span>
+                    </div>
+                    <span className="font-mono font-bold text-zinc-900 tabular-nums">
+                      {Number(c.qtyKg).toLocaleString()} kg
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </Card>
+      )}
 
       {summary.qcBlocked && (
         <Card className="!border-red-200 !bg-red-50 !p-4 text-red-800">
@@ -843,7 +996,7 @@ export function BatchDetailPage() {
       <ForwardTracePanel
         batchNumber={batchNumber}
         inputs={batch.inputs}
-        siblingBatches={siblingBatches}
+        siblingBatches={batch.batchType === 'CRUSH' ? [] : siblingBatches}
       />
 
       {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0 || receipt) && (

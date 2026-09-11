@@ -577,6 +577,7 @@ export function SalesPage() {
               data={sales.data || []}
               columns={salesColumns}
               loading={sales.isLoading}
+              card={true}
             />
           )}
 
@@ -585,6 +586,7 @@ export function SalesPage() {
               data={receivables}
               columns={receivablesColumns}
               loading={overview.isLoading}
+              card={true}
             />
           )}
 
@@ -593,6 +595,7 @@ export function SalesPage() {
               data={paidSales}
               columns={salesColumns}
               loading={sales.isLoading}
+              card={true}
             />
           )}
         </div>

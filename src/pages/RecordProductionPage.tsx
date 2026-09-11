@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Palette } from 'lucide-react'
+import { CheckCircle2, Palette, Factory } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Field, StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { SORT_COLORS } from '@/lib/sortColors'
 
 function colorName(code?: string | null) {
@@ -36,6 +45,7 @@ type MasterItem = {
   id: number
   name: string
   code?: string
+  machineType?: string
   uom?: string
   startTime?: string
   endTime?: string
@@ -50,6 +60,57 @@ type InputBatch = {
   uom: string
   sortColor?: string | null
   material?: { name: string }
+}
+
+type IssuedRunRow = {
+  id: number
+  machineId?: number
+  productId?: number
+  inputBatchId?: number
+  shiftId?: number | null
+  operatorName?: string | null
+  materialConsumed?: string | number
+  qtyProduced?: string | number
+  qtyGood?: string | number
+  qtyReject?: string | number
+  uom?: string
+  runtimeMinutes?: number
+  downtimeMinutes?: number
+  downtimeReason?: string | null
+  scheduledMinutes?: number
+  status?: string
+  startedAt?: string | null
+  batch?: {
+    id: number
+    batchNumber: string
+    status: string
+    sortColor?: string | null
+  }
+  inputBatch?: {
+    id: number
+    batchNumber: string
+    sortColor?: string | null
+    material?: { name: string }
+  }
+  machine?: {
+    id: number
+    name: string
+    code?: string
+    machineType?: string
+    ratedOutputPerHour?: string | number
+  }
+  product?: {
+    id: number
+    name: string
+    code?: string
+    uom?: string
+  }
+  shift?: {
+    id: number
+    name: string
+    startTime?: string
+    endTime?: string
+  }
 }
 
 type SingleStepFormValues = {
@@ -106,9 +167,33 @@ function calculateMinutesBetween(startTime?: string, endTime?: string): number {
 
 export function RecordProductionPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const urlRunId = searchParams.get('runId') || ''
   const queryClient = useQueryClient()
   const [serverError, setServerError] = useState('')
   const [warning, setWarning] = useState<{ rejectPercent: number } | null>(null)
+  const [selectedRunId, setSelectedRunId] = useState<string>(urlRunId)
+  const [downtimeCategory, setDowntimeCategory] = useState<string>('None')
+  const [customDowntimeReason, setCustomDowntimeReason] = useState<string>('')
+
+  const runsQuery = useQuery({
+    queryKey: ['production-runs'],
+    queryFn: async () => {
+      const { data } = await api.get('/production/runs')
+      return (data.data || []) as IssuedRunRow[]
+    },
+  })
+
+  const inProgressRuns = useMemo(() => {
+    return (runsQuery.data || []).filter(
+      (r) => r.status === 'IN_PROGRESS' || r.batch?.status === 'IN_PROGRESS'
+    )
+  }, [runsQuery.data])
+
+  const selectedRun = useMemo(() => {
+    if (!selectedRunId) return null
+    return inProgressRuns.find((r) => String(r.id) === selectedRunId) || null
+  }, [inProgressRuns, selectedRunId])
 
   const machines = useQuery({
     queryKey: ['machines'],
@@ -164,13 +249,42 @@ export function RecordProductionPage() {
     }))
   }, [products.data])
 
+  // Filter ONLY production machines
   const machineOptions = useMemo(() => {
-    return (machines.data || []).map((m) => ({
-      value: String(m.id),
-      label: m.name,
-      sublabel: m.code ? `Code: ${m.code}` : undefined,
-    }))
+    return (machines.data || [])
+      .filter((m) => {
+        if (!m.machineType) return true
+        const t = m.machineType.toUpperCase()
+        return (
+          t === 'PRODUCTION' ||
+          t.includes('PROD') ||
+          t.includes('INJECT') ||
+          t.includes('BLOW') ||
+          t.includes('MOULD')
+        )
+      })
+      .map((m) => ({
+        value: String(m.id),
+        label: m.name,
+        sublabel: m.code ? `Code: ${m.code}` : undefined,
+      }))
   }, [machines.data])
+
+  const issueRunOptions = useMemo(() => {
+    return [
+      {
+        value: '',
+        label: '⚡ Direct 1-Step Run (No prior machine issue)',
+        sublabel: 'Manually select machine, product, and input material',
+      },
+      ...inProgressRuns.map((r) => ({
+        value: String(r.id),
+        label: `${r.machine?.name || 'Machine'} · ${r.product?.name || 'Product'} (${r.batch?.batchNumber || `Run #${r.id}`})`,
+        sublabel: `Issued: ${fmt(r.materialConsumed, 1)} kg (${r.inputBatch?.material?.name || 'Material'}${r.batch?.sortColor ? ` · ${colorName(r.batch.sortColor)}` : ''})${r.operatorName ? ` · Operator: ${r.operatorName}` : ''}`,
+        badge: `${fmt(r.materialConsumed, 1)} kg`,
+      })),
+    ]
+  }, [inProgressRuns])
 
   const operatorOptions = useMemo(() => {
     const list = Array.isArray(staff.data)
@@ -241,6 +355,43 @@ export function RecordProductionPage() {
       colorCost: '',
     },
   })
+
+  // Auto-fill form values when an issued floor run is selected
+  useEffect(() => {
+    if (selectedRun) {
+      if (selectedRun.machineId) {
+        form.setValue('machineId', String(selectedRun.machineId), { shouldValidate: true })
+      }
+      if (selectedRun.productId) {
+        form.setValue('productId', String(selectedRun.productId), { shouldValidate: true })
+      }
+      if (selectedRun.inputBatch?.batchNumber) {
+        form.setValue('inputBatchNumber', selectedRun.inputBatch.batchNumber, { shouldValidate: true })
+      }
+      if (selectedRun.materialConsumed != null) {
+        form.setValue('materialConsumed', String(selectedRun.materialConsumed), { shouldValidate: true })
+      }
+      if (selectedRun.shiftId) {
+        form.setValue('shiftId', String(selectedRun.shiftId), { shouldValidate: true })
+      }
+      if (selectedRun.operatorName) {
+        form.setValue('operatorName', selectedRun.operatorName, { shouldValidate: true })
+      }
+      if (selectedRun.shift?.startTime && selectedRun.shift?.endTime) {
+        form.setValue('startTime', selectedRun.shift.startTime)
+        form.setValue('endTime', selectedRun.shift.endTime)
+        const mins = calculateMinutesBetween(selectedRun.shift.startTime, selectedRun.shift.endTime)
+        form.setValue('runtimeMinutes', String(mins))
+        form.setValue('scheduledMinutes', String(mins))
+      }
+      if (Number(selectedRun.downtimeMinutes || 0) > 0) {
+        form.setValue('downtimeMinutes', String(selectedRun.downtimeMinutes))
+        if (selectedRun.downtimeReason) {
+          setDowntimeCategory(selectedRun.downtimeReason)
+        }
+      }
+    }
+  }, [selectedRun, form])
 
   // Watch shift changes to pre-populate start and end time
   const selectedShiftId = form.watch('shiftId')
@@ -372,37 +523,65 @@ export function RecordProductionPage() {
       if (mbKg > 0) colorParts.push(`Masterbatch (${mbKg}kg${mbPrice > 0 ? ` @ ₦${mbPrice.toLocaleString()}/kg` : ''})`)
       const finalColorName = colorParts.join(' + ') || undefined
 
-      await api.post('/production/runs', {
-        machineId: Number(values.machineId),
-        productId: Number(values.productId),
-        inputBatchNumber: values.inputBatchNumber,
-        shiftId: values.shiftId ? Number(values.shiftId) : null,
-        operatorName: values.operatorName || null,
-        materialConsumed: Number(values.materialConsumed),
-        qtyProduced: produced,
-        qtyGood: good,
-        qtyReject: reject,
-        runtimeMinutes: Number(values.runtimeMinutes || 0),
-        downtimeMinutes: Number(values.downtimeMinutes || 0),
-        downtimeReason: values.downtimeReason || null,
-        scheduledMinutes: Number(values.scheduledMinutes || 0),
-        labourCost: 0,
-        energyCost: 0,
-        otherCost: 0,
-        autoRelease: values.autoRelease !== false,
-        notes: values.notes || null,
-        confirmUnusualRun,
-        colorType: mbKg > 0 && pigKg > 0 ? 'both' : mbKg > 0 ? 'master' : pigKg > 0 ? 'normal' : undefined,
-        colorName: finalColorName,
-        masterbatchColor: mbKg > 0 ? `Masterbatch (${mbKg}kg)` : undefined,
-        normalColorName: pigKg > 0 ? `Normal Pigment (${pigKg}kg)` : undefined,
-        masterbatchKg: mbKg,
-        pigmentKg: pigKg,
-        colorQty: +(mbKg + pigKg).toFixed(2),
-        colorCost: finalAdditiveCost,
-      })
+      const effectiveDowntimeReason =
+        downtimeCategory === 'None' || !downtimeCategory
+          ? null
+          : downtimeCategory === 'Other'
+            ? (customDowntimeReason.trim() || 'Other')
+            : downtimeCategory
+
+      if (selectedRunId) {
+        // Complete the issued run directly
+        await api.post(`/production/runs/${selectedRunId}/complete`, {
+          qtyProduced: produced,
+          qtyGood: good,
+          qtyReject: reject,
+          runtimeMinutes: Number(values.runtimeMinutes || 0),
+          downtimeMinutes: Number(values.downtimeMinutes || 0),
+          downtimeReason: effectiveDowntimeReason,
+          scheduledMinutes: Number(values.scheduledMinutes || 0),
+          labourCost: 0,
+          energyCost: 0,
+          otherCost: 0,
+          autoRelease: values.autoRelease !== false,
+          notes: values.notes || null,
+          confirmUnusualRun,
+        })
+      } else {
+        // Direct 1-step run creation (no prior issue)
+        await api.post('/production/runs', {
+          machineId: Number(values.machineId),
+          productId: Number(values.productId),
+          inputBatchNumber: values.inputBatchNumber,
+          shiftId: values.shiftId ? Number(values.shiftId) : null,
+          operatorName: values.operatorName || null,
+          materialConsumed: Number(values.materialConsumed),
+          qtyProduced: produced,
+          qtyGood: good,
+          qtyReject: reject,
+          runtimeMinutes: Number(values.runtimeMinutes || 0),
+          downtimeMinutes: Number(values.downtimeMinutes || 0),
+          downtimeReason: effectiveDowntimeReason,
+          scheduledMinutes: Number(values.scheduledMinutes || 0),
+          labourCost: 0,
+          energyCost: 0,
+          otherCost: 0,
+          autoRelease: values.autoRelease !== false,
+          notes: values.notes || null,
+          confirmUnusualRun,
+          colorType: mbKg > 0 && pigKg > 0 ? 'both' : mbKg > 0 ? 'master' : pigKg > 0 ? 'normal' : undefined,
+          colorName: finalColorName,
+          masterbatchColor: mbKg > 0 ? `Masterbatch (${mbKg}kg)` : undefined,
+          normalColorName: pigKg > 0 ? `Normal Pigment (${pigKg}kg)` : undefined,
+          masterbatchKg: mbKg,
+          pigmentKg: pigKg,
+          colorQty: +(mbKg + pigKg).toFixed(2),
+          colorCost: finalAdditiveCost,
+        })
+      }
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       navigate('/production')
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -453,17 +632,83 @@ export function RecordProductionPage() {
             <p className="text-xs font-semibold text-amber-900">
               Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
             </p>
-            <button
+            <Button
               type="button"
-              className="dgn-btn dgn-btn-primary mt-2 text-xs"
+              variant="default"
+              size="sm"
+              className="mt-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
               onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
             >
               Confirm unusual run
-            </button>
+            </Button>
           </div>
         )}
 
         <form className="mt-3.5 space-y-3.5" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
+          {/* Active Floor Issue / Machine Selection */}
+          <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-zinc-100 pb-2">
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <Factory className="size-4 text-emerald-600" />
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-800">
+                    Select Machine Issue / Factory Floor Run
+                  </h2>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  Select an issued run from the factory floor to auto-fill machine, product, and material, or record a direct run.
+                </p>
+              </div>
+              {inProgressRuns.length > 0 && (
+                <span className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-full bg-amber-50 border border-amber-200 px-2.5 py-0.5 text-[11px] font-bold text-amber-800">
+                  <span className="size-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  {inProgressRuns.length} Active Floor Issue{inProgressRuns.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+
+            <SearchableSelect
+              size="sm"
+              value={selectedRunId}
+              onChange={(val) => setSelectedRunId(val)}
+              options={issueRunOptions}
+              placeholder="Select an issued run from factory floor (or Direct 1-Step Run)..."
+              searchPlaceholder="Search by machine, product, batch # or operator..."
+            />
+
+            {selectedRun && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-2.5 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <div className="size-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-xs">
+                    LOT
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-xs text-emerald-950">
+                        {selectedRun.batch?.batchNumber || `Run #${selectedRun.id}`}
+                      </span>
+                      <span className="rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800">
+                        Active Machine Issue
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700">
+                      Machine: <strong className="text-emerald-900">{selectedRun.machine?.name}</strong> · Product: <strong className="text-emerald-900">{selectedRun.product?.name}</strong> · Material Issued: <strong className="text-emerald-900">{selectedRun.materialConsumed} kg</strong>
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7 text-emerald-800 hover:text-emerald-950 hover:bg-emerald-100/80"
+                  onClick={() => setSelectedRunId('')}
+                >
+                  Clear / Switch to Direct Run
+                </Button>
+              </div>
+            )}
+          </div>
+
           {/* Section 1: Machine, Product & Staff */}
           <div>
             <div className="border-b border-zinc-100 pb-1.5">
@@ -561,14 +806,46 @@ export function RecordProductionPage() {
                 />
               </Field>
 
-              <Field label="Downtime Reason">
-                <input
-                  className="dgn-input"
-                  placeholder="e.g. Power, mould change"
-                  {...form.register('downtimeReason')}
-                />
+              <Field label="Downtime Stoppage Reason">
+                <Select
+                  value={downtimeCategory}
+                  onValueChange={(val) => setDowntimeCategory(val)}
+                >
+                  <SelectTrigger className="h-8 text-xs bg-white font-medium">
+                    <SelectValue placeholder="Select stoppage reason…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="None">None (Normal Operation)</SelectItem>
+                    <SelectItem value="Power Outage / Generator switch">Power Outage / Generator switch</SelectItem>
+                    <SelectItem value="Voltage Fluctuation / Phase drop">Voltage Fluctuation / Phase drop</SelectItem>
+                    <SelectItem value="Mould Jammed / Cleaning">Mould Jammed / Cleaning</SelectItem>
+                    <SelectItem value="Machine Breakdown / Mechanical fault">Machine Breakdown / Mechanical fault</SelectItem>
+                    <SelectItem value="Heater / Temperature issue">Heater / Temperature issue</SelectItem>
+                    <SelectItem value="Hydraulic / Pneumatic issue">Hydraulic / Pneumatic issue</SelectItem>
+                    <SelectItem value="Raw Material shortage / feed issue">Raw Material shortage / feed issue</SelectItem>
+                    <SelectItem value="Additive / Color mismatch">Additive / Color mismatch</SelectItem>
+                    <SelectItem value="Operator Break / Shift change">Operator Break / Shift change</SelectItem>
+                    <SelectItem value="Preventive Maintenance">Preventive Maintenance</SelectItem>
+                    <SelectItem value="Other">Other (Type custom reason)…</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
             </div>
+
+            {downtimeCategory === 'Other' && (
+              <div className="mt-2.5">
+                <Field label="Specify Custom Stoppage Reason">
+                  <Input
+                    type="text"
+                    className="h-8 text-xs bg-white font-medium"
+                    placeholder="Type specific stoppage or downtime reason…"
+                    value={customDowntimeReason}
+                    onChange={(e) => setCustomDowntimeReason(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+            )}
           </div>
 
           {/* Section 3: Material & Finished Pieces Output */}
@@ -885,21 +1162,26 @@ export function RecordProductionPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-100">
-            <button
+            <Button
               type="button"
-              className="dgn-btn dgn-btn-ghost text-xs"
+              variant="ghost"
+              size="sm"
               onClick={() => navigate('/production')}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               disabled={form.formState.isSubmitting}
-              className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-9 px-4 flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <CheckCircle2 className="size-4" />
-              {form.formState.isSubmitting ? 'Saving…' : 'Save Completed Run'}
-            </button>
+              {form.formState.isSubmitting
+                ? 'Saving…'
+                : selectedRunId
+                  ? 'Complete Issued Run'
+                  : 'Save Completed Run'}
+            </Button>
           </div>
         </form>
     </PageLayout>

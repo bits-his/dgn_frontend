@@ -84,7 +84,7 @@ export function ScrapReceivingPage() {
     },
   })
 
-  const { register, handleSubmit, watch, setValue, reset, formState } = useForm<FormValues>({
+  const { register, handleSubmit, watch,  reset, formState } = useForm<FormValues>({
     defaultValues: {
       inboundForm: 'RAW',
       supplierName: '',
@@ -614,16 +614,7 @@ export function ScrapReceivingPage() {
               />
             </Field>
 
-            <Field label="Unloading (₦)">
-              <input
-                type="number"
-                step="any"
-                inputMode="decimal"
-                placeholder="0"
-                className="dgn-input w-full"
-                {...register('unloadingCost')}
-              />
-            </Field>
+       
 
             <Field label="Other (₦)">
               <input
@@ -710,10 +701,7 @@ export function ScrapReceivingPage() {
                   <span>Loading</span>
                   <span className="font-mono text-zinc-900">₦{loadingCost.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between text-zinc-600">
-                  <span>Unloading</span>
-                  <span className="font-mono text-zinc-900">₦{unloadingCost.toLocaleString()}</span>
-                </div>
+
                 <div className="flex justify-between text-zinc-600">
                   <span>Other</span>
                   <span className="font-mono text-zinc-900">₦{otherCost.toLocaleString()}</span>

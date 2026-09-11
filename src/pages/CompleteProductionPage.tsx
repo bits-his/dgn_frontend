@@ -7,6 +7,15 @@ import { api } from '@/lib/api'
 import { Card, Field, StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { SearchableSelect } from '@/components/ui/searchable-select'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 type ProductionRunRow = {
   id: number
@@ -60,6 +69,8 @@ type CompleteFormValues = {
   startTime: string
   endTime: string
   runtimeMinutes: string
+  downtimeMinutes: string
+  downtimeReason: string
   scheduledMinutes: string
   goodDozen: string
   goodPcs: string
@@ -125,6 +136,8 @@ export function CompleteProductionPage() {
   const queryClient = useQueryClient()
   const [serverError, setServerError] = useState('')
   const [warning, setWarning] = useState<{ rejectPercent: number } | null>(null)
+  const [downtimeCategory, setDowntimeCategory] = useState<string>('None')
+  const [customDowntimeReason, setCustomDowntimeReason] = useState<string>('')
 
   // Fetch production runs to find this run
   const runsQuery = useQuery({
@@ -157,6 +170,8 @@ export function CompleteProductionPage() {
       startTime: '06:00',
       endTime: '14:00',
       runtimeMinutes: '480',
+      downtimeMinutes: '0',
+      downtimeReason: '',
       scheduledMinutes: '480',
       goodDozen: '',
       goodPcs: '',
@@ -174,7 +189,7 @@ export function CompleteProductionPage() {
     },
   })
 
-  // When run data arrives, initialize times
+  // When run data arrives, initialize times and downtime
   useEffect(() => {
     if (run) {
       if (run.shift?.startTime && run.shift?.endTime) {
@@ -183,6 +198,12 @@ export function CompleteProductionPage() {
         const mins = calculateMinutesBetween(run.shift.startTime, run.shift.endTime)
         form.setValue('runtimeMinutes', String(mins))
         form.setValue('scheduledMinutes', String(mins))
+      }
+      if (Number(run.downtimeMinutes || 0) > 0) {
+        form.setValue('downtimeMinutes', String(run.downtimeMinutes))
+        if (run.downtimeReason) {
+          setDowntimeCategory(run.downtimeReason)
+        }
       }
     }
   }, [run, form])
@@ -253,11 +274,20 @@ export function CompleteProductionPage() {
     }
 
     try {
+      const effectiveDowntimeReason =
+        downtimeCategory === 'None' || !downtimeCategory
+          ? null
+          : downtimeCategory === 'Other'
+            ? (customDowntimeReason.trim() || 'Other')
+            : downtimeCategory
+
       await api.post(`/production/runs/${id}/complete`, {
         qtyProduced: produced,
         qtyGood: good,
         qtyReject: reject,
         runtimeMinutes: Number(values.runtimeMinutes || 0),
+        downtimeMinutes: Number(values.downtimeMinutes || 0),
+        downtimeReason: effectiveDowntimeReason,
         scheduledMinutes: Number(values.scheduledMinutes || 0),
         labourCost: 0,
         energyCost: 0,
@@ -267,6 +297,7 @@ export function CompleteProductionPage() {
         confirmUnusualRun,
       })
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       navigate('/production')
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -412,20 +443,22 @@ export function CompleteProductionPage() {
           <p className="text-sm font-semibold text-amber-900">
             Reject rate {warning.rejectPercent}% looks unusual. Confirm to save anyway?
           </p>
-          <button
+          <Button
             type="button"
-            className="dgn-btn dgn-btn-primary mt-2 text-xs"
+            variant="default"
+            size="sm"
+            className="mt-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
             onClick={form.handleSubmit((vals) => onSubmit(vals, true))}
           >
             Confirm unusual run
-          </button>
+          </Button>
         </div>
       )}
 
       {/* SINGLE CARD FOR SHIFT COMPLETION */}
       <Card className="!p-4 shadow-xs border border-zinc-200">
         <form className="space-y-4" onSubmit={form.handleSubmit((vals) => onSubmit(vals, false))}>
-          {/* Section 1: Shift Timing */}
+          {/* Section 1: Shift Timing & Runtime */}
           <div>
             <div className="flex items-center justify-between border-b border-zinc-100 pb-1.5">
               <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-700">1. Shift Timing & Runtime</h2>
@@ -433,7 +466,7 @@ export function CompleteProductionPage() {
                 Runtime: {Math.floor(runtimeMins / 60)}h {runtimeMins % 60}m ({runtimeMins} min)
               </span>
             </div>
-            <div className="mt-2.5 grid gap-3 sm:grid-cols-2">
+            <div className="mt-2.5 grid gap-3 sm:grid-cols-4">
               <Field label="Shift Start Time">
                 <input
                   type="time"
@@ -453,7 +486,57 @@ export function CompleteProductionPage() {
                   })}
                 />
               </Field>
+
+              <Field label="Downtime (min)">
+                <input
+                  inputMode="numeric"
+                  type="number"
+                  placeholder="0"
+                  className="dgn-input"
+                  {...form.register('downtimeMinutes')}
+                />
+              </Field>
+
+              <Field label="Downtime Stoppage Reason">
+                <Select
+                  value={downtimeCategory}
+                  onValueChange={(val) => setDowntimeCategory(val)}
+                >
+                  <SelectTrigger className="h-8 text-xs bg-white font-medium">
+                    <SelectValue placeholder="Select stoppage reason…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="None">None (Normal Operation)</SelectItem>
+                    <SelectItem value="Power Outage / Generator switch">Power Outage / Generator switch</SelectItem>
+                    <SelectItem value="Voltage Fluctuation / Phase drop">Voltage Fluctuation / Phase drop</SelectItem>
+                    <SelectItem value="Mould Jammed / Cleaning">Mould Jammed / Cleaning</SelectItem>
+                    <SelectItem value="Machine Breakdown / Mechanical fault">Machine Breakdown / Mechanical fault</SelectItem>
+                    <SelectItem value="Heater / Temperature issue">Heater / Temperature issue</SelectItem>
+                    <SelectItem value="Hydraulic / Pneumatic issue">Hydraulic / Pneumatic issue</SelectItem>
+                    <SelectItem value="Raw Material shortage / feed issue">Raw Material shortage / feed issue</SelectItem>
+                    <SelectItem value="Additive / Color mismatch">Additive / Color mismatch</SelectItem>
+                    <SelectItem value="Operator Break / Shift change">Operator Break / Shift change</SelectItem>
+                    <SelectItem value="Preventive Maintenance">Preventive Maintenance</SelectItem>
+                    <SelectItem value="Other">Other (Type custom reason)…</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
             </div>
+
+            {downtimeCategory === 'Other' && (
+              <div className="mt-2.5">
+                <Field label="Specify Custom Stoppage Reason">
+                  <Input
+                    type="text"
+                    className="h-8 text-xs bg-white font-medium"
+                    placeholder="Type specific stoppage or downtime reason…"
+                    value={customDowntimeReason}
+                    onChange={(e) => setCustomDowntimeReason(e.target.value)}
+                    required
+                  />
+                </Field>
+              </div>
+            )}
           </div>
 
           {/* Section 2: Output Pieces (Dozen & Pieces for Good & Waste) */}
@@ -578,21 +661,22 @@ export function CompleteProductionPage() {
           </div>
 
           <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-zinc-100">
-            <button
+            <Button
               type="button"
-              className="dgn-btn dgn-btn-ghost text-xs"
+              variant="ghost"
+              size="sm"
               onClick={() => navigate('/production')}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
               disabled={form.formState.isSubmitting}
-              className="dgn-btn dgn-btn-primary text-xs flex items-center gap-1.5"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-9 px-4 flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <CheckCircle2 className="size-4" />
               {form.formState.isSubmitting ? 'Saving Output…' : 'Complete Run & Save Output'}
-            </button>
+            </Button>
           </div>
         </form>
       </Card>

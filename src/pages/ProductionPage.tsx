@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2,
@@ -8,14 +7,12 @@ import {
   Search,
   Eye,
   Plus,
-  Play,
   ExternalLink,
-  Palette,
 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import CustomTable1 from '@/components/CustomTable1'
 import { api } from '@/lib/api'
-import { Card, Field } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,39 +27,17 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '@/components/ui/dialog'
-import { SearchableSelect } from '@/components/ui/searchable-select'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
-import { SORT_COLORS } from '@/lib/sortColors'
-
-function colorName(code?: string | null) {
-  if (!code) return '—'
-  return SORT_COLORS.find((c) => c.code === code)?.name || code
-}
 
 type MasterItem = {
   id: number
   name: string
   code?: string
-  uom?: string
-  machineType?: string
-  startTime?: string
-  endTime?: string
-}
-
-type InputBatch = {
-  id: number
-  batchNumber: string
-  batchType: string
-  qtyRemaining: number | string
-  uom: string
-  sortColor?: string | null
-  material?: { name: string }
+  isActive?: boolean
 }
 
 type ProductionRunRow = {
@@ -131,26 +106,6 @@ type ProductionRunRow = {
   }
 }
 
-type IssueFormValues = {
-  machineId: string
-  productId: string
-  inputBatchNumber: string
-  shiftId: string
-  operatorName: string
-  materialConsumed: string
-  notes: string
-  masterbatchColor?: string
-  masterbatchKg?: string
-  masterbatchPrice?: string
-  normalColorName?: string
-  pigmentKg?: string
-  pigmentPrice?: string
-  colorCost?: string
-  colorType?: 'normal' | 'master' | 'both'
-  colorName?: string
-  colorNotes?: string
-}
-
 function fmt(value: string | number | null | undefined, digits = 0) {
   if (value == null || value === '') return '—'
   const n = Number(value)
@@ -197,10 +152,6 @@ export function ProductionPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'IN_PROGRESS' | 'COMPLETED'>('ALL')
   const [machineFilter, setMachineFilter] = useState('')
 
-  // Modal states
-  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
-  const [serverError, setServerError] = useState('')
-
   // Downtime modal states
   const [downtimeRun, setDowntimeRun] = useState<ProductionRunRow | null>(null)
   const [downtimeFrom, setDowntimeFrom] = useState<string>('')
@@ -222,42 +173,6 @@ export function ProductionPage() {
     },
   })
 
-  const products = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/products')
-      return (data.data || []) as MasterItem[]
-    },
-  })
-
-  const shifts = useQuery({
-    queryKey: ['shifts'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/shifts')
-      return (data.data || []) as MasterItem[]
-    },
-  })
-
-  const staff = useQuery({
-    queryKey: ['masters-employees'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/employees')
-      return (data.data || []) as Array<{
-        id: number
-        firstname?: string
-        lastname?: string
-        employeeCode?: string
-      }>
-    },
-  })
-
-  const inputs = useQuery({
-    queryKey: ['production-inputs'],
-    queryFn: async () => {
-      const { data } = await api.get('/production/inputs')
-      return (data.data || []) as InputBatch[]
-    },
-  })
 
   const runsQuery = useQuery({
     queryKey: ['production-runs'],
@@ -268,140 +183,7 @@ export function ProductionPage() {
     refetchInterval: 15_000,
   })
 
-  // Issue Material Form
-  const issueForm = useForm<IssueFormValues>({
-    defaultValues: {
-      machineId: '',
-      productId: '',
-      inputBatchNumber: '',
-      shiftId: '',
-      operatorName: '',
-      materialConsumed: '',
-      notes: '',
-      masterbatchColor: '',
-      masterbatchKg: '',
-      normalColorName: '',
-      pigmentKg: '',
-      colorCost: '',
-    },
-  })
-
   const runs = runsQuery.data || []
-
-  // Filtered runs
-  const filteredRuns = useMemo(() => {
-    return runs.filter((r) => {
-      const batchStatus = r.batch?.status || 'COMPLETED'
-      if (statusFilter === 'IN_PROGRESS' && batchStatus !== 'IN_PROGRESS') return false
-      if (statusFilter === 'COMPLETED' && batchStatus === 'IN_PROGRESS') return false
-      if (machineFilter && String(r.machineId) !== machineFilter) return false
-
-      if (!search) return true
-      const q = search.toLowerCase()
-      const bNum = r.batch?.batchNumber?.toLowerCase() || ''
-      const mName = r.machine?.name?.toLowerCase() || ''
-      const pName = r.product?.name?.toLowerCase() || ''
-      const op = r.operatorName?.toLowerCase() || ''
-      return bNum.includes(q) || mName.includes(q) || pName.includes(q) || op.includes(q)
-    })
-  }, [runs, statusFilter, machineFilter, search])
-
-  // Summary Metrics
-  const metricsSummary = useMemo(() => {
-    const inProgressCount = runs.filter((r) => r.batch?.status === 'IN_PROGRESS').length
-    const completedRuns = runs.filter((r) => r.batch?.status !== 'IN_PROGRESS')
-    const totalProduced = runs.reduce((sum, r) => sum + Number(r.qtyGood || 0), 0)
-    const totalConsumed = runs.reduce((sum, r) => sum + Number(r.materialConsumed || 0), 0)
-
-    const completedWithOee = completedRuns.filter((r) => Number(r.oeePercent || 0) > 0)
-    const avgOee =
-      completedWithOee.length > 0
-        ? +(
-            completedWithOee.reduce((sum, r) => sum + Number(r.oeePercent || 0), 0) /
-            completedWithOee.length
-          ).toFixed(1)
-        : 0
-
-    return { inProgressCount, totalProduced, totalConsumed, avgOee }
-  }, [runs])
-
-  const handleOpenIssueModal = () => {
-    setServerError('')
-    const defaultShift = shifts.data?.[0]?.id ? String(shifts.data[0].id) : ''
-    issueForm.reset({
-      machineId: '',
-      productId: '',
-      inputBatchNumber: '',
-      shiftId: defaultShift,
-      operatorName: '',
-      materialConsumed: '',
-      notes: '',
-      masterbatchColor: '',
-      masterbatchKg: '',
-      masterbatchPrice: '',
-      normalColorName: '',
-      pigmentKg: '',
-      pigmentPrice: '',
-      colorCost: '',
-    })
-    setIsIssueModalOpen(true)
-  }
-
-  const handleStartRun = async (values: IssueFormValues) => {
-    setServerError('')
-    try {
-      const mbKg = values.masterbatchKg ? Number(values.masterbatchKg) : 0
-      const mbPrice = values.masterbatchPrice ? Number(values.masterbatchPrice) : 0
-      const pigKg = values.pigmentKg ? Number(values.pigmentKg) : 0
-      const pigPrice = values.pigmentPrice ? Number(values.pigmentPrice) : 0
-
-      const mbSubtotal = mbKg * mbPrice
-      const pigSubtotal = pigKg * pigPrice
-      const computedCost = Math.round(mbSubtotal + pigSubtotal)
-      const totalAdditiveCost = computedCost > 0 ? computedCost : (Number(values.colorCost || 0) || undefined)
-
-      const mode =
-        mbKg > 0 && pigKg > 0
-          ? 'both'
-          : mbKg > 0
-          ? 'master'
-          : pigKg > 0
-          ? 'normal'
-          : undefined
-
-      const colorParts = []
-      if (pigKg > 0) colorParts.push(`Normal Pigment (${pigKg}kg${pigPrice > 0 ? ` @ ₦${pigPrice.toLocaleString()}/kg` : ''})`)
-      if (mbKg > 0) colorParts.push(`Masterbatch (${mbKg}kg${mbPrice > 0 ? ` @ ₦${mbPrice.toLocaleString()}/kg` : ''})`)
-      const finalColorName = colorParts.join(' + ') || null
-
-      await api.post('/production/runs/start', {
-        machineId: Number(values.machineId),
-        productId: Number(values.productId),
-        inputBatchNumber: values.inputBatchNumber,
-        shiftId: values.shiftId ? Number(values.shiftId) : null,
-        operatorName: values.operatorName || null,
-        materialConsumed: Number(values.materialConsumed),
-        notes: values.notes || null,
-        colorType: mode,
-        colorName: finalColorName,
-        normalColorName: pigKg > 0 ? `Normal Pigment (${pigKg}kg)` : null,
-        masterbatchColor: mbKg > 0 ? `Masterbatch (${mbKg}kg)` : null,
-        masterbatchKg: mbKg || undefined,
-        colorCost: totalAdditiveCost,
-      })
-      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
-      setIsIssueModalOpen(false)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
-      const res = axiosErr.response?.data
-      if (res?.errors) {
-        setServerError(Object.values(res.errors).join(' · '))
-      } else {
-        setServerError(res?.err || 'Failed to issue material and start run')
-      }
-    }
-  }
 
   const handleOpenDowntimeModal = (run: ProductionRunRow) => {
     setDowntimeRun(run)
@@ -687,127 +469,76 @@ export function ProductionPage() {
     ],
     [canCreate]
   )
+  // Filtered runs
+  const filteredRuns = useMemo(() => {
+    return runs.filter((r) => {
+      const batchStatus = r.batch?.status || 'COMPLETED'
+      if (statusFilter === 'IN_PROGRESS' && batchStatus !== 'IN_PROGRESS') return false
+      if (statusFilter === 'COMPLETED' && batchStatus === 'IN_PROGRESS') return false
+      if (machineFilter && String(r.machineId) !== machineFilter) return false
 
-  const selectedInputBatch = inputs.data?.find(
-    (b) => b.batchNumber === issueForm.watch('inputBatchNumber')
-  )
-
-  const productOptions = useMemo(() => {
-    return (products.data || []).map((p) => ({
-      value: String(p.id),
-      label: p.name,
-      sublabel: p.code ? `Code: ${p.code}` : undefined,
-      badge: p.uom || 'pcs',
-    }))
-  }, [products.data])
-
-  const machineOptions = useMemo(() => {
-    return (machines.data || []).map((m) => ({
-      value: String(m.id),
-      label: m.name,
-      sublabel: m.code ? `Code: ${m.code}` : undefined,
-      badge: m.machineType || undefined,
-    }))
-  }, [machines.data])
-
-  const operatorOptions = useMemo(() => {
-    const list = Array.isArray(staff.data)
-      ? staff.data
-      : Array.isArray((staff.data as any)?.rows)
-        ? (staff.data as any).rows
-        : Array.isArray((staff.data as any)?.data)
-          ? (staff.data as any).data
-          : []
-    return list.map((e: any) => {
-      const name =
-        `${e.firstname || ''} ${e.lastname || ''}`.trim() ||
-        e.employeeCode ||
-        `Staff ${e.id}`
-      return {
-        value: name,
-        label: name,
-        sublabel: e.employeeCode ? `Code: ${e.employeeCode}` : undefined,
-      }
+      if (!search) return true
+      const q = search.toLowerCase()
+      const bNum = r.batch?.batchNumber?.toLowerCase() || ''
+      const mName = r.machine?.name?.toLowerCase() || ''
+      const pName = r.product?.name?.toLowerCase() || ''
+      const op = r.operatorName?.toLowerCase() || ''
+      return bNum.includes(q) || mName.includes(q) || pName.includes(q) || op.includes(q)
     })
-  }, [staff.data])
+  }, [runs, statusFilter, machineFilter, search])
 
-  const inputBatchOptions = useMemo(() => {
-    return (inputs.data || []).map((b) => ({
-      value: b.batchNumber,
-      label: `${b.batchNumber} · ${b.material?.name || b.batchType}`,
-      sublabel: `${fmt(b.qtyRemaining, 1)} ${b.uom}${b.sortColor ? ` · ${colorName(b.sortColor)}` : ''}`,
-      badge: b.batchType,
-    }))
-  }, [inputs.data])
+  // Summary Metrics
+  const metricsSummary = useMemo(() => {
+    const inProgressCount = runs.filter((r) => r.batch?.status === 'IN_PROGRESS').length
+    const completedRuns = runs.filter((r) => r.batch?.status !== 'IN_PROGRESS')
+    const totalProduced = runs.reduce((sum, r) => sum + Number(r.qtyGood || 0), 0)
+    const totalConsumed = runs.reduce((sum, r) => sum + Number(r.materialConsumed || 0), 0)
 
-  const watchMasterbatchKg = issueForm.watch('masterbatchKg') || ''
-  const watchMasterbatchPrice = issueForm.watch('masterbatchPrice') || ''
-  const watchPigmentKg = issueForm.watch('pigmentKg') || ''
-  const watchPigmentPrice = issueForm.watch('pigmentPrice') || ''
-  const watchMaterialConsumed = issueForm.watch('materialConsumed') || ''
+    const completedWithOee = completedRuns.filter((r) => Number(r.oeePercent || 0) > 0)
+    const avgOee =
+      completedWithOee.length > 0
+        ? +(
+            completedWithOee.reduce((sum, r) => sum + Number(r.oeePercent || 0), 0) /
+            completedWithOee.length
+          ).toFixed(1)
+        : 0
 
-  const mbSubtotal = useMemo(() => {
-    return Number(watchMasterbatchKg || 0) * Number(watchMasterbatchPrice || 0)
-  }, [watchMasterbatchKg, watchMasterbatchPrice])
-
-  const pigSubtotal = useMemo(() => {
-    return Number(watchPigmentKg || 0) * Number(watchPigmentPrice || 0)
-  }, [watchPigmentKg, watchPigmentPrice])
-
-  const totalAdditiveCost = useMemo(() => {
-    return Math.round(mbSubtotal + pigSubtotal)
-  }, [mbSubtotal, pigSubtotal])
-
-  const totalMaterialMix = useMemo(() => {
-    return +(
-      Number(watchMaterialConsumed || 0) +
-      Number(watchMasterbatchKg || 0) +
-      Number(watchPigmentKg || 0)
-    ).toFixed(2)
-  }, [watchMaterialConsumed, watchMasterbatchKg, watchPigmentKg])
-
-  // Keep colorCost field updated when additive quantities/prices change
-  useEffect(() => {
-    if (totalAdditiveCost > 0) {
-      issueForm.setValue('colorCost', String(totalAdditiveCost))
+    return {
+      inProgressCount,
+      totalProduced,
+      totalConsumed,
+      avgOee,
     }
-  }, [totalAdditiveCost, issueForm])
+  }, [runs])
 
   return (
     <PageLayout
       title={
         <div className="flex items-center gap-2">
-          <span>Production Runs</span>
+          <span>Production</span>
           {metricsSummary.inProgressCount > 0 && (
             <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-800">
               <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
-              {metricsSummary.inProgressCount} active
+              {metricsSummary.inProgressCount} active on machines
             </span>
           )}
         </div>
       }
-      description="Monitor machine execution, issue raw material to shifts, and record outputs."
+      description="Monitor active machine execution and record outputs for material issued by the store."
       actions={
-        canCreate ? (
-          <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+       
+          {canCreate && (
             <Button
               type="button"
-              onClick={handleOpenIssueModal}
-              className="gap-1.5 font-semibold"
-            >
-              <Plus className="size-4" />
-              <span>Issue Material<span className="hidden sm:inline"> (Start Run)</span></span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
               onClick={() => navigate('/production/new')}
-              className="font-semibold"
+              className="gap-1.5 font-semibold text-xs h-8"
             >
-              1-Step Record
+              <Plus className="size-3.5" />
+              <span>1-Step Record</span>
             </Button>
-          </div>
-        ) : null
+          )}
+        </div>
       }
     >
       <div className="space-y-3 sm:space-y-4">
@@ -935,321 +666,6 @@ export function ProductionPage() {
         />
       </Card>
 
-      {/* MODAL: RECORD ISSUING OF MATERIAL & OPERATOR (SHADCN DIALOG) */}
-      <Dialog open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center gap-2.5">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 shadow-2xs">
-                <Play className="size-4.5" />
-              </div>
-              <div>
-                <DialogTitle className="text-base font-bold text-zinc-900 dark:text-zinc-50">
-                  Issue Material to Operator
-                </DialogTitle>
-                <DialogDescription className="text-xs text-zinc-500">
-                  Assign machine, product, raw material lot, and operator to begin the production run.
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          {serverError && (
-            <div className="rounded-lg bg-red-50 p-2.5 text-xs font-medium text-red-700 border border-red-200 dark:bg-red-950/40 dark:border-red-900/50 dark:text-red-400">
-              {serverError}
-            </div>
-          )}
-
-          <form
-            className="space-y-4 pt-1"
-            onSubmit={issueForm.handleSubmit((vals) => handleStartRun(vals))}
-          >
-            {/* Machine & Product Row */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Production Machine">
-                <SearchableSelect
-                  value={issueForm.watch('machineId') || ''}
-                  onChange={(val) =>
-                    issueForm.setValue('machineId', val, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  options={machineOptions}
-                  placeholder="Select machine…"
-                  searchPlaceholder="Search machine name or code…"
-                />
-              </Field>
-
-              <Field label="Product to Produce">
-                <SearchableSelect
-                  value={issueForm.watch('productId') || ''}
-                  onChange={(val) =>
-                    issueForm.setValue('productId', val, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  options={productOptions}
-                  placeholder="Select product…"
-                  searchPlaceholder="Search products by name or code…"
-                />
-              </Field>
-            </div>
-
-            {/* Raw Material Batch & Quantity Row */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Raw Material Batch">
-                <SearchableSelect
-                  value={issueForm.watch('inputBatchNumber') || ''}
-                  onChange={(val) =>
-                    issueForm.setValue('inputBatchNumber', val, {
-                      shouldValidate: true,
-                      shouldDirty: true,
-                    })
-                  }
-                  options={inputBatchOptions}
-                  placeholder="Select raw material batch…"
-                  searchPlaceholder="Search batch number or material…"
-                />
-              </Field>
-
-              <Field label="Material Issued (kg)">
-                <Input
-                  inputMode="decimal"
-                  type="number"
-                  step="any"
-                  placeholder="e.g. 100"
-                  className="h-9 text-xs font-semibold"
-                  {...issueForm.register('materialConsumed', { required: true })}
-                />
-              </Field>
-            </div>
-
-            {/* Selected Batch Preview Card */}
-            {selectedInputBatch && (
-              <div className="rounded-xl border border-emerald-300 bg-emerald-50/90 dark:border-emerald-800 dark:bg-emerald-950/40 p-3.5 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                    Selected Raw Material
-                  </span>
-                  <p className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
-                    {selectedInputBatch.material?.name || selectedInputBatch.batchType || 'Raw Material'}
-                    {selectedInputBatch.sortColor ? ` · ${colorName(selectedInputBatch.sortColor)}` : ''}
-                  </p>
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    Lot #{selectedInputBatch.batchNumber}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                    Available in Store
-                  </span>
-                  <p className="text-xl font-black text-emerald-900 dark:text-emerald-100 tabular-nums">
-                    {fmt(selectedInputBatch.qtyRemaining, 1)}{' '}
-                    <span className="text-xs font-extrabold uppercase">
-                      {selectedInputBatch.uom || 'kg'}
-                    </span>
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Color Formulation Inputs (Masterbatch & Normal Pigment) */}
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60 p-3.5 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <div className="flex items-center gap-1.5">
-                  <Palette className="size-3.5 text-violet-600 dark:text-violet-400" />
-                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    Color Formulation & Additives (Masterbatch & Normal Pigment)
-                  </span>
-                </div>
-                <span className="text-[10px] text-zinc-500">
-                  Enter quantity and unit price to compute additive mix and cost
-                </span>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* Masterbatch Column */}
-                <div className="rounded-lg border border-zinc-200/80 bg-white dark:border-zinc-800 dark:bg-zinc-950 p-2.5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">Masterbatch</span>
-                    {mbSubtotal > 0 && (
-                      <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 dark:bg-violet-950/60 dark:text-violet-300 px-1.5 py-0.5 rounded border border-violet-200 dark:border-violet-800">
-                        ₦{mbSubtotal.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid gap-2 grid-cols-2">
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="0.0"
-                        className="h-9 text-xs font-semibold"
-                        value={issueForm.watch('masterbatchKg') || ''}
-                        onChange={(e) => issueForm.setValue('masterbatchKg', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="₦/kg"
-                        className="h-9 text-xs font-semibold"
-                        value={issueForm.watch('masterbatchPrice') || ''}
-                        onChange={(e) => issueForm.setValue('masterbatchPrice', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Normal Pigment Column */}
-                <div className="rounded-lg border border-zinc-200/80 bg-white dark:border-zinc-800 dark:bg-zinc-950 p-2.5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">Normal Pigment</span>
-                    {pigSubtotal > 0 && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/60 dark:text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                        ₦{pigSubtotal.toLocaleString()}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid gap-2 grid-cols-2">
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Quantity (kg)</Label>
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="0.0"
-                        className="h-9 text-xs font-semibold"
-                        value={issueForm.watch('pigmentKg') || ''}
-                        onChange={(e) => issueForm.setValue('pigmentKg', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-[10px] text-zinc-500 mb-1 block">Price / kg (₦)</Label>
-                      <Input
-                        type="number"
-                        step="any"
-                        placeholder="₦/kg"
-                        className="h-9 text-xs font-semibold"
-                        value={issueForm.watch('pigmentPrice') || ''}
-                        onChange={(e) => issueForm.setValue('pigmentPrice', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Total Additives & Material Mix Calculation Row */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-200/80 dark:border-zinc-800 text-xs">
-                <div className="text-zinc-600 dark:text-zinc-400 text-[11px] flex flex-wrap items-center gap-2">
-                  <span>
-                    Total Material Mix:{' '}
-                    <strong className="text-zinc-900 dark:text-zinc-100 font-bold">
-                      {totalMaterialMix} kg
-                    </strong>
-                  </span>
-                  {(Number(watchMasterbatchKg || 0) + Number(watchPigmentKg || 0) > 0) && (
-                    <span className="text-[10px] text-zinc-500">
-                      (Base: {Number(watchMaterialConsumed || 0).toFixed(1)}kg + Additives: {(Number(watchMasterbatchKg || 0) + Number(watchPigmentKg || 0)).toFixed(2)}kg)
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-zinc-700 dark:text-zinc-300 text-xs">Additive Cost (₦):</span>
-                  <Input
-                    type="number"
-                    step="any"
-                    placeholder="0"
-                    className="w-28 h-8 text-xs font-bold text-emerald-700 dark:text-emerald-400"
-                    value={issueForm.watch('colorCost') || ''}
-                    onChange={(e) => issueForm.setValue('colorCost', e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Shift & Operator Row */}
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Shift">
-                <Select
-                  value={issueForm.watch('shiftId')}
-                  onValueChange={(val) => issueForm.setValue('shiftId', val)}
-                >
-                  <SelectTrigger className="h-9 text-xs">
-                    <SelectValue placeholder="Select shift" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {shifts.data?.map((s) => (
-                      <SelectItem key={s.id} value={String(s.id)}>
-                        {s.name} ({s.startTime || ''} - {s.endTime || ''})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field label="Operator assigned">
-                <SearchableSelect
-                  value={issueForm.watch('operatorName') || ''}
-                  onChange={(val) => issueForm.setValue('operatorName', val)}
-                  options={operatorOptions}
-                  placeholder="Select staff…"
-                  searchPlaceholder="Search staff by name or code…"
-                />
-              </Field>
-            </div>
-
-            <Field label="Notes / Setup Instructions">
-              <textarea
-                rows={2}
-                className="dgn-input text-xs w-full"
-                placeholder="Optional machine setup or shift instructions..."
-                {...issueForm.register('notes')}
-              />
-            </Field>
-
-            <DialogFooter className="flex items-center justify-between sm:justify-between pt-3 border-t border-zinc-100 dark:border-zinc-800">
-              <Link
-                to="/production/new"
-                className="text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-              >
-                Or record 1-step run
-              </Link>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={() => setIsIssueModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={
-                    issueForm.formState.isSubmitting ||
-                    !issueForm.watch('machineId') ||
-                    !issueForm.watch('productId') ||
-                    !issueForm.watch('inputBatchNumber') ||
-                    !(Number(issueForm.watch('materialConsumed')) > 0)
-                  }
-                  className="h-8 text-xs font-semibold flex items-center gap-1.5"
-                >
-                  <Play className="size-3.5" />
-                  {issueForm.formState.isSubmitting ? 'Issuing…' : 'Start Run & Issue'}
-                </Button>
-              </div>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
       {/* MODAL: LOG DOWNTIME ON IN-PROGRESS RUN */}
       {downtimeRun && (
         <Dialog open={Boolean(downtimeRun)} onOpenChange={(open) => !open && setDowntimeRun(null)}>

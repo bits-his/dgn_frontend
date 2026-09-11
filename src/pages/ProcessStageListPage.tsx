@@ -23,15 +23,11 @@ export function ProcessStageListPage() {
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const isSorting = stage === 'sorting'
   const isCrushing = stage === 'crushing'
-  const isMultiLotStage = stage === 'washing'
   const showColor = !isSorting && !isCrushing
 
   const batchParam = searchParams.get('batch')
-  if (batchParam && !isMultiLotStage) {
+  if (batchParam) {
     return <Navigate to={`/process/${stage}/new?batch=${encodeURIComponent(batchParam)}`} replace />
-  }
-  if (batchParam && isMultiLotStage) {
-    return <Navigate to={`/process/${stage}/new`} replace />
   }
 
   const inputs = useQuery({
@@ -63,11 +59,52 @@ export function ProcessStageListPage() {
           {
             accessorKey: 'sortColor',
             header: 'Colour',
-            cell: ({ row }: { row: { original: InputBatch } }) => (
-              <span className="text-sm text-[var(--ink-muted)]">
-                {colorName(row.original.sortColor)}
-              </span>
-            ),
+            cell: ({ row }: { row: { original: InputBatch } }) => {
+              const colorItems = row.original.colorItems
+              if (colorItems && colorItems.length > 0) {
+                const fullTooltip = colorItems
+                  .map((c) => `${colorName(c.color)}: ${c.qtyCrushed}kg`)
+                  .join(' · ')
+
+                return (
+                  <div
+                    className="flex items-center gap-1 sm:gap-1.5 flex-nowrap"
+                    title={fullTooltip}
+                  >
+                    {/* First colour badge always shown */}
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80 shrink-0">
+                      {colorName(colorItems[0].color)}: {colorItems[0].qtyCrushed}kg
+                    </span>
+
+                    {/* Second colour badge shown on sm+ screens */}
+                    {colorItems.length > 1 && (
+                      <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80 shrink-0">
+                        {colorName(colorItems[1].color)}: {colorItems[1].qtyCrushed}kg
+                      </span>
+                    )}
+
+                    {/* On mobile (<sm), if >1 items, show +X more */}
+                    {colorItems.length > 1 && (
+                      <span className="sm:hidden inline-flex items-center px-1 py-0.5 rounded text-[9px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 shrink-0 cursor-default">
+                        +{colorItems.length - 1}
+                      </span>
+                    )}
+
+                    {/* On desktop (sm+), if >2 items, show +X more */}
+                    {colorItems.length > 2 && (
+                      <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 shrink-0 cursor-default">
+                        +{colorItems.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                )
+              }
+              return (
+                <span className="text-xs sm:text-sm text-[var(--ink-muted)]">
+                  {colorName(row.original.sortColor)}
+                </span>
+              )
+            },
           },
         ]
       : []),
@@ -100,41 +137,36 @@ export function ProcessStageListPage() {
       header: 'Action',
       enableSorting: false,
       cell: ({ row }) => (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-1.5">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-medium cursor-pointer"
+            className="h-7 sm:h-8 px-2 sm:px-2.5 text-xs font-medium cursor-pointer"
             onClick={() => navigate(`/batches/${row.original.batchNumber}`)}
+            title="View batch details"
           >
             <Eye className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-            <span>View</span>
+            <span className="hidden sm:inline">View</span>
           </Button>
-          {!isMultiLotStage && (
-            <Button
-              size="sm"
-              className="h-8 text-xs font-semibold cursor-pointer"
-              onClick={() =>
-                navigate(`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`)
-              }
-            >
-              <Play className="h-3 w-3 shrink-0 fill-current" />
-              <span>Process</span>
-            </Button>
-          )}
+          <Button
+            size="sm"
+            className="h-7 sm:h-8 px-2 sm:px-3 text-xs font-semibold cursor-pointer"
+            onClick={() =>
+              navigate(`/process/${stage}/new?batch=${encodeURIComponent(row.original.batchNumber)}`)
+            }
+          >
+            <Play className="h-3 w-3 shrink-0 fill-current" />
+            <span>Process</span>
+          </Button>
         </div>
       ),
     },
-  ], [showColor, stage, navigate, isMultiLotStage])
+  ], [showColor, stage, navigate])
 
   return (
     <PageLayout
       title={meta.title}
-      description={
-        isMultiLotStage
-          ? `${meta.queueTitle} · record usable per colour`
-          : meta.queueTitle
-      }
+      description={meta.queueTitle}
       actions={
         <Button
           size="sm"
