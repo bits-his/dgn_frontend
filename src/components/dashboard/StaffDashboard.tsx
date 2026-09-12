@@ -14,7 +14,6 @@ import {
   Store,
   Search,
   Receipt,
-  Banknote,
   Users,
   HardHat,
   Wallet,
@@ -29,6 +28,7 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
+  Banknote,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -191,11 +191,11 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     permission: 'masters.manage',
   },
   {
-    to: '/processing-money',
-    title: 'Processing money',
-    desc: 'Cash given for scrap buying and processing, with remaining balance',
-    icon: Banknote,
-    tone: 'bg-lime-700 text-white',
+    to: '/wallet',
+    title: 'Wallet',
+    desc: 'Available balance for each person',
+    icon: Wallet,
+    tone: 'bg-zinc-900 text-white',
     menuKey: 'processing_money',
     permission: 'float.spend',
   },

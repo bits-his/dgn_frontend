@@ -627,6 +627,8 @@ function Workforce({
       setDeletingStaff(null)
       queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
       queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
+      queryClient.invalidateQueries({ queryKey: ['processing-wallet-holders'] })
+      queryClient.invalidateQueries({ queryKey: ['processing-wallets'] })
       queryClient.invalidateQueries({ queryKey: ['attendance'] })
       queryClient.invalidateQueries({ queryKey: ['labour-summary'] })
     } catch (err: unknown) {
@@ -684,6 +686,7 @@ function Workforce({
         ),
       },
       {
+        id: 'department',
         accessorKey: 'department',
         header: 'Department / Role',
         cell: ({ row }) => (
@@ -839,7 +842,7 @@ function Workforce({
       },
     ]
     if (!isOperators) return all
-    return all.filter((col) => !['access', 'shift', 'pay', 'department'].includes(String(col.id || col.accessorKey)))
+    return all.filter((col) => !['access', 'shift', 'pay', 'department'].includes(String(col.id)))
   },
     [canManage, canAccess, isOperators, navigate]
   )
@@ -892,6 +895,8 @@ function Workforce({
               setAdding(false)
               queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
               queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
+              queryClient.invalidateQueries({ queryKey: ['processing-wallet-holders'] })
+              queryClient.invalidateQueries({ queryKey: ['processing-wallets'] })
               queryClient.invalidateQueries({ queryKey: ['attendance'] })
             }}
           />
@@ -982,6 +987,8 @@ function Workforce({
                 setEditStaff(null)
                 queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
                 queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
+                queryClient.invalidateQueries({ queryKey: ['processing-wallet-holders'] })
+                queryClient.invalidateQueries({ queryKey: ['processing-wallets'] })
                 queryClient.invalidateQueries({ queryKey: ['attendance'] })
               }}
             />
