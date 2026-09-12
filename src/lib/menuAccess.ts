@@ -23,7 +23,7 @@ export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Operations', key: 'masters', label: 'Masters' },
 
   // Money & people
-  { group: 'Money & people', key: 'processing_money', label: 'Processing money' },
+  { group: 'Money & people', key: 'processing_money', label: 'Wallet' },
   { group: 'Money & people', key: 'expenses', label: 'Expenses' },
   { group: 'Money & people', key: 'staff', label: 'Staff' },
   { group: 'Money & people', key: 'payroll', label: 'Payroll' },

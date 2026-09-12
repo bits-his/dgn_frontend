@@ -95,18 +95,30 @@ export function NairaAmountInput({
   onChange,
   placeholder,
   required,
+  className,
+  inputClassName,
 }: {
   value: string
   onChange: (numeric: string) => void
   placeholder?: string
   required?: boolean
+  className?: string
+  inputClassName?: string
 }) {
   const display = formatAmountTyping(value)
   return (
-    <div className="flex items-center rounded-xl border border-[var(--line)] bg-white transition-[border-color,box-shadow] duration-150 focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--accent-soft)]">
-      <span className="pl-3 text-sm text-[var(--ink-muted)]">₦</span>
+    <div
+      className={cn(
+        'flex items-center rounded-md border border-zinc-200 bg-white shadow-xs transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-950 focus-within:ring-1 focus-within:ring-zinc-950',
+        className,
+      )}
+    >
+      <span className="pl-2.5 text-xs text-zinc-500">₦</span>
       <input
-        className="min-w-0 flex-1 bg-transparent px-2 py-[0.85rem] outline-none"
+        className={cn(
+          'min-w-0 flex-1 bg-transparent px-2 py-1 h-8 text-xs outline-none tabular-nums',
+          inputClassName,
+        )}
         inputMode="decimal"
         value={display}
         placeholder={placeholder}

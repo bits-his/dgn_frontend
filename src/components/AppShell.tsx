@@ -141,10 +141,10 @@ const mainNavRest: NavItem[] = [
 ]
 
 const financeNav: NavItem[] = [
-  { to: '/processing-money', label: 'Processing money', icon: Banknote, menuKey: 'processing_money', permission: 'float.spend' },
+  { to: '/wallet', label: 'Wallet', icon: Wallet, menuKey: 'processing_money', permission: 'float.spend' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, menuKey: 'expenses', permission: 'expense.view' },
   { to: '/staff', label: 'Staff', icon: Users, menuKey: 'staff', permission: 'labour.view' },
-  { to: '/payroll', label: 'Payroll', icon: Wallet, menuKey: 'payroll', permission: 'labour.view' },
+  { to: '/payroll', label: 'Payroll', icon: Banknote, menuKey: 'payroll', permission: 'labour.view' },
 ]
 
 const intelligenceNav: NavItem[] = [

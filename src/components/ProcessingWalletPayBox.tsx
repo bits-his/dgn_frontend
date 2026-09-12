@@ -49,12 +49,12 @@ export function ProcessingWalletPayBox({
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-zinc-900">
           <Banknote className="size-4 text-emerald-700" />
-          Pay from my processing money
+          Pay from my wallet
         </p>
         <p className="mt-0.5 text-xs text-zinc-500">
           {hasWallet
             ? `Remaining ${money(remaining)}. Cash on this save comes off that balance.`
-            : 'No processing money has been given to this account yet. Leave this off, or ask admin to give money first.'}
+            : 'No money in this wallet yet. Leave this off, or ask admin to give money first.'}
         </p>
       </div>
     </label>

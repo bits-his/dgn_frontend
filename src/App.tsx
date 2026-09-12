@@ -133,6 +133,8 @@ function App() {
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
+                <Route path="/wallet/:userId" element={<ProcessingMoneyPage />} />
+                <Route path="/wallet" element={<ProcessingMoneyPage />} />
                 <Route path="/processing-money/:userId" element={<ProcessingMoneyPage />} />
                 <Route path="/processing-money" element={<ProcessingMoneyPage />} />
                 <Route path="/staff" element={<LabourPage />} />
