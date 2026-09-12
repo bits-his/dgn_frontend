@@ -19,6 +19,7 @@ import {
   Users,
   Wallet,
   Layers,
+  Banknote,
   Bell,
   X,
   PackagePlus,
@@ -34,6 +35,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 
@@ -70,6 +72,12 @@ export function canAccessNavItem(
       if (user.menuAccess.includes(item.menuKey)) return true
       if (item.menuKey === 'recrushing' && user.menuAccess.includes('crushing')) return true
       if (item.menuKey === 'distributors' && user.menuAccess.includes('sales')) return true
+      if (
+        item.menuKey === 'processing_money' &&
+        (hasPermission(user, 'float.give') || hasPermission(user, 'float.view') || hasPermission(user, 'float.spend'))
+      ) {
+        return true
+      }
       return false
     }
     // Items without a menuKey
@@ -84,6 +92,18 @@ export function canAccessNavItem(
     return hasPermission(user, item.permission)
   }
   return true
+}
+
+function resolveNavItem(
+  item: NavItem,
+  user: ReturnType<typeof useAuthStore.getState>['user'],
+): NavItem {
+  if (item.menuKey !== 'distributors' || !isOutletScoped(user)) return item
+  return {
+    ...item,
+    to: outletHomePath(user),
+    label: outletNavLabel(user),
+  }
 }
 
 const mainNavTop: NavItem[] = [
@@ -121,6 +141,7 @@ const mainNavRest: NavItem[] = [
 ]
 
 const financeNav: NavItem[] = [
+  { to: '/processing-money', label: 'Processing money', icon: Banknote, menuKey: 'processing_money', permission: 'float.spend' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, menuKey: 'expenses', permission: 'expense.view' },
   { to: '/staff', label: 'Staff', icon: Users, menuKey: 'staff', permission: 'labour.view' },
   { to: '/payroll', label: 'Payroll', icon: Wallet, menuKey: 'payroll', permission: 'labour.view' },
@@ -147,7 +168,8 @@ function NavList({
 }) {
   return (
     <div className="space-y-1">
-      {items.map((item) => {
+      {items.map((raw) => {
+        const item = resolveNavItem(raw, user)
         if (!canAccessNavItem(user, item)) return null
         const Icon = item.icon
         return (
@@ -207,7 +229,9 @@ function CollapsibleNavGroup({
   onNavigate?: () => void
 }) {
   const location = useLocation()
-  const visibleItems = group.items.filter((item) => canAccessNavItem(user, item))
+  const visibleItems = group.items
+    .map((item) => resolveNavItem(item, user))
+    .filter((item) => canAccessNavItem(user, item))
   const childActive = visibleItems.some(
     (item) =>
       location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
@@ -299,21 +323,39 @@ export function AppShell() {
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4">
         <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-          Operations
+          {isOutletScoped(user) ? 'Shop' : 'Operations'}
         </p>
-        <div className="space-y-1">
-          <NavList items={mainNavTop} user={user} onNavigate={() => setMobileOpen(false)} />
-          <CollapsibleNavGroup
-            group={recyclingGroup}
+        {isOutletScoped(user) ? (
+          <NavList
+            items={[
+              { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+              { to: '/shop/sales/new', label: 'Record sale', icon: Truck, permission: 'outlet.sell' },
+              {
+                to: outletHomePath(user),
+                label: outletNavLabel(user),
+                icon: Store,
+                menuKey: 'distributors',
+                permission: 'sales.view',
+              },
+            ]}
             user={user}
             onNavigate={() => setMobileOpen(false)}
           />
-          <NavList items={recyclingNav} user={user} onNavigate={() => setMobileOpen(false)} />
-          <NavList items={productionNav} user={user} onNavigate={() => setMobileOpen(false)} />
-          <NavList items={mainNavRest} user={user} onNavigate={() => setMobileOpen(false)} />
-        </div>
+        ) : (
+          <div className="space-y-1">
+            <NavList items={mainNavTop} user={user} onNavigate={() => setMobileOpen(false)} />
+            <CollapsibleNavGroup
+              group={recyclingGroup}
+              user={user}
+              onNavigate={() => setMobileOpen(false)}
+            />
+            <NavList items={recyclingNav} user={user} onNavigate={() => setMobileOpen(false)} />
+            <NavList items={productionNav} user={user} onNavigate={() => setMobileOpen(false)} />
+            <NavList items={mainNavRest} user={user} onNavigate={() => setMobileOpen(false)} />
+          </div>
+        )}
 
-        {financeNav.some((i) => canAccessNavItem(user, i)) && (
+        {!isOutletScoped(user) && financeNav.some((i) => canAccessNavItem(user, i)) && (
           <div className="mt-4 pb-1">
             <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Money &amp; people
@@ -322,7 +364,7 @@ export function AppShell() {
           </div>
         )}
 
-        {intelligenceItems.some((i) => canAccessNavItem(user, i)) && (
+        {!isOutletScoped(user) && intelligenceItems.some((i) => canAccessNavItem(user, i)) && (
           <div className="mt-4 pb-1">
             <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
               Intelligence

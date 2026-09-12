@@ -10,6 +10,7 @@ import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { Truck, Scale, ShoppingCart, ChevronDown, ChevronUp } from 'lucide-react'
 import { ColorCombobox } from '@/components/ui/color-combobox'
+import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
 
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
@@ -50,6 +51,7 @@ export function ScrapReceivingPage() {
   const [pickColor, setPickColor] = useState('')
   const [pickKg, setPickKg] = useState('')
   const [editBatchNumber, setEditBatchNumber] = useState<string | null>(null)
+  const [payFromProcessingWallet, setPayFromProcessingWallet] = useState(true)
 
   const suppliers = useQuery({
     queryKey: ['suppliers'],
@@ -270,6 +272,7 @@ export function ScrapReceivingPage() {
         otherCost: Number(values.otherCost || 0),
         notes: values.notes || null,
         confirmUnusualNet,
+        payFromProcessingWallet,
       })
 
       // Invalidate queries so that navigation back to receiving list, batches, or stages immediately shows fresh data
@@ -775,6 +778,13 @@ export function ScrapReceivingPage() {
             )}
           </div>
         </Card>
+
+        {!isEdit && (
+          <ProcessingWalletPayBox
+            checked={payFromProcessingWallet}
+            onChange={setPayFromProcessingWallet}
+          />
+        )}
 
         {(serverErrors.length > 0 || Object.keys(formState.errors).length > 0) && (
           <ErrorBanner

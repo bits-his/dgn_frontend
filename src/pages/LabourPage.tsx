@@ -32,6 +32,7 @@ import {
   ROLE_DEFAULT_MENU_ACCESS,
   type MenuAccessItem,
 } from '@/lib/menuAccess'
+import { kindLabel } from '@/pages/DistributorsPage'
 
 type SheetRow = {
   employeeId: number
@@ -76,6 +77,8 @@ type EmployeeAccess = {
   username: string
   roleCode: string
   menuAccess?: string[]
+  outletCustomerId?: number | null
+  outlet?: { id: number; code: string; name: string; kind?: string | null } | null
   isActive: boolean
   createdAt?: string | null
 }
@@ -84,6 +87,14 @@ type RoleOption = {
   code: string
   label: string
   permissions: string[]
+}
+
+type OutletOption = {
+  id: number
+  code: string
+  name: string
+  kind: string
+  isActive: boolean
 }
 
 type ShiftOption = {
@@ -590,6 +601,7 @@ function Workforce({
           Array.isArray(data.menuAccess) && data.menuAccess.length
             ? (data.menuAccess as MenuAccessItem[])
             : SIDEBAR_MENU_ACCESS,
+        outlets: (data.outlets || []) as OutletOption[],
       }
     },
   })
@@ -719,6 +731,11 @@ function Workforce({
                     {a.isActive ? 'Login on' : 'Login off'}
                   </span>
                   <p className="mt-0.5 text-[11px] text-zinc-500">{roleLabel(row.original)}</p>
+                  {a.outlet?.name ? (
+                    <p className="mt-0.5 text-[11px] text-zinc-600">
+                      {a.outlet.name} · {kindLabel(a.outlet.kind)}
+                    </p>
+                  ) : null}
                 </>
               ) : (
                 <span className="text-[11px] text-zinc-400">No login</span>
@@ -847,6 +864,8 @@ function Workforce({
               <DialogTitle>Login access · {accessFor.name}</DialogTitle>
               <DialogDescription>
                 Tick the sidebar pages this person can open, then set their login credentials.
+                Shop and distributor staff must also be assigned to one outlet so they only see
+                that shop.
               </DialogDescription>
             </DialogHeader>
 
@@ -857,6 +876,7 @@ function Workforce({
                   ? employees.data.menuAccess
                   : SIDEBAR_MENU_ACCESS
               }
+              outlets={employees.data?.outlets || []}
               onClose={() => setAccessFor(null)}
               onSaved={() => {
                 setAccessFor(null)
@@ -993,11 +1013,13 @@ function Workforce({
 function AccessPanelForm({
   employee,
   menuItems = SIDEBAR_MENU_ACCESS,
+  outlets = [],
   onClose,
   onSaved,
 }: {
   employee: Employee
   menuItems?: MenuAccessItem[]
+  outlets?: OutletOption[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -1007,6 +1029,9 @@ function AccessPanelForm({
   const [isActive, setIsActive] = useState(employee.access?.isActive !== false)
   const [department, setDepartment] = useState(employee.department || 'Production')
   const [role, setRole] = useState(employee.access?.roleCode || employee.roleType || 'OPERATOR')
+  const [outletId, setOutletId] = useState(
+    employee.access?.outletCustomerId ? String(employee.access.outletCustomerId) : 'none',
+  )
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
     for (const key of employee.access?.menuAccess || []) initial[key] = true
@@ -1029,6 +1054,9 @@ function AccessPanelForm({
       for (const key of defaults) next[key] = true
       setSelected(next)
     }
+    if (newRole === 'OUTLET_SELLER' && employee.department !== 'Sales') {
+      setDepartment('Sales')
+    }
   }
 
   const setGroup = (group: string, on: boolean) => {
@@ -1044,7 +1072,8 @@ function AccessPanelForm({
   const submit = async () => {
     setError(null)
     setSaving(true)
-    const menuAccess = Object.keys(selected).filter((key) => selected[key])
+    const menuAccess =
+      outletId === 'none' ? Object.keys(selected).filter((key) => selected[key]) : ['distributors']
     try {
       await api.put(`/labour/employees/${employee.id}/access`, {
         email,
@@ -1054,6 +1083,7 @@ function AccessPanelForm({
         roleCode: role,
         department,
         menuAccess,
+        outletCustomerId: outletId === 'none' ? null : Number(outletId),
       })
       onSaved()
     } catch (err: unknown) {
@@ -1101,6 +1131,35 @@ function AccessPanelForm({
             </SelectContent>
           </Select>
         </div>
+        <div className="sm:col-span-2">
+          <Label className="text-xs mb-1 block">Assigned shop / distributor</Label>
+          <Select
+            value={outletId}
+            onValueChange={(val) => {
+              setOutletId(val)
+              if (val !== 'none') {
+                setSelected((prev) => ({ ...prev, distributors: true, sales: false }))
+                if (role !== 'OUTLET_SELLER') setRole('OUTLET_SELLER')
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs">
+              <SelectValue placeholder="Office user — sees all distributors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None — office / factory (sees all)</SelectItem>
+              {outlets.map((outlet) => (
+                <SelectItem key={outlet.id} value={String(outlet.id)}>
+                  {outlet.name} ({outlet.code}) · {kindLabel(outlet.kind)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-[11px] text-zinc-500">
+            Pick an internal distributor or market shop. Pages are granted automatically. Leave
+            this on None for office staff, then tick the factory pages they need.
+          </p>
+        </div>
         <div>
           <Label className="text-xs mb-1 block">Login email</Label>
           <Input
@@ -1146,6 +1205,7 @@ function AccessPanelForm({
         </div>
       </div>
 
+      {outletId === 'none' && (
       <div className="pt-2 border-t border-zinc-100">
         <p className="text-xs font-semibold text-zinc-900 mb-2">Permitted menu pages</p>
         <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
@@ -1182,6 +1242,7 @@ function AccessPanelForm({
           })}
         </div>
       </div>
+      )}
 
       {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
 

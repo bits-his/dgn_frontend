@@ -12,6 +12,7 @@ import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Button } from '@/components/ui/button'
+import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
 
 export const STAGE_META: Record<
   string,
@@ -287,6 +288,7 @@ export function ProcessStageForm({
   const [pickColor, setPickColor] = useState('')
   const [pickKg, setPickKg] = useState('')
   const [colorError, setColorError] = useState('')
+  const [payFromProcessingWallet, setPayFromProcessingWallet] = useState(true)
   const [editingColor, setEditingColor] = useState<string | null>(null)
   const [editingKg, setEditingKg] = useState('')
 
@@ -852,13 +854,14 @@ export function ProcessStageForm({
         machineName: meta.showMachine ? values.machineName || null : null,
         teamName: meta.showTeam ? values.teamName : undefined,
         confirmUnusualYield,
+        payFromProcessingWallet,
       })
 
       const resultingBatch =
         data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
 
-      // Drying: "Move to Material" immediately hands over to Production Store
-      if (isDrying && destination === 'production') {
+      // Drying "Move to Material" and re-crushing go to the store, not QC.
+      if ((isDrying && destination === 'production') || isRecrushing) {
         try {
           await api.post('/production/store/transfer', { batchNumber: resultingBatch })
           await queryClient.invalidateQueries({ queryKey: ['production-store'] })
@@ -1805,6 +1808,11 @@ export function ProcessStageForm({
                 )}
               </div>
             </Card>
+
+            <ProcessingWalletPayBox
+              checked={payFromProcessingWallet}
+              onChange={setPayFromProcessingWallet}
+            />
 
             {serverErrors.length > 0 && <ErrorBanner items={serverErrors} />}
 

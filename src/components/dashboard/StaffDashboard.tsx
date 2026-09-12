@@ -14,6 +14,7 @@ import {
   Store,
   Search,
   Receipt,
+  Banknote,
   Users,
   Wallet,
   LayoutDashboard,
@@ -33,6 +34,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { canAccessNavItem } from '@/components/AppShell'
 import { cn } from '@/lib/utils'
+import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 
 type BatchRow = {
   id: number
@@ -51,10 +53,13 @@ type QcQueueItem = {
   batchNumber: string
   batchType: string
   status: string
-  qtyOut: number
+  qtyOut?: number | string | null
+  qtyRemaining?: number | string | null
   uom: string
   product?: { name: string }
   material?: { name: string }
+  productName?: string | null
+  materialName?: string | null
 }
 
 type QuickActionItem = {
@@ -130,7 +135,7 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     icon: ShieldCheck,
     tone: 'bg-teal-600 text-white',
     menuKey: 'qc',
-    permission: 'batch.view',
+    permission: 'qc.inspect',
   },
   {
     to: '/inventory',
@@ -176,6 +181,15 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     tone: 'bg-stone-600 text-white',
     menuKey: 'masters',
     permission: 'masters.manage',
+  },
+  {
+    to: '/processing-money',
+    title: 'Processing money',
+    desc: 'Cash given for scrap buying and processing, with remaining balance',
+    icon: Banknote,
+    tone: 'bg-lime-700 text-white',
+    menuKey: 'processing_money',
+    permission: 'float.spend',
   },
   {
     to: '/expenses',
@@ -260,12 +274,23 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
   },
 ]
 
+function qcQueueQty(item: QcQueueItem) {
+  const n = Number(item.qtyRemaining ?? item.qtyOut)
+  return Number.isFinite(n) ? n : 0
+}
+
 export function StaffDashboard() {
   const user = useAuthStore((s) => s.user)
 
   const canBatchView = hasPermission(user, 'batch.view')
-  const canBatchCreate = hasPermission(user, 'batch.create')
-  const canQc = hasPermission(user, 'qc.inspect')
+  const canQcInspect = hasPermission(user, 'qc.inspect')
+  const canSeeQc = canAccessNavItem(user, {
+    to: '/qc',
+    label: 'Quality control',
+    icon: ShieldCheck,
+    menuKey: 'qc',
+    permission: 'qc.inspect',
+  })
   const canInventory = hasPermission(user, 'inventory.view')
   const canAlert = hasPermission(user, 'alert.view')
 
@@ -280,14 +305,16 @@ export function StaffDashboard() {
     refetchInterval: 30_000,
   })
 
-  // Fetch QC queue if QC or supervisor
   const qcQueueQuery = useQuery({
     queryKey: ['staff-qc-queue'],
     queryFn: async () => {
       const { data } = await api.get('/qc/queue')
-      return data.data as QcQueueItem[]
+      const items = (data.data as QcQueueItem[]) || []
+      return items.filter(
+        (b) => !(b.batchType === 'PROD' && (b.status === 'IN_PROGRESS' || b.status === 'PENDING')),
+      )
     },
-    enabled: canQc || canBatchCreate,
+    enabled: canSeeQc,
     refetchInterval: 30_000,
   })
 
@@ -336,7 +363,17 @@ export function StaffDashboard() {
         menuKey: act.menuKey,
         permission: act.permission,
       }),
-    )
+    ).map((act) => {
+      if (act.menuKey !== 'distributors' || !isOutletScoped(user)) return act
+      return {
+        ...act,
+        to: outletHomePath(user),
+        title: outletNavLabel(user),
+        desc: user?.outlet?.name
+          ? `Stock, invoices and activity for ${user.outlet.name}`
+          : 'Your assigned shop or distributor',
+      }
+    })
   }, [user])
 
   return (
@@ -370,7 +407,7 @@ export function StaffDashboard() {
           </Card>
         )}
 
-        {(canQc || canBatchCreate) && (
+        {canSeeQc && (
           <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
             <div className="flex items-center justify-between gap-1">
               <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="QC Pending">
@@ -469,8 +506,7 @@ export function StaffDashboard() {
         </div>
       )}
 
-      {/* QC Queue Callout (if items pending) */}
-      {(canQc || canBatchCreate) && (qcQueueQuery.data || []).length > 0 && (
+      {canSeeQc && (qcQueueQuery.data || []).length > 0 && (
         <Card className="border-amber-200 bg-amber-50/40 p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -492,12 +528,19 @@ export function StaffDashboard() {
                 <div>
                   <p className="font-semibold text-xs text-foreground">{item.batchNumber}</p>
                   <p className="text-[11px] text-muted-foreground">
-                    {item.product?.name || item.material?.name || item.batchType} · {Number(item.qtyOut).toLocaleString()} {item.uom}
+                    {item.productName ||
+                      item.materialName ||
+                      item.product?.name ||
+                      item.material?.name ||
+                      item.batchType}{' '}
+                    · {qcQueueQty(item).toLocaleString()} {item.uom || 'kg'}
                   </p>
                 </div>
-                <Button size="sm" variant="default" className="h-7 text-xs" asChild>
-                  <Link to={`/qc?batch=${item.batchNumber}`}>Inspect</Link>
-                </Button>
+                {canQcInspect && (
+                  <Button size="sm" variant="default" className="h-7 text-xs" asChild>
+                    <Link to={`/qc?batch=${item.batchNumber}`}>Inspect</Link>
+                  </Button>
+                )}
               </div>
             ))}
           </div>

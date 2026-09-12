@@ -157,7 +157,7 @@ export const DialogContent = React.forwardRef<
         ref={ref}
         role="document"
         className={cn(
-          "relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950 sm:max-w-xl",
+          "relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950",
           className
         )}
         {...props}

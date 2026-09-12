@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, Users, CreditCard, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -26,6 +26,7 @@ import {
 import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
+import { isOutletScoped, outletHomePath } from '@/lib/outlet'
 import { type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
 
 export function CreditBar({ percent, atLimit }: { percent: number; atLimit: boolean }) {
@@ -75,6 +76,11 @@ export type DistributorRow = {
   distributorKind?: 'INTERNAL' | 'EXTERNAL' | string | null
   minOrderQty?: number | null
   isActive: boolean
+  outletStock?: {
+    remainingQty: number
+    generated: number
+    creditOutstanding: number
+  }
   credit: DistributorCredit
 }
 
@@ -84,7 +90,7 @@ type FormState = {
   phone: string
   region: string
   address: string
-  distributorKind: 'INTERNAL' | 'EXTERNAL'
+  distributorKind: 'INTERNAL' | 'EXTERNAL' | 'SHOP'
   minOrderQty: string
   creditLimit: string
   paymentTermsDays: string
@@ -105,7 +111,10 @@ const emptyForm: FormState = {
 }
 
 export function kindLabel(kind?: string | null) {
-  return String(kind || 'EXTERNAL').toUpperCase() === 'INTERNAL' ? 'Internal' : 'External'
+  const k = String(kind || 'EXTERNAL').toUpperCase()
+  if (k === 'INTERNAL') return 'Internal'
+  if (k === 'SHOP') return 'Market shop'
+  return 'External'
 }
 
 export function money(n: number) {
@@ -129,7 +138,9 @@ export function DistributorsPage() {
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [showInactive, setShowInactive] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'internal' | 'external' | 'owing' | 'limit'>('all')
+  const [filter, setFilter] = useState<'all' | 'internal' | 'external' | 'shop' | 'owing' | 'limit'>(
+    'all',
+  )
   const [addOpen, setAddOpen] = useState(false)
 
   const distributors = useQuery({
@@ -148,7 +159,13 @@ export function DistributorsPage() {
       if (filter === 'internal' && String(row.distributorKind || '').toUpperCase() !== 'INTERNAL') {
         return false
       }
-      if (filter === 'external' && String(row.distributorKind || '').toUpperCase() === 'INTERNAL') {
+      if (filter === 'shop' && String(row.distributorKind || '').toUpperCase() !== 'SHOP') {
+        return false
+      }
+      if (
+        filter === 'external' &&
+        String(row.distributorKind || '').toUpperCase() !== 'EXTERNAL'
+      ) {
         return false
       }
       if (filter === 'owing' && !(row.credit.outstanding > 0.001)) return false
@@ -186,17 +203,19 @@ export function DistributorsPage() {
         region: form.region.trim() || null,
         address: form.address.trim() || null,
         distributorKind: form.distributorKind,
-        minOrderQty: Number(form.minOrderQty),
-        creditLimit: Number(form.creditLimit),
-        paymentTermsDays: Number(form.paymentTermsDays || 14),
+        minOrderQty: form.distributorKind === 'SHOP' ? 0 : Number(form.minOrderQty),
+        creditLimit: form.distributorKind === 'SHOP' ? 0 : Number(form.creditLimit),
+        paymentTermsDays: form.distributorKind === 'SHOP' ? 0 : Number(form.paymentTermsDays || 14),
         notes: form.notes.trim() || null,
       }
       if (!payload.name) throw new Error('Name is required')
-      if (!(payload.minOrderQty >= 0) || form.minOrderQty.trim() === '') {
-        throw new Error('Set the minimum quantity they can take on a sale.')
-      }
-      if (!(payload.creditLimit >= 0) || form.creditLimit.trim() === '') {
-        throw new Error('Set a credit limit. Use 0 if they must always pay in full.')
+      if (form.distributorKind !== 'SHOP') {
+        if (!(payload.minOrderQty >= 0) || form.minOrderQty.trim() === '') {
+          throw new Error('Set the minimum quantity they can take on a sale.')
+        }
+        if (!(payload.creditLimit >= 0) || form.creditLimit.trim() === '') {
+          throw new Error('Set a credit limit. Use 0 if they must always pay in full.')
+        }
       }
       const { data } = await api.post('/distributors', payload)
       return data.data as DistributorRow
@@ -284,10 +303,25 @@ export function DistributorsPage() {
       },
       {
         id: 'outstanding',
-        header: 'Owes',
+        header: 'Owes / credit',
         cell: ({ row }) => (
           <span className="font-semibold text-xs tabular-nums text-zinc-900">
-            {money(row.original.credit.outstanding)}
+            {money(
+              String(row.original.distributorKind).toUpperCase() === 'SHOP'
+                ? row.original.outletStock?.creditOutstanding || 0
+                : row.original.credit.outstanding,
+            )}
+          </span>
+        ),
+      },
+      {
+        id: 'stockLeft',
+        header: 'Stock left',
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-zinc-700">
+            {row.original.outletStock
+              ? Number(row.original.outletStock.remainingQty || 0).toLocaleString()
+              : '—'}
           </span>
         ),
       },
@@ -375,6 +409,10 @@ export function DistributorsPage() {
     ],
     [canSell]
   )
+
+  if (isOutletScoped(user)) {
+    return <Navigate to={outletHomePath(user)} replace />
+  }
 
   return (
     <PageLayout
@@ -511,7 +549,7 @@ export function DistributorsPage() {
               <Select
                 value={filter}
                 onValueChange={(val) =>
-                  setFilter(val as 'all' | 'internal' | 'external' | 'owing' | 'limit')
+                  setFilter(val as 'all' | 'internal' | 'external' | 'shop' | 'owing' | 'limit')
                 }
               >
                 <SelectTrigger className="w-full h-8 text-xs font-semibold">
@@ -520,6 +558,7 @@ export function DistributorsPage() {
                 <SelectContent>
                   <SelectItem value="all">All distributors ({distributors.data?.length ?? 0})</SelectItem>
                   <SelectItem value="internal">Internal network</SelectItem>
+                  <SelectItem value="shop">Market shops</SelectItem>
                   <SelectItem value="external">External dealers</SelectItem>
                   <SelectItem value="owing">Owing factory</SelectItem>
                   <SelectItem value="limit">At credit limit</SelectItem>
@@ -624,7 +663,7 @@ export function DistributorsPage() {
                   onValueChange={(val) =>
                     setForm((f) => ({
                       ...f,
-                      distributorKind: val as 'INTERNAL' | 'EXTERNAL',
+                      distributorKind: val as 'INTERNAL' | 'EXTERNAL' | 'SHOP',
                     }))
                   }
                 >
@@ -632,12 +671,15 @@ export function DistributorsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="EXTERNAL">External</SelectItem>
-                    <SelectItem value="INTERNAL">Internal</SelectItem>
+                    <SelectItem value="EXTERNAL">External dealer</SelectItem>
+                    <SelectItem value="INTERNAL">Internal distributor</SelectItem>
+                    <SelectItem value="SHOP">Market shop</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
+              {form.distributorKind !== 'SHOP' && (
+                <>
               <div className="space-y-1">
                 <Label className="text-xs">Minimum quantity</Label>
                 <Input
@@ -649,16 +691,6 @@ export function DistributorsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
                   required
                   placeholder="50"
-                />
-              </div>
-
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Address</Label>
-                <Input
-                  className="h-8 text-xs"
-                  value={form.address}
-                  onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                  placeholder="Store location or warehouse address"
                 />
               </div>
 
@@ -686,6 +718,18 @@ export function DistributorsPage() {
                 <p className="text-[10px] text-zinc-500">
                   How many days they have to settle credit sales. Unpaid after this is marked overdue (e.g. 7 = one week).
                 </p>
+              </div>
+                </>
+              )}
+
+              <div className="space-y-1 sm:col-span-2">
+                <Label className="text-xs">Address</Label>
+                <Input
+                  className="h-8 text-xs"
+                  value={form.address}
+                  onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                  placeholder="Store location or warehouse address"
+                />
               </div>
 
               <div className="space-y-1 sm:col-span-2">

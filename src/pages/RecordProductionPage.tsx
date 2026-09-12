@@ -14,6 +14,7 @@ import {
   Check,
   Factory,
   Plus,
+  Pencil,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
@@ -321,6 +322,17 @@ export function RecordProductionPage() {
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [finalizeError, setFinalizeError] = useState('')
 
+  const [editingShift, setEditingShift] = useState<ShiftLogItem | null>(null)
+  const [editShiftId, setEditShiftId] = useState('')
+  const [editOperatorName, setEditOperatorName] = useState('')
+  const [editClockIn, setEditClockIn] = useState('')
+  const [editClockOut, setEditClockOut] = useState('')
+  const [editGood, setEditGood] = useState('')
+  const [editReject, setEditReject] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [editError, setEditError] = useState('')
+  const [isSavingShift, setIsSavingShift] = useState(false)
+
   // HANDLERS
   const handleFaultTimeChange = (from: string, to: string) => {
     setFaultFrom(from)
@@ -489,6 +501,49 @@ export function RecordProductionPage() {
       setFaultError(axiosErr.response?.data?.errors?.downtimeMinutes || axiosErr.response?.data?.err || 'Failed to log fault')
     } finally {
       setIsLoggingFault(false)
+    }
+  }
+
+  const openEditShift = (shift: ShiftLogItem) => {
+    setEditingShift(shift)
+    setEditShiftId(shift.shiftId ? String(shift.shiftId) : '')
+    setEditOperatorName(shift.operatorName || '')
+    setEditClockIn(getCurrentTimeString(new Date(shift.clockInAt)))
+    setEditClockOut(shift.clockOutAt ? getCurrentTimeString(new Date(shift.clockOutAt)) : '')
+    setEditGood(String(Number(shift.qtyGood || 0)))
+    setEditReject(String(Number(shift.qtyReject || 0)))
+    setEditNotes(shift.handoverNotes || '')
+    setEditError('')
+  }
+
+  const handleSaveEditShift = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRunId || !editingShift) return
+    if (!editOperatorName.trim()) {
+      setEditError('Operator name is required')
+      return
+    }
+    setIsSavingShift(true)
+    setEditError('')
+    try {
+      await api.patch(`/production/runs/${selectedRunId}/shift-logs/${editingShift.id}`, {
+        shiftId: editShiftId ? Number(editShiftId) : null,
+        operatorName: editOperatorName.trim(),
+        clockInTime: editClockIn || undefined,
+        clockOutTime: editingShift.status === 'COMPLETED' ? editClockOut || undefined : undefined,
+        qtyGood: Number(editGood || 0),
+        qtyReject: Number(editReject || 0),
+        handoverNotes: editNotes.trim() || null,
+      })
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      await queryClient.invalidateQueries({ queryKey: ['inventory-balance'] })
+      setEditingShift(null)
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string } } }
+      setEditError(axiosErr.response?.data?.err || 'Could not update this shift')
+    } finally {
+      setIsSavingShift(false)
     }
   }
 
@@ -1138,8 +1193,8 @@ export function RecordProductionPage() {
                             : 'bg-white border-zinc-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex min-w-0 items-center gap-1.5">
                             {isActive ? (
                               <span className="rounded-full bg-emerald-500 size-2 animate-pulse" />
                             ) : (
@@ -1150,9 +1205,21 @@ export function RecordProductionPage() {
                               <span className="text-[10px] text-zinc-500">· {shift.shift.name}</span>
                             )}
                           </div>
-                          <span className="font-bold text-emerald-700">
-                            {fmt(shift.qtyGood)} pcs
-                          </span>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <span className="font-bold text-emerald-700">
+                              {fmt(shift.qtyGood)} pcs
+                            </span>
+                            {isRunActive && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-800 hover:text-amber-950"
+                                onClick={() => openEditShift(shift)}
+                              >
+                                <Pencil className="size-2.5" />
+                                Edit
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="mt-1 flex items-center justify-between text-[10px] text-zinc-400">
                           <span>
@@ -1459,6 +1526,124 @@ export function RecordProductionPage() {
                   </Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {editingShift && (
+          <Dialog open={Boolean(editingShift)} onOpenChange={(open) => !open && setEditingShift(null)}>
+            <DialogContent className="max-w-md rounded-2xl border-zinc-200 p-0 overflow-hidden">
+              <div className="border-b border-zinc-100 px-5 py-4">
+                <DialogTitle className="text-base font-bold text-zinc-900">Edit shift session</DialogTitle>
+                <DialogDescription className="mt-0.5 text-xs text-zinc-600">
+                  Correct the shift, operator, times, or output before this run is finalised.
+                </DialogDescription>
+              </div>
+              <form onSubmit={handleSaveEditShift} className="space-y-3 p-5">
+                {editError && (
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs text-red-700">
+                    {editError}
+                  </p>
+                )}
+                <div>
+                  <Label className="mb-1 block text-xs font-bold text-zinc-800">Shift</Label>
+                  <Select value={editShiftId || undefined} onValueChange={setEditShiftId}>
+                    <SelectTrigger className="h-9 w-full bg-white text-xs">
+                      <SelectValue placeholder="Select shift…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {shiftsQuery.data?.map((s) => (
+                        <SelectItem key={s.id} value={String(s.id)}>
+                          {s.name} {s.startTime && s.endTime ? `(${s.startTime} - ${s.endTime})` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="mb-1 block text-xs font-bold text-zinc-800">Operator</Label>
+                  <Input
+                    className="h-9 text-xs"
+                    value={editOperatorName}
+                    onChange={(e) => setEditOperatorName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="mb-1 block text-xs font-bold text-zinc-800">Clock in</Label>
+                    <Input
+                      type="time"
+                      className="h-9 text-xs"
+                      value={editClockIn}
+                      onChange={(e) => setEditClockIn(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {editingShift.status === 'COMPLETED' ? (
+                    <div>
+                      <Label className="mb-1 block text-xs font-bold text-zinc-800">Clock out</Label>
+                      <Input
+                        type="time"
+                        className="h-9 text-xs"
+                        value={editClockOut}
+                        onChange={(e) => setEditClockOut(e.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-end">
+                      <p className="pb-2 text-[11px] text-zinc-500">Still active — clock out when recording output.</p>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <Label className="mb-1 block text-xs font-bold text-zinc-800">Good pcs</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className="h-9 text-xs tabular-nums"
+                      value={editGood}
+                      onChange={(e) => setEditGood(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-1 block text-xs font-bold text-zinc-800">Reject pcs</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className="h-9 text-xs tabular-nums"
+                      value={editReject}
+                      onChange={(e) => setEditReject(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 block text-xs font-bold text-zinc-800">Notes</Label>
+                  <Input
+                    className="h-9 text-xs"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs font-semibold"
+                    onClick={() => setEditingShift(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" className="h-8 text-xs font-semibold" disabled={isSavingShift}>
+                    {isSavingShift ? 'Saving…' : 'Save shift'}
+                  </Button>
+                </div>
+              </form>
             </DialogContent>
           </Dialog>
         )}

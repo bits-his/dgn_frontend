@@ -13,7 +13,6 @@ import {
 import {
   Bar,
   BarChart,
-  CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -41,6 +40,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { StaffDashboard } from '@/components/dashboard/StaffDashboard'
+import { OutletDashboard } from '@/components/dashboard/OutletDashboard'
+import { isOutletScoped } from '@/lib/outlet'
 
 type AlertTop = {
   id: number
@@ -178,11 +179,6 @@ const RANGE_OPTIONS = [
 
 const CHART = {
   teal: '#0f766e',
-  red: '#dc2626',
-  accent: '#b45309',
-  slate: '#475569',
-  muted: '#64748b',
-  grid: '#e2e8f0',
 }
 
 
@@ -251,18 +247,6 @@ export function DashboardPage() {
 
   const d = dash.data
 
-
-
-  const trendChart = useMemo(
-    () =>
-      (d?.trend || []).map((t) => ({
-        name: t.shortLabel,
-        Revenue: t.revenue,
-        Units: t.unitsProduced,
-      })),
-    [d?.trend],
-  )
-
   const roleInfo = user?.roleCode ? (
     {
       OPERATOR: 'Machine Operator',
@@ -271,6 +255,7 @@ export function DashboardPage() {
       INVENTORY_OFFICER: 'Inventory Officer',
       QC_OFFICER: 'Quality Control Officer',
       SALES_OFFICER: 'Sales Officer',
+      OUTLET_SELLER: 'Shop / distributor seller',
       FINANCE_OFFICER: 'Finance Officer',
       MAINTENANCE_OFFICER: 'Maintenance Officer',
       FACTORY_MANAGER: 'Factory Manager',
@@ -285,6 +270,11 @@ export function DashboardPage() {
     day: 'numeric',
     year: 'numeric',
   })
+
+  // Shop / internal distributor staff see their outlet book, not the factory workspace
+  if (isOutletScoped(user)) {
+    return <OutletDashboard />
+  }
 
   // Non-executive staff or executive toggling to staff view
   if (!canExec || viewMode === 'staff') {
@@ -376,7 +366,7 @@ export function DashboardPage() {
             {d.alerts.total > 0 && (
               <div
                 className={cn(
-                  'flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xs',
+                  'flex items-center gap-2 rounded-xl border px-2.5 py-1.5 shadow-2xs sm:gap-3 sm:rounded-2xl sm:px-4 sm:py-3',
                   critical > 0
                     ? 'border-red-200 bg-red-50/70 text-red-900'
                     : 'border-amber-200 bg-amber-50/60 text-amber-900',
@@ -384,44 +374,43 @@ export function DashboardPage() {
               >
                 <span
                   className={cn(
-                    'rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-white shrink-0',
+                    'shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white sm:rounded-lg sm:px-2.5 sm:py-1 sm:text-xs sm:tracking-wider',
                     critical > 0 ? 'bg-red-600' : 'bg-amber-600',
                   )}
                 >
                   {critical > 0 ? `${critical} Critical` : `${d.alerts.total} Alerts`}
                 </span>
-                <div className="flex min-w-0 flex-1 flex-wrap gap-x-4 gap-y-1 text-xs sm:text-sm">
-                  {d.alerts.top.slice(0, 3).map((a) => (
-                    <Link
-                      key={a.id}
-                      to={a.linkPath || '/alerts'}
-                      className="truncate font-medium hover:underline hover:text-[var(--accent-strong)]"
-                    >
-                      {a.title}
-                    </Link>
-                  ))}
+                <div className="min-w-0 flex-1 text-[11px] sm:text-sm">
+                  <Link
+                    to={d.alerts.top[0]?.linkPath || '/alerts'}
+                    className="block truncate font-medium hover:underline hover:text-[var(--accent-strong)] sm:hidden"
+                  >
+                    {d.alerts.top[0]?.title}
+                  </Link>
+                  <div className="hidden min-w-0 flex-wrap gap-x-4 gap-y-1 sm:flex">
+                    {d.alerts.top.slice(0, 3).map((a) => (
+                      <Link
+                        key={a.id}
+                        to={a.linkPath || '/alerts'}
+                        className="truncate font-medium hover:underline hover:text-[var(--accent-strong)]"
+                      >
+                        {a.title}
+                      </Link>
+                    ))}
+                  </div>
                 </div>
-                <Button size="sm" variant="ghost" className="h-7 text-xs font-semibold shrink-0" asChild>
-                  <Link to="/alerts">View all ({d.alerts.total}) →</Link>
+                <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5 text-[11px] font-semibold sm:h-7 sm:px-3 sm:text-xs" asChild>
+                  <Link to="/alerts">
+                    <span className="sm:hidden">All</span>
+                    <span className="hidden sm:inline">View all ({d.alerts.total}) →</span>
+                  </Link>
                 </Button>
               </div>
             )}
 
             {/* 1. OPERATIONAL KPIS (AT THE TOP) */}
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-semibold tracking-tight text-foreground">Operational KPIs</h2>
-                  <p className="text-xs text-muted-foreground">Strategic factory pulse &amp; drivers · Click any card to drill down</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {compare && (
-                    <span className="text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1 dark:bg-teal-950 dark:border-teal-800 dark:text-teal-300">
-                      Comparing vs prior period
-                    </span>
-                  )}
-                </div>
-              </div>
+             
 
               {/* Compact KPI scorecards */}
               <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
@@ -741,7 +730,7 @@ export function DashboardPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-3">
+              <div className="grid gap-4 lg:grid-cols-2">
                 {/* Margin Restatement Card */}
                 <Card className="p-4 sm:p-5">
                   <div className="mb-2 flex items-center justify-between">
@@ -787,26 +776,6 @@ export function DashboardPage() {
                     <BigStat label="Cash Outflow" value={money(d.money.cashOut)} />
                     <BigStat label="Net Cash Movement" value={money(d.money.netCash)} danger={d.money.netCash < 0} />
                     <BigStat label="Wages Outstanding" value={money(d.spend.wagesOutstanding)} danger={d.spend.wagesOutstanding > 0} />
-                  </div>
-                </Card>
-
-                {/* Revenue Trend Mini Chart */}
-                <Card className="p-4 sm:p-5">
-                  <h3 className="mb-2 text-sm font-semibold tracking-tight text-foreground">6-Month Turnover Trend</h3>
-                  <div className="h-40">
-                    {trendChart.some((t) => t.Revenue > 0) ? (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={trendChart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                          <CartesianGrid stroke={CHART.grid} vertical={false} />
-                          <XAxis dataKey="name" tick={{ fill: CHART.muted, fontSize: 11 }} axisLine={false} tickLine={false} />
-                          <YAxis hide />
-                          <Tooltip formatter={(v) => money(Number(v))} />
-                          <Bar dataKey="Revenue" fill={CHART.accent} radius={[6, 6, 0, 0]} maxBarSize={28} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    ) : (
-                      <EmptyChart />
-                    )}
                   </div>
                 </Card>
               </div>
@@ -872,16 +841,16 @@ export function DashboardPage() {
 
         {/* Full Details Modal for the 4 Top KPI Cards */}
         <Dialog open={!!activeKpiModal} onOpenChange={(open) => !open && setActiveKpiModal(null)}>
-          <DialogContent className="max-w-5xl w-[min(96vw,64rem)] max-h-[92vh] overflow-y-auto p-6 sm:p-8">
+          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 [&_table_th]:px-2.5 [&_table_th]:py-1.5 [&_table_td]:px-2.5 [&_table_td]:py-1.5">
             {activeKpiModal === 'raw_material' && d && (
-              <div className="space-y-6">
-                <DialogHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                      <Recycle className="size-5" />
+              <div className="space-y-3">
+                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                      <Recycle className="size-4" />
                     </div>
                     <div>
-                      <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
+                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
                         Raw Material
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
@@ -891,66 +860,66 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Quantity</span>
-                    <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Quantity</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.receivedKg || 0)}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Initial quantity from scrap buying</span>
+                    <span className="text-[10px] text-muted-foreground">Initial quantity from scrap buying</span>
                   </div>
-                  <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/60 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Qty available</span>
-                    <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                  <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Qty available</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
                       {fmt(
                         d.materialFlow.availableKg != null
                           ? d.materialFlow.availableKg
                           : d.inventory.rawKg || 0,
                       )}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Quantity minus waste</span>
+                    <span className="text-[10px] text-muted-foreground">Quantity minus waste</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
-                    <p className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.wasteKg || 0)}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Lost in crushing, washing, drying</span>
+                    <span className="text-[10px] text-muted-foreground">Lost in crushing, washing, drying</span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Sorted</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sorted</span>
+                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.sortedKg || 0)}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">WIP</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">WIP</span>
+                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
                       {fmt(d.inventory.wipKg || 0)}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Dried ready</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dried ready</span>
+                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.driedKg || 0)}{' '}
-                      <span className="text-xs font-normal text-muted-foreground">kg</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Recycling flow breakdown
                   </h4>
-                  <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                  <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                         <tr>
@@ -981,11 +950,11 @@ export function DashboardPage() {
                 </div>
 
                 {d.production.byStage && d.production.byStage.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Stage yield (input → usable)
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1012,16 +981,16 @@ export function DashboardPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <span className="text-xs text-muted-foreground">Quick actions:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/receiving" onClick={() => setActiveKpiModal(null)}>Scrap Buying →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/inventory" onClick={() => setActiveKpiModal(null)}>Inventory →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/batches" onClick={() => setActiveKpiModal(null)}>Batches →</Link>
                     </Button>
                   </div>
@@ -1030,14 +999,14 @@ export function DashboardPage() {
             )}
 
             {activeKpiModal === 'production' && d && (
-              <div className="space-y-6">
-                <DialogHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400">
-                      <Factory className="size-5" />
+              <div className="space-y-3">
+                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400">
+                      <Factory className="size-4" />
                     </div>
                     <div>
-                      <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
+                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
                         Production &amp; Machine Performance
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
@@ -1047,54 +1016,54 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Units Produced</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Units Produced</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.production.unitsProduced, 0)}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Total finished units</span>
+                    <span className="text-[10px] text-muted-foreground">Total finished units</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Good Quality</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-emerald-600">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Good Quality</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">
                       {fmt(d.production.unitsGood, 0)}
                     </p>
-                    <span className="text-[11px] text-emerald-600 font-medium">Passed inspection</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Passed inspection</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Reject Rate</span>
-                    <p className={cn("mt-1 text-xl font-bold tabular-nums", d.production.rejectPercent > 5 ? 'text-red-600' : 'text-foreground')}>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Reject Rate</span>
+                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.production.rejectPercent > 5 ? 'text-red-600' : 'text-foreground')}>
                       {d.production.rejectPercent}%
                     </p>
-                    <span className="text-[11px] text-muted-foreground">{fmt(d.production.unitsReject, 0)} units scrap</span>
+                    <span className="text-[10px] text-muted-foreground">{fmt(d.production.unitsReject, 0)} units scrap</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Downtime</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-amber-600">
-                      {fmt(d.production.downtimeMinutes || 0)} <span className="text-xs font-normal text-muted-foreground">min</span>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Downtime</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
+                      {fmt(d.production.downtimeMinutes || 0)} <span className="text-[11px] font-normal text-muted-foreground">min</span>
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Unscheduled stops</span>
+                    <span className="text-[10px] text-muted-foreground">Unscheduled stops</span>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center">
+                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                     <div>
-                      <span className="text-xs text-muted-foreground">Overall Process Yield</span>
-                      <p className="text-lg font-bold text-indigo-600 mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">Overall Process Yield</span>
+                      <p className="text-base font-bold text-indigo-600 mt-0.5 tabular-nums">
                         {d.production.processYieldPercent}%
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground">Average Machine OEE</span>
-                      <p className="text-lg font-bold text-foreground mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">Average Machine OEE</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
                         {d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground">Output Throughput</span>
-                      <p className="text-lg font-bold text-foreground mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">Output Throughput</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
                         {d.production.outputPerHour != null ? `${d.production.outputPerHour}/hr` : '—'}
                       </p>
                     </div>
@@ -1102,11 +1071,11 @@ export function DashboardPage() {
                 </div>
 
                 {d.production.byStage && d.production.byStage.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Stage conversion &amp; yield
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1134,11 +1103,11 @@ export function DashboardPage() {
                 )}
 
                 {d.machines && d.machines.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Machine performance
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1181,11 +1150,11 @@ export function DashboardPage() {
                 )}
 
                 {d.operatorShift && d.operatorShift.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Operator / shift output
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1208,13 +1177,13 @@ export function DashboardPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <span className="text-xs text-muted-foreground">Quick actions:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/production" onClick={() => setActiveKpiModal(null)}>Production Runs →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/machines" onClick={() => setActiveKpiModal(null)}>Machines &amp; OEE →</Link>
                     </Button>
                   </div>
@@ -1223,14 +1192,14 @@ export function DashboardPage() {
             )}
 
             {activeKpiModal === 'finished_goods' && d && (
-              <div className="space-y-6">
-                <DialogHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400">
-                      <PackageCheck className="size-5" />
+              <div className="space-y-3">
+                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400">
+                      <PackageCheck className="size-4" />
                     </div>
                     <div>
-                      <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
+                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
                         Finished Goods &amp; Quality
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
@@ -1240,60 +1209,60 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">FG In Stock</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-teal-600">
-                      {fmt(d.inventory.fgUnits, 0)} <span className="text-xs font-normal text-muted-foreground">units</span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">FG In Stock</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-600">
+                      {fmt(d.inventory.fgUnits, 0)} <span className="text-[11px] font-normal text-muted-foreground">units</span>
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Warehouse inventory</span>
+                    <span className="text-[10px] text-muted-foreground">Warehouse inventory</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">QC Pass Rate</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">QC Pass Rate</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'}
                     </p>
-                    <span className="text-[11px] text-emerald-600 font-medium">Batch quality score</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Batch quality score</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Open Holds</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Open Holds</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {d.quality.openHolds || 0}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Pending inspection</span>
+                    <span className="text-[10px] text-muted-foreground">Pending inspection</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Low Stock SKUs</span>
-                    <p className={cn("mt-1 text-xl font-bold tabular-nums", d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground')}>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Low Stock SKUs</span>
+                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground')}>
                       {d.inventory.lowStockCount || 0}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Below reorder point</span>
+                    <span className="text-[10px] text-muted-foreground">Below reorder point</span>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                     <div>
-                      <span className="text-xs text-muted-foreground">QC checks</span>
-                      <p className="text-lg font-bold text-foreground mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">QC checks</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
                         {fmt(d.quality.checksInRange || 0, 0)}
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground">Good units</span>
-                      <p className="text-lg font-bold text-emerald-600 mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">Good units</span>
+                      <p className="text-base font-bold text-emerald-600 mt-0.5 tabular-nums">
                         {fmt(d.production.unitsGood, 0)}
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground">Rejects</span>
-                      <p className={cn('text-lg font-bold mt-0.5 tabular-nums', d.production.unitsReject > 0 ? 'text-red-600' : 'text-foreground')}>
+                      <span className="text-[10px] text-muted-foreground">Rejects</span>
+                      <p className={cn('text-base font-bold mt-0.5 tabular-nums', d.production.unitsReject > 0 ? 'text-red-600' : 'text-foreground')}>
                         {fmt(d.production.unitsReject, 0)}
                       </p>
                     </div>
                     <div>
-                      <span className="text-xs text-muted-foreground">WIP stock</span>
-                      <p className="text-lg font-bold text-foreground mt-0.5 tabular-nums">
+                      <span className="text-[10px] text-muted-foreground">WIP stock</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
                         {fmt(d.inventory.wipKg || 0)} kg
                       </p>
                     </div>
@@ -1301,11 +1270,11 @@ export function DashboardPage() {
                 </div>
 
                 {d.priceVsCost && d.priceVsCost.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Unit margins by finished product
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1332,11 +1301,11 @@ export function DashboardPage() {
                 )}
 
                 {d.costTruth?.marginRestatement && (
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60 space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Margin restatement
                     </h4>
-                    <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <span className="text-[11px] text-muted-foreground">Recorded</span>
                         <p className="text-base font-bold tabular-nums text-foreground">
@@ -1362,16 +1331,16 @@ export function DashboardPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <span className="text-xs text-muted-foreground">Quick actions:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/production-store?tab=finished_goods" onClick={() => setActiveKpiModal(null)}>FG Store →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/qc" onClick={() => setActiveKpiModal(null)}>Quality Control →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/inventory" onClick={() => setActiveKpiModal(null)}>Inventory →</Link>
                     </Button>
                   </div>
@@ -1380,14 +1349,14 @@ export function DashboardPage() {
             )}
 
             {activeKpiModal === 'sales' && d && (
-              <div className="space-y-6">
-                <DialogHeader className="pb-3 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                      <DollarSign className="size-5" />
+              <div className="space-y-3">
+                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                      <DollarSign className="size-4" />
                     </div>
                     <div>
-                      <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
+                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
                         Sales &amp; Financial Commercials
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
@@ -1397,63 +1366,63 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Gross Revenue</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Gross Revenue</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       ₦{fmt(d.sales.revenue, 0)}
                     </p>
-                    <span className="text-[11px] text-emerald-600 font-medium">Billed sales volume</span>
+                    <span className="text-[10px] text-emerald-600 font-medium">Billed sales volume</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Sales Orders</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sales Orders</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {d.sales.saleCount || 0}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Orders registered</span>
+                    <span className="text-[10px] text-muted-foreground">Orders registered</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Receivables Due</span>
-                    <p className="mt-1 text-xl font-bold tabular-nums text-amber-600">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Receivables Due</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
                       ₦{fmt(d.money.receivables || 0)}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">Customer balances</span>
+                    <span className="text-[10px] text-muted-foreground">Customer balances</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Net Cash Flow</span>
-                    <p className={cn("mt-1 text-xl font-bold tabular-nums", d.money.netCash >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Net Cash Flow</span>
+                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.money.netCash >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                       ₦{fmt(d.money.netCash || 0)}
                     </p>
-                    <span className="text-[11px] text-muted-foreground">In − out</span>
+                    <span className="text-[10px] text-muted-foreground">In − out</span>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Cash &amp; spend breakdown
                   </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="rounded-lg border border-zinc-200/80 p-2.5 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-xs text-muted-foreground">Cash in</span>
-                      <p className="text-base font-bold text-emerald-600 tabular-nums mt-0.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                      <span className="text-[10px] text-muted-foreground">Cash in</span>
+                      <p className="text-sm font-bold text-emerald-600 tabular-nums mt-0.5">
                         ₦{fmt(d.money.cashIn || 0)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2.5 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-xs text-muted-foreground">Cash out</span>
-                      <p className="text-base font-bold text-red-600 tabular-nums mt-0.5">
+                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                      <span className="text-[10px] text-muted-foreground">Cash out</span>
+                      <p className="text-sm font-bold text-red-600 tabular-nums mt-0.5">
                         ₦{fmt(d.money.cashOut || 0)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2.5 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-xs text-muted-foreground">Approved expenses</span>
-                      <p className="text-base font-bold text-foreground tabular-nums mt-0.5">
+                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                      <span className="text-[10px] text-muted-foreground">Approved expenses</span>
+                      <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">
                         ₦{fmt(d.spend.approvedExpenses || 0)}
                       </p>
                     </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2.5 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-xs text-muted-foreground">Wages outstanding</span>
-                      <p className="text-base font-bold text-amber-600 tabular-nums mt-0.5">
+                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                      <span className="text-[10px] text-muted-foreground">Wages outstanding</span>
+                      <p className="text-sm font-bold text-amber-600 tabular-nums mt-0.5">
                         ₦{fmt(d.spend.wagesOutstanding || 0)}
                       </p>
                     </div>
@@ -1461,20 +1430,20 @@ export function DashboardPage() {
                 </div>
 
                 {d.receivables && d.receivables.rows && d.receivables.rows.length > 0 && (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                         Customer receivables ({d.receivables.rows.length})
                       </h4>
                       <Link
                         to="/distributors"
                         onClick={() => setActiveKpiModal(null)}
-                        className="text-xs font-semibold text-teal-600 hover:underline"
+                        className="text-[11px] font-semibold text-teal-600 hover:underline"
                       >
                         All accounts →
                       </Link>
                     </div>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800 max-h-64">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-56">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
                           <tr>
@@ -1504,11 +1473,11 @@ export function DashboardPage() {
                 )}
 
                 {d.trend && d.trend.length > 0 && (
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <div className="space-y-1.5">
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                       Revenue trend
                     </h4>
-                    <div className="overflow-x-auto rounded-xl border border-zinc-200 dark:border-zinc-800">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
@@ -1531,16 +1500,16 @@ export function DashboardPage() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-100 dark:border-zinc-800">
-                  <span className="text-xs text-muted-foreground">Quick actions:</span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/sales" onClick={() => setActiveKpiModal(null)}>Sales Orders →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/distributors" onClick={() => setActiveKpiModal(null)}>Distributor Ledgers →</Link>
                     </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs font-medium" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/expenses" onClick={() => setActiveKpiModal(null)}>Cash &amp; Expenses →</Link>
                     </Button>
                   </div>
@@ -1655,11 +1624,5 @@ function BigStat({
       <span className="text-muted-foreground">{label}</span>
       <span className={cn('font-semibold tabular-nums', danger ? 'text-red-600' : 'text-foreground')}>{value}</span>
     </div>
-  )
-}
-
-function EmptyChart() {
-  return (
-    <div className="flex h-full items-center justify-center text-xs text-muted-foreground">No data available</div>
   )
 }

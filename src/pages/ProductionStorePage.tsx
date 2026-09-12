@@ -19,6 +19,8 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
+import { canAccessNavItem } from '@/components/AppShell'
 import { StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
@@ -154,6 +156,14 @@ function formatTime(raw?: string | null) {
 
 export function ProductionStorePage() {
   const queryClient = useQueryClient()
+  const user = useAuthStore((s) => s.user)
+  const canOpenProduction = canAccessNavItem(user, {
+    to: '/production',
+    label: 'Production',
+    icon: Cpu,
+    menuKey: 'production',
+    permission: 'batch.view',
+  })
   const [search, setSearch] = useState('')
   const [showActiveFloor, setShowActiveFloor] = useState(true)
   const [showFinishedGoods, setShowFinishedGoods] = useState(true)
@@ -452,8 +462,9 @@ export function ProductionStorePage() {
       setIsIssueModalOpen(false)
       setShowActiveFloor(true)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
+      const axiosErr = err as { response?: { data?: { msg?: string; err?: string; errors?: Record<string, string> } } }
       const backendMsg =
+        axiosErr.response?.data?.msg ||
         axiosErr.response?.data?.err ||
         (axiosErr.response?.data?.errors ? Object.values(axiosErr.response.data.errors).join(', ') : null)
       setIssueModalError(backendMsg || 'Failed to issue material to machine.')
@@ -670,21 +681,25 @@ export function ProductionStorePage() {
           </span>
         ),
       },
-      {
-        id: 'link',
-        header: 'Action',
-        cell: () => (
-          <Link
-            to="/production"
-            className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700 hover:text-violet-900 hover:underline"
-          >
-            <span>Production Room</span>
-            <ArrowRight className="size-3" />
-          </Link>
-        ),
-      },
+      ...(canOpenProduction
+        ? [
+            {
+              id: 'link',
+              header: 'Action',
+              cell: () => (
+                <Link
+                  to="/production"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700 hover:text-violet-900 hover:underline"
+                >
+                  <span>Production Room</span>
+                  <ArrowRight className="size-3" />
+                </Link>
+              ),
+            } satisfies ColumnDef<ProductionRunRow>,
+          ]
+        : []),
     ],
-    []
+    [canOpenProduction]
   )
 
   // -------------------------------------------------------------
@@ -1030,12 +1045,14 @@ export function ProductionStorePage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Link
-                  to="/production"
-                  className="text-xs font-bold text-blue-700 hover:underline shrink-0"
-                >
-                  Go to Production →
-                </Link>
+                {canOpenProduction ? (
+                  <Link
+                    to="/production"
+                    className="text-xs font-bold text-blue-700 hover:underline shrink-0"
+                  >
+                    Go to Production →
+                  </Link>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"

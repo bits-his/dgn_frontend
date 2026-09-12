@@ -7,6 +7,13 @@ export type AuthUser = {
   roleCode: string
   employeeId?: number | null
   menuAccess?: string[]
+  outletCustomerId?: number | null
+  outlet?: {
+    id: number
+    code: string
+    name: string
+    kind?: string | null
+  } | null
   permissions: string[]
 }
 

@@ -33,7 +33,9 @@ import { SaleDetailPage } from '@/pages/SaleDetailPage'
 import { SaleInvoicePage, SaleReceiptPage } from '@/pages/SaleDocumentPage'
 import { DistributorsPage } from '@/pages/DistributorsPage'
 import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
+import { RecordOutletSalePage } from '@/pages/RecordOutletSalePage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
+import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LabourPage } from '@/pages/LabourPage'
 import { PayrollPage } from '@/pages/PayrollPage'
@@ -41,6 +43,7 @@ import { OverheadPage } from '@/pages/OverheadPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { useAuthStore } from '@/stores/auth-store'
+import { installClearZeroOnNumberFocus } from '@/lib/clearZeroOnFocus'
 
 function ProductionRunRedirect() {
   const { id } = useParams()
@@ -79,10 +82,12 @@ function App() {
     document.addEventListener('visibilitychange', handleActive)
     window.addEventListener('pageshow', handleActive)
     window.addEventListener('focus', handleActive)
+    const uninstallClearZero = installClearZeroOnNumberFocus()
     return () => {
       document.removeEventListener('visibilitychange', handleActive)
       window.removeEventListener('pageshow', handleActive)
       window.removeEventListener('focus', handleActive)
+      uninstallClearZero()
     }
   }, [])
 
@@ -124,9 +129,12 @@ function App() {
                 <Route path="/sales/:saleNumber" element={<SaleDetailPage />} />
                 <Route path="/distributors" element={<DistributorsPage />} />
                 <Route path="/distributors/:code" element={<DistributorDetailPage />} />
+                <Route path="/shop/sales/new" element={<RecordOutletSalePage />} />
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />
+                <Route path="/processing-money/:userId" element={<ProcessingMoneyPage />} />
+                <Route path="/processing-money" element={<ProcessingMoneyPage />} />
                 <Route path="/staff" element={<LabourPage />} />
                 <Route path="/labour" element={<Navigate to="/staff" replace />} />
                 <Route path="/payroll" element={<PayrollPage />} />
