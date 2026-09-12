@@ -24,6 +24,7 @@ export interface SearchableSelectProps {
   allowClear?: boolean
   emptyMessage?: string
   id?: string
+  onOpenChange?: (open: boolean) => void
 }
 
 export function SearchableSelect({
@@ -40,6 +41,7 @@ export function SearchableSelect({
   allowClear = true,
   emptyMessage = 'No options found.',
   id,
+  onOpenChange,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
@@ -67,11 +69,12 @@ export function SearchableSelect({
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
         setQuery('')
+        onOpenChange?.(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
+  }, [open, onOpenChange])
 
   // Close on Escape
   React.useEffect(() => {
@@ -80,16 +83,18 @@ export function SearchableSelect({
       if (e.key === 'Escape') {
         setOpen(false)
         setQuery('')
+        onOpenChange?.(false)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  }, [open, onOpenChange])
 
   const handleToggle = () => {
     if (disabled) return
     const next = !open
     setOpen(next)
+    onOpenChange?.(next)
     if (next) {
       setTimeout(() => searchInputRef.current?.focus(), 60)
     } else {
@@ -101,6 +106,7 @@ export function SearchableSelect({
     onChange(val)
     setOpen(false)
     setQuery('')
+    onOpenChange?.(false)
   }
 
   const handleClear = (e: React.MouseEvent) => {

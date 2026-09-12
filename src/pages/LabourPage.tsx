@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Save, UserPlus, Search, Pencil, Trash2 } from 'lucide-react'
+import { Save, UserPlus, Search, Pencil, Trash2, Eye } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -177,18 +178,23 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
-export function LabourPage() {
+export function LabourPage({ directory = 'staff' }: { directory?: 'staff' | 'operators' }) {
   const user = useAuthStore((s) => s.user)
   const canManage = hasPermission(user, 'labour.manage')
   const canAccess =
     hasPermission(user, 'labour.manage') || hasPermission(user, 'users.manage')
+  const isOperators = directory === 'operators'
   const [tab, setTab] = useState<'people' | 'sheet'>('people')
   const [addingStaff, setAddingStaff] = useState(false)
 
   return (
     <PageLayout
-      title="Staff & Workforce"
-      description="Workforce directory, shift rosters, attendance, and login access"
+      title={isOperators ? 'Operators' : 'Staff & Workforce'}
+      description={
+        isOperators
+          ? 'Floor operators for crushing, re-crushing and production. They do not have login access.'
+          : 'Workforce directory, shift rosters, attendance, and login access'
+      }
       actions={
         tab === 'people' && canManage ? (
           <Button
@@ -197,13 +203,13 @@ export function LabourPage() {
             onClick={() => setAddingStaff(true)}
           >
             <UserPlus className="size-3.5" />
-            Add staff
+            {isOperators ? 'Add operator' : 'Add staff'}
           </Button>
         ) : null
       }
     >
       <div className="space-y-4">
-        {/* Navigation select or segmented pills */}
+        {!isOperators && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="w-full sm:w-60">
             <Select value={tab} onValueChange={(val) => setTab(val as 'people' | 'sheet')}>
@@ -217,13 +223,15 @@ export function LabourPage() {
             </Select>
           </div>
         </div>
+        )}
 
-        {tab === 'sheet' ? (
+        {tab === 'sheet' && !isOperators ? (
           <AttendanceSheet canManage={canManage} />
         ) : (
           <Workforce
+            directory={directory}
             canManage={canManage}
-            canAccess={canAccess}
+            canAccess={canAccess && !isOperators}
             adding={addingStaff}
             setAdding={setAddingStaff}
           />
@@ -566,16 +574,20 @@ function AttendanceSheet({ canManage }: { canManage: boolean }) {
 }
 
 function Workforce({
+  directory = 'staff',
   canManage,
   canAccess,
   adding,
   setAdding,
 }: {
+  directory?: 'staff' | 'operators'
   canManage: boolean
   canAccess: boolean
   adding: boolean
   setAdding: (open: boolean) => void
 }) {
+  const isOperators = directory === 'operators'
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [accessFor, setAccessFor] = useState<Employee | null>(null)
   const [shiftFor, setShiftFor] = useState<Employee | null>(null)
@@ -637,7 +649,9 @@ function Workforce({
   }
 
   const filtered = useMemo(() => {
-    const list = employees.data?.rows ?? []
+    const list = (employees.data?.rows ?? []).filter((e) =>
+      isOperators ? !e.access : Boolean(e.access),
+    )
     if (!search.trim()) return list
     const q = search.trim().toLowerCase()
     return list.filter(
@@ -646,16 +660,26 @@ function Workforce({
         (e.department && e.department.toLowerCase().includes(q)) ||
         (e.designation && e.designation.toLowerCase().includes(q))
     )
-  }, [employees.data?.rows, search])
+  }, [employees.data?.rows, search, isOperators])
 
   const columns = useMemo<ColumnDef<Employee>[]>(
-    () => [
+    () => {
+      const all: ColumnDef<Employee>[] = [
       {
         accessorKey: 'name',
-        header: 'Staff Member',
+        header: isOperators ? 'Operator' : 'Staff Member',
         cell: ({ row }) => (
           <div>
-            <p className="font-semibold text-xs text-zinc-900">{row.original.name}</p>
+            {isOperators ? (
+              <Link
+                to={`/operators/${row.original.id}`}
+                className="font-semibold text-xs text-zinc-900 hover:underline"
+              >
+                {row.original.name}
+              </Link>
+            ) : (
+              <p className="font-semibold text-xs text-zinc-900">{row.original.name}</p>
+            )}
           </div>
         ),
       },
@@ -764,6 +788,17 @@ function Workforce({
         header: '',
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1.5">
+            {isOperators && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs font-semibold"
+                onClick={() => navigate(`/operators/${row.original.id}`)}
+              >
+                <Eye className="size-3 mr-1" />
+                View
+              </Button>
+            )}
             {canManage && (
               <Button
                 variant="outline"
@@ -802,8 +837,11 @@ function Workforce({
           </div>
         ),
       },
-    ],
-    [canManage, canAccess]
+    ]
+    if (!isOperators) return all
+    return all.filter((col) => !['access', 'shift', 'pay', 'department'].includes(String(col.id || col.accessorKey)))
+  },
+    [canManage, canAccess, isOperators, navigate]
   )
 
   return (
@@ -814,13 +852,14 @@ function Workforce({
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
           <Input
             className="pl-8 h-8 text-xs w-full"
-            placeholder="Search name, department…"
+            placeholder={isOperators ? 'Search name…' : 'Search name, department…'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="text-xs text-zinc-500 self-end sm:self-center">
-          {filtered.length} staff member{filtered.length === 1 ? '' : 's'}
+        {filtered.length} {isOperators ? 'operator' : 'staff member'}
+        {filtered.length === 1 ? '' : 's'}
         </div>
       </div>
 
@@ -834,15 +873,18 @@ function Workforce({
 
       {/* Add Staff Dialog */}
       <Dialog open={adding} onOpenChange={setAdding}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`${isOperators ? 'max-w-md' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto`}>
           <DialogHeader>
-            <DialogTitle>Add staff member</DialogTitle>
+            <DialogTitle>{isOperators ? 'Add operator' : 'Add staff member'}</DialogTitle>
             <DialogDescription>
-              Register a new worker, configure their compensation structure and assign work shifts.
+              {isOperators
+                ? 'Enter the operator’s name. Role is Operator. They cannot log in.'
+                : 'Register a staff member, then give them login access so they can use the app.'}
             </DialogDescription>
           </DialogHeader>
 
           <NewEmployeeForm
+            kind={directory}
             payTypes={employees.data?.payTypes ?? []}
             employmentTypes={employees.data?.employmentTypes ?? []}
             shifts={employees.data?.shifts ?? []}
@@ -917,15 +959,20 @@ function Workforce({
       {/* Edit Staff Dialog */}
       {editStaff && (
         <Dialog open={Boolean(editStaff)} onOpenChange={(open) => !open && setEditStaff(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className={`${isOperators ? 'max-w-md' : 'max-w-2xl'} max-h-[90vh] overflow-y-auto`}>
             <DialogHeader>
-              <DialogTitle>Edit staff member · {editStaff.name}</DialogTitle>
+              <DialogTitle>
+                {isOperators ? 'Edit operator' : 'Edit staff member'} · {editStaff.name}
+              </DialogTitle>
               <DialogDescription>
-                Update employee personal details, department, pay type, salary rate, and assigned shifts.
+                {isOperators
+                  ? 'Update the operator’s first name and surname.'
+                  : 'Update employee personal details, department, pay type, salary rate, and assigned shifts.'}
               </DialogDescription>
             </DialogHeader>
 
             <EditEmployeeForm
+              kind={directory}
               employee={editStaff}
               payTypes={employees.data?.payTypes ?? []}
               employmentTypes={employees.data?.employmentTypes ?? []}
@@ -949,7 +996,7 @@ function Workforce({
             <DialogHeader>
               <DialogTitle className="text-red-600 flex items-center gap-2">
                 <Trash2 className="size-4" />
-                Delete Staff Member
+                Delete {isOperators ? 'Operator' : 'Staff Member'}
               </DialogTitle>
               <DialogDescription>
                 Are you sure you want to delete <strong className="text-zinc-900">{deletingStaff.name}</strong>?
@@ -1000,7 +1047,7 @@ function Workforce({
                 disabled={isDeleting}
                 onClick={handleDeleteStaff}
               >
-                {isDeleting ? 'Deleting…' : 'Delete staff member'}
+        {isDeleting ? 'Deleting…' : isOperators ? 'Delete operator' : 'Delete staff member'}
               </Button>
             </div>
           </DialogContent>
@@ -1335,22 +1382,25 @@ function ShiftPanelForm({
 }
 
 function NewEmployeeForm({
+  kind = 'staff',
   payTypes,
   employmentTypes,
   shifts,
   onSaved,
 }: {
+  kind?: 'staff' | 'operators'
   payTypes: string[]
   employmentTypes: string[]
   shifts: ShiftOption[]
   onSaved: () => void
 }) {
+  const isOperators = kind === 'operators'
   const [form, setForm] = useState({
     firstname: '',
     lastname: '',
     phone: '',
     department: 'Production',
-    designation: 'Worker',
+    designation: isOperators ? 'Operator' : 'Worker',
     employmentType: 'PERMANENT',
     payType: 'DAILY',
     payRate: '',
@@ -1371,15 +1421,29 @@ function NewEmployeeForm({
       .filter((key) => selectedShifts[Number(key)])
       .map(Number)
     try {
-      await api.post('/labour/employees', {
-        ...form,
-        firstname: form.firstname.trim(),
-        lastname: form.lastname.trim(),
-        phone: form.phone.trim() || null,
-        payRate: form.payRate ? Number(form.payRate) : 0,
-        overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
-        shiftIds,
-      })
+      await api.post('/labour/employees', isOperators
+        ? {
+            firstname: form.firstname.trim(),
+            lastname: form.lastname.trim(),
+            designation: 'Operator',
+            roleType: 'OPERATOR',
+            department: 'Production',
+            employmentType: 'PERMANENT',
+            payType: 'DAILY',
+            payRate: 0,
+            overtimeRate: 0,
+          }
+        : {
+            ...form,
+            firstname: form.firstname.trim(),
+            lastname: form.lastname.trim(),
+            phone: form.phone.trim() || null,
+            designation: form.designation,
+            roleType: form.designation,
+            payRate: form.payRate ? Number(form.payRate) : 0,
+            overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
+            shiftIds,
+          })
       onSaved()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
@@ -1395,7 +1459,7 @@ function NewEmployeeForm({
 
   return (
     <form onSubmit={submit} className="space-y-4 mt-2">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${isOperators ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
         <div>
           <Label className="text-xs mb-1 block">First name</Label>
           <Input className="h-8 text-xs" required value={form.firstname} onChange={set('firstname')} />
@@ -1404,6 +1468,8 @@ function NewEmployeeForm({
           <Label className="text-xs mb-1 block">Surname</Label>
           <Input className="h-8 text-xs" required value={form.lastname} onChange={set('lastname')} />
         </div>
+        {!isOperators && (
+          <>
         <div>
           <Label className="text-xs mb-1 block">Phone</Label>
           <Input className="h-8 text-xs" value={form.phone} onChange={set('phone')} />
@@ -1503,8 +1569,11 @@ function NewEmployeeForm({
             onChange={set('overtimeRate')}
           />
         </div>
+          </>
+        )}
       </div>
 
+      {!isOperators && (
       <div className="pt-2 border-t border-zinc-100">
         <p className="text-xs font-semibold text-zinc-900 mb-1">Assigned shifts</p>
         <p className="text-[11px] text-zinc-500 mb-2">
@@ -1529,6 +1598,7 @@ function NewEmployeeForm({
           ))}
         </div>
       </div>
+      )}
 
       {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
 
@@ -1543,7 +1613,7 @@ function NewEmployeeForm({
             !form.lastname
           }
         >
-          {saving ? 'Saving…' : 'Save staff member'}
+          {saving ? 'Saving…' : isOperators ? 'Save operator' : 'Save staff member'}
         </Button>
       </div>
     </form>
@@ -1551,6 +1621,7 @@ function NewEmployeeForm({
 }
 
 function EditEmployeeForm({
+  kind = 'staff',
   employee,
   payTypes,
   employmentTypes,
@@ -1558,6 +1629,7 @@ function EditEmployeeForm({
   onClose,
   onSaved,
 }: {
+  kind?: 'staff' | 'operators'
   employee: Employee
   payTypes: string[]
   employmentTypes: string[]
@@ -1565,6 +1637,7 @@ function EditEmployeeForm({
   onClose: () => void
   onSaved: () => void
 }) {
+  const isOperators = kind === 'operators'
   const nameParts = (employee.name || '').trim().split(' ')
   const defaultFirst = employee.firstname || nameParts[0] || ''
   const defaultLast = employee.lastname || nameParts.slice(1).join(' ') || ''
@@ -1604,19 +1677,34 @@ function EditEmployeeForm({
       .filter((key) => selectedShifts[Number(key)])
       .map(Number)
     try {
-      await api.patch(`/labour/employees/${employee.id}`, {
-        firstname: form.firstname.trim(),
-        lastname: form.lastname.trim(),
-        phone: form.phone.trim() || null,
-        department: form.department,
-        designation: form.designation,
-        employmentType: form.employmentType,
-        payType: form.payType,
-        payRate: form.payRate ? Number(form.payRate) : 0,
-        overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
-        isActive: form.isActive,
-        shiftIds,
-      })
+      await api.patch(
+        `/labour/employees/${employee.id}`,
+        isOperators
+          ? {
+              firstname: form.firstname.trim(),
+              lastname: form.lastname.trim(),
+              designation: 'Operator',
+              roleType: 'OPERATOR',
+              isActive: form.isActive,
+            }
+          : {
+              firstname: form.firstname.trim(),
+              lastname: form.lastname.trim(),
+              phone: form.phone.trim() || null,
+              department: form.department,
+              designation: form.designation,
+              roleType:
+                employee.roleType === 'OPERATOR' || form.designation === 'Operator'
+                  ? 'OPERATOR'
+                  : form.designation,
+              employmentType: form.employmentType,
+              payType: form.payType,
+              payRate: form.payRate ? Number(form.payRate) : 0,
+              overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
+              isActive: form.isActive,
+              shiftIds,
+            },
+      )
       onSaved()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
@@ -1632,7 +1720,7 @@ function EditEmployeeForm({
 
   return (
     <form onSubmit={submit} className="space-y-4 mt-2">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${isOperators ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
         <div>
           <Label className="text-xs mb-1 block">First name</Label>
           <Input className="h-8 text-xs" required value={form.firstname} onChange={set('firstname')} />
@@ -1641,6 +1729,8 @@ function EditEmployeeForm({
           <Label className="text-xs mb-1 block">Surname</Label>
           <Input className="h-8 text-xs" required value={form.lastname} onChange={set('lastname')} />
         </div>
+        {!isOperators && (
+          <>
         <div>
           <Label className="text-xs mb-1 block">Phone</Label>
           <Input className="h-8 text-xs" value={form.phone} onChange={set('phone')} />
@@ -1740,7 +1830,9 @@ function EditEmployeeForm({
             onChange={set('overtimeRate')}
           />
         </div>
-        <div className="flex items-center gap-2 pt-6">
+          </>
+        )}
+        <div className={`flex items-center gap-2 ${isOperators ? 'pt-2 sm:col-span-2' : 'pt-6'}`}>
           <input
             type="checkbox"
             id="editActive"
@@ -1749,11 +1841,12 @@ function EditEmployeeForm({
             onChange={(e) => setForm((prev) => ({ ...prev, isActive: e.target.checked }))}
           />
           <Label htmlFor="editActive" className="text-xs cursor-pointer">
-            Employee is active
+            {isOperators ? 'Operator is active' : 'Employee is active'}
           </Label>
         </div>
       </div>
 
+      {!isOperators && (
       <div className="pt-2 border-t border-zinc-100">
         <p className="text-xs font-semibold text-zinc-900 mb-1">Assigned shifts</p>
         <p className="text-[11px] text-zinc-500 mb-2">
@@ -1778,6 +1871,7 @@ function EditEmployeeForm({
           ))}
         </div>
       </div>
+      )}
 
       {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
 

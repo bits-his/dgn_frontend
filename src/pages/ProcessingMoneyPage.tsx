@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { ArrowDownLeft, ArrowUpRight, Banknote, Plus, Undo2 } from 'lucide-react'
+import { HideMoneyButton } from '@/components/HideMoneyButton'
+import { useHideMoney } from '@/hooks/useHideMoney'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -74,6 +76,7 @@ export function ProcessingMoneyPage() {
   const queryClient = useQueryClient()
   const canGive = hasPermission(user, 'float.give') || user?.roleCode === 'ADMIN'
   const selectedId = userId ? Number(userId) : null
+  const { maskMoney } = useHideMoney()
 
   const listQuery = useQuery({
     queryKey: ['processing-wallets'],
@@ -176,23 +179,25 @@ export function ProcessingMoneyPage() {
       {
         accessorKey: 'given',
         header: 'Given',
-        cell: ({ row }) => <span className="tabular-nums text-xs">{money(row.original.given)}</span>,
+        cell: ({ row }) => <span className="tabular-nums text-xs">{maskMoney(money(row.original.given))}</span>,
       },
       {
         accessorKey: 'spent',
         header: 'Spent',
-        cell: ({ row }) => <span className="tabular-nums text-xs">{money(row.original.spent)}</span>,
+        cell: ({ row }) => <span className="tabular-nums text-xs">{maskMoney(money(row.original.spent))}</span>,
       },
       {
         accessorKey: 'returned',
         header: 'Returned',
-        cell: ({ row }) => <span className="tabular-nums text-xs">{money(row.original.returned)}</span>,
+        cell: ({ row }) => <span className="tabular-nums text-xs">{maskMoney(money(row.original.returned))}</span>,
       },
       {
         accessorKey: 'remaining',
         header: 'Remaining',
         cell: ({ row }) => (
-          <span className="font-semibold tabular-nums text-xs text-emerald-700">{money(row.original.remaining)}</span>
+          <span className="font-semibold tabular-nums text-xs text-emerald-700">
+            {maskMoney(money(row.original.remaining))}
+          </span>
         ),
       },
       {
@@ -212,7 +217,7 @@ export function ProcessingMoneyPage() {
         ),
       },
     ],
-    [navigate],
+    [navigate, maskMoney],
   )
 
   const txnColumns = useMemo<ColumnDef<WalletTxn>[]>(
@@ -254,13 +259,15 @@ export function ProcessingMoneyPage() {
         accessorKey: 'amount',
         header: 'Amount',
         cell: ({ row }) => (
-          <span className="tabular-nums text-xs font-semibold">{money(row.original.amount)}</span>
+          <span className="tabular-nums text-xs font-semibold">{maskMoney(money(row.original.amount))}</span>
         ),
       },
       {
         accessorKey: 'balanceAfter',
         header: 'Balance after',
-        cell: ({ row }) => <span className="tabular-nums text-xs">{money(row.original.balanceAfter)}</span>,
+        cell: ({ row }) => (
+          <span className="tabular-nums text-xs">{maskMoney(money(row.original.balanceAfter))}</span>
+        ),
       },
       {
         accessorKey: 'createdByName',
@@ -268,7 +275,7 @@ export function ProcessingMoneyPage() {
         cell: ({ row }) => <span className="text-xs text-zinc-600">{row.original.createdByName}</span>,
       },
     ],
-    [],
+    [maskMoney],
   )
 
   const holderOptions = (holdersQuery.data || []).map((h) => ({
@@ -291,7 +298,8 @@ export function ProcessingMoneyPage() {
       back={Boolean(selectedId) && !isOwnScope}
       backTo="/processing-money"
       actions={
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <HideMoneyButton />
           {canGive && (
             <Button
               type="button"
@@ -349,16 +357,16 @@ export function ProcessingMoneyPage() {
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:col-span-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Remaining</p>
               <p className="mt-1 text-2xl font-bold tabular-nums text-emerald-950">
-                {money(detail?.remaining || 0)}
+                {maskMoney(money(detail?.remaining || 0))}
               </p>
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Given</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{money(detail?.given || 0)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{maskMoney(money(detail?.given || 0))}</p>
             </div>
             <div className="rounded-2xl border border-zinc-200 bg-white p-4">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Spent</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums">{money(detail?.spent || 0)}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{maskMoney(money(detail?.spent || 0))}</p>
             </div>
           </div>
           <CustomTable1 data={txns} columns={txnColumns} loading={detailQuery.isLoading} card />

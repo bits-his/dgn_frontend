@@ -16,6 +16,7 @@ import {
   Receipt,
   Banknote,
   Users,
+  HardHat,
   Wallet,
   LayoutDashboard,
   Gauge,
@@ -26,6 +27,8 @@ import {
   CheckCircle2,
   Bell,
   ArrowRight,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -35,6 +38,11 @@ import { hasPermission } from '@/lib/auth'
 import { canAccessNavItem } from '@/components/AppShell'
 import { cn } from '@/lib/utils'
 import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
+import { useHideMoney } from '@/hooks/useHideMoney'
+
+function money(n: number) {
+  return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+}
 
 type BatchRow = {
   id: number
@@ -210,6 +218,15 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     permission: 'labour.view',
   },
   {
+    to: '/operators',
+    title: 'Operators',
+    desc: 'Floor operators for crushing, re-crushing and production — no login',
+    icon: HardHat,
+    tone: 'bg-stone-700 text-white',
+    menuKey: 'operators',
+    permission: 'labour.view',
+  },
+  {
     to: '/payroll',
     title: 'Payroll & Wages',
     desc: 'Worker wage sheets & disbursements',
@@ -281,6 +298,7 @@ function qcQueueQty(item: QcQueueItem) {
 
 export function StaffDashboard() {
   const user = useAuthStore((s) => s.user)
+  const { hidden: hideMoney, toggle: toggleHideMoney, maskMoney } = useHideMoney()
 
   const canBatchView = hasPermission(user, 'batch.view')
   const canQcInspect = hasPermission(user, 'qc.inspect')
@@ -347,6 +365,20 @@ export function StaffDashboard() {
     refetchInterval: 60_000,
   })
 
+  const walletQuery = useQuery({
+    queryKey: ['processing-wallet-me'],
+    queryFn: async () => {
+      const { data } = await api.get('/processing-wallets/me')
+      return data as {
+        hasWallet?: boolean
+        data?: { remaining?: number; given?: number; spent?: number; returned?: number }
+      }
+    },
+    refetchInterval: 30_000,
+  })
+  const hasWallet = Boolean(walletQuery.data?.hasWallet)
+  const wallet = walletQuery.data?.data
+
   // Calculate batch metrics
   const batchList = batchesQuery.data || []
   const activeBatchesCount = batchList.filter((b) => b.status === 'IN_PROGRESS' || b.status === 'OPEN').length
@@ -392,6 +424,51 @@ export function StaffDashboard() {
 
       {/* Role-Specific Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        {hasWallet && (
+          <Card className="col-span-2 p-2 sm:p-4 bg-white dark:bg-zinc-900 border-emerald-200/80">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
+                Processing money
+              </span>
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={toggleHideMoney}
+                  className="inline-flex size-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                  aria-label={hideMoney ? 'Show balances' : 'Hide balances'}
+                  title={hideMoney ? 'Show balances' : 'Hide balances'}
+                >
+                  {hideMoney ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+                <Banknote className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
+              </div>
+            </div>
+            <p className="mt-1 sm:mt-2 text-base sm:text-2xl font-bold tracking-tight tabular-nums text-emerald-800 truncate">
+              {maskMoney(money(wallet?.remaining || 0))}
+            </p>
+            <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">
+              Remaining
+              {hideMoney
+                ? ''
+                : ` · given ${money(wallet?.given || 0)} · spent ${money(wallet?.spent || 0)}`}
+            </p>
+            {canAccessNavItem(user, {
+              to: '/processing-money',
+              label: 'Processing money',
+              icon: Banknote,
+              menuKey: 'processing_money',
+              permission: 'float.spend',
+            }) && (
+              <Link
+                to="/processing-money"
+                className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-semibold text-emerald-800 hover:underline"
+              >
+                Open wallet <ArrowRight className="size-3" />
+              </Link>
+            )}
+          </Card>
+        )}
+
         {canBatchView && (
           <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
             <div className="flex items-center justify-between gap-1">

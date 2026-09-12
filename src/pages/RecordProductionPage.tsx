@@ -10,13 +10,14 @@ import {
   AlertTriangle,
   UserCheck,
   History,
-  Users,
   Check,
   Factory,
   Plus,
   Pencil,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useOperators } from '@/lib/useOperators'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,16 +70,6 @@ export type FaultLogItem = {
   actionTaken: string | null
   createdAt: string
   shift?: { id: number; name: string }
-}
-
-type EmployeeItem = {
-  id: number
-  firstname: string
-  lastname?: string
-  employeeCode?: string
-  department?: string
-  designation?: string
-  isActive?: boolean
 }
 
 type ShiftItem = {
@@ -158,7 +149,14 @@ function fmt(value: string | number | null | undefined, digits = 0) {
     : String(value)
 }
 
-function getCurrentTimeString(date = new Date()): string {
+function toHhMm(value?: string | null) {
+  if (!value) return ''
+  const match = String(value).match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return ''
+  return `${String(match[1]).padStart(2, '0')}:${match[2]}`
+}
+
+function getCurrentTimeString(date = new Date()) {
   const h = String(date.getHours()).padStart(2, '0')
   const m = String(date.getMinutes()).padStart(2, '0')
   return `${h}:${m}`
@@ -244,38 +242,56 @@ export function RecordProductionPage() {
     },
   })
 
-  const employeesQuery = useQuery({
-    queryKey: ['employees'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/employees')
-      return (data.data || []) as EmployeeItem[]
-    },
-  })
+  const operatorsQuery = useOperators()
+  const operatorOptions = useMemo(
+    () =>
+      (operatorsQuery.data || []).map((emp) => {
+        const name =
+          `${emp.firstname || ''} ${emp.lastname || ''}`.trim() ||
+          emp.employeeCode ||
+          `Operator ${emp.id}`
+        return {
+          value: String(emp.id),
+          label: name,
+          sublabel: emp.employeeCode ? `Code: ${emp.employeeCode}` : undefined,
+        }
+      }),
+    [operatorsQuery.data],
+  )
 
   const runDetail = scorecardQuery.data?.run || runsQuery.data?.find((r) => String(r.id) === selectedRunId)
   const isRunActive = runDetail?.batch?.status === 'IN_PROGRESS'
   const activeShift = scorecardQuery.data?.shiftLogs?.find((s: ShiftLogItem) => s.status === 'ACTIVE')
 
   // Clock In State
-  const [clockInOperatorType, setClockInOperatorType] = useState<'SELECT' | 'CUSTOM'>('SELECT')
   const [clockInEmployeeId, setClockInEmployeeId] = useState<string>('')
-  const [clockInCustomName, setClockInCustomName] = useState<string>('')
   const [clockInShiftId, setClockInShiftId] = useState<string>('')
   const [clockInTime, setClockInTime] = useState<string>(getCurrentTimeString())
   const [isClockingIn, setIsClockingIn] = useState(false)
   const [clockInError, setClockInError] = useState('')
   const [clockInSuccess, setClockInSuccess] = useState('')
 
+  const applyShiftClockTimes = (shiftId: string) => {
+    const shift = shiftsQuery.data?.find((s) => String(s.id) === String(shiftId))
+    if (!shift) return
+    const start = toHhMm(shift.startTime)
+    const end = toHhMm(shift.endTime)
+    if (start) setClockInTime(start)
+    if (end) setOutputClockOutTime(end)
+  }
+
   useEffect(() => {
     if (shiftsQuery.data && shiftsQuery.data.length > 0 && !clockInShiftId) {
-      setClockInShiftId(String(shiftsQuery.data[0].id))
+      const first = String(shiftsQuery.data[0].id)
+      setClockInShiftId(first)
+      applyShiftClockTimes(first)
     }
   }, [shiftsQuery.data, clockInShiftId])
 
   // Shift Output State
   const [outputGoodDozen, setOutputGoodDozen] = useState('')
   const [outputGoodPcs, setOutputGoodPcs] = useState('')
-  const [outputRejectPcs, setOutputRejectPcs] = useState('0')
+  const [outputRejectKg, setOutputRejectKg] = useState('0')
   const [outputMaterialKg, setOutputMaterialKg] = useState('')
   const [outputNotes, setOutputNotes] = useState('')
   const [outputClockOutTime, setOutputClockOutTime] = useState<string>(getCurrentTimeString())
@@ -284,8 +300,13 @@ export function RecordProductionPage() {
   const [outputSuccess, setOutputSuccess] = useState('')
 
   useEffect(() => {
-    setOutputClockOutTime(getCurrentTimeString())
-  }, [activeShift])
+    if (!activeShift) return
+    const shift =
+      shiftsQuery.data?.find((s) => s.id === activeShift.shiftId) ||
+      shiftsQuery.data?.find((s) => s.id === Number(clockInShiftId))
+    const end = toHhMm(shift?.endTime)
+    setOutputClockOutTime(end || getCurrentTimeString())
+  }, [activeShift, activeShift?.shiftId, shiftsQuery.data, clockInShiftId])
 
   // Automatically calculate net operating runtime from clock-in to clock-out minus shift downtime
   const calculatedShiftMinutes = useMemo(() => {
@@ -324,7 +345,7 @@ export function RecordProductionPage() {
 
   const [editingShift, setEditingShift] = useState<ShiftLogItem | null>(null)
   const [editShiftId, setEditShiftId] = useState('')
-  const [editOperatorName, setEditOperatorName] = useState('')
+  const [editOperatorId, setEditOperatorId] = useState('')
   const [editClockIn, setEditClockIn] = useState('')
   const [editClockOut, setEditClockOut] = useState('')
   const [editGood, setEditGood] = useState('')
@@ -363,23 +384,13 @@ export function RecordProductionPage() {
     e.preventDefault()
     if (!selectedRunId) return
 
-    let finalName = ''
-    let empId: number | null = null
-    if (clockInOperatorType === 'SELECT') {
-      const emp = employeesQuery.data?.find((e) => String(e.id) === clockInEmployeeId)
-      if (!emp) {
-        setClockInError('Please select an employee or switch to manual entry')
-        return
-      }
-      finalName = `${emp.firstname} ${emp.lastname || ''}`.trim()
-      empId = emp.id
-    } else {
-      finalName = clockInCustomName.trim()
-      if (!finalName) {
-        setClockInError('Please enter operator name')
-        return
-      }
+    const emp = operatorsQuery.data?.find((e) => String(e.id) === clockInEmployeeId)
+    if (!emp) {
+      setClockInError('Select an operator from the list')
+      return
     }
+    const finalName = `${emp.firstname} ${emp.lastname || ''}`.trim()
+    const empId = emp.id
 
     setIsClockingIn(true)
     setClockInError('')
@@ -400,7 +411,7 @@ export function RecordProductionPage() {
       await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
       setClockInSuccess(`${finalName} clocked in successfully!`)
-      setClockInCustomName('')
+      setClockInEmployeeId('')
       setTimeout(() => setClockInSuccess(''), 3000)
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
@@ -418,7 +429,7 @@ export function RecordProductionPage() {
     const dozen = Number(outputGoodDozen || 0)
     const pieces = Number(outputGoodPcs || 0)
     const totalGood = dozen * 12 + pieces
-    const reject = Number(outputRejectPcs || 0)
+    const rejectKg = Number(outputRejectKg || 0)
     const runtime = calculatedShiftMinutes
 
     if (totalGood < 0) {
@@ -438,7 +449,7 @@ export function RecordProductionPage() {
       await api.post(`/production/runs/${selectedRunId}/shift-logout`, {
         shiftLogId: activeShift.id,
         qtyGood: totalGood,
-        qtyReject: reject,
+        qtyReject: rejectKg,
         runtimeMinutes: runtime,
         materialConsumed: outputMaterialKg ? Number(outputMaterialKg) : undefined,
         handoverNotes: outputNotes.trim() || undefined,
@@ -452,7 +463,7 @@ export function RecordProductionPage() {
       setOutputSuccess(`Shift output recorded! ${totalGood} pcs deposited into FG Store inventory.`)
       setOutputGoodDozen('')
       setOutputGoodPcs('')
-      setOutputRejectPcs('0')
+      setOutputRejectKg('0')
       setOutputMaterialKg('')
       setOutputNotes('')
       setTimeout(() => setOutputSuccess(''), 4000)
@@ -507,7 +518,12 @@ export function RecordProductionPage() {
   const openEditShift = (shift: ShiftLogItem) => {
     setEditingShift(shift)
     setEditShiftId(shift.shiftId ? String(shift.shiftId) : '')
-    setEditOperatorName(shift.operatorName || '')
+    const matched =
+      (shift.operatorId && operatorsQuery.data?.find((e) => e.id === shift.operatorId)) ||
+      operatorsQuery.data?.find(
+        (e) => `${e.firstname} ${e.lastname || ''}`.trim() === (shift.operatorName || '').trim(),
+      )
+    setEditOperatorId(matched ? String(matched.id) : shift.operatorId ? String(shift.operatorId) : '')
     setEditClockIn(getCurrentTimeString(new Date(shift.clockInAt)))
     setEditClockOut(shift.clockOutAt ? getCurrentTimeString(new Date(shift.clockOutAt)) : '')
     setEditGood(String(Number(shift.qtyGood || 0)))
@@ -519,8 +535,9 @@ export function RecordProductionPage() {
   const handleSaveEditShift = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedRunId || !editingShift) return
-    if (!editOperatorName.trim()) {
-      setEditError('Operator name is required')
+    const emp = operatorsQuery.data?.find((e) => String(e.id) === editOperatorId)
+    if (!emp) {
+      setEditError('Select an operator from the list')
       return
     }
     setIsSavingShift(true)
@@ -528,7 +545,8 @@ export function RecordProductionPage() {
     try {
       await api.patch(`/production/runs/${selectedRunId}/shift-logs/${editingShift.id}`, {
         shiftId: editShiftId ? Number(editShiftId) : null,
-        operatorName: editOperatorName.trim(),
+        operatorName: `${emp.firstname} ${emp.lastname || ''}`.trim(),
+        operatorId: emp.id,
         clockInTime: editClockIn || undefined,
         clockOutTime: editingShift.status === 'COMPLETED' ? editClockOut || undefined : undefined,
         qtyGood: Number(editGood || 0),
@@ -555,15 +573,14 @@ export function RecordProductionPage() {
     setFinalizeError('')
     try {
       const totalGood = Number(scorecardQuery.data?.totals?.totalGood || runDetail.qtyGood || 0)
-      const totalReject = Number(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)
-      const totalProduced = totalGood + totalReject
+      const totalRejectKg = Number(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)
       const totalRuntime = Number(scorecardQuery.data?.totals?.totalRuntimeMinutes || runDetail.runtimeMinutes || 0)
       const totalDowntime = Number(scorecardQuery.data?.totals?.totalDowntimeMinutes || runDetail.downtimeMinutes || 0)
 
       await api.post(`/production/runs/${selectedRunId}/complete`, {
-        qtyProduced: totalProduced > 0 ? totalProduced : 1,
+        qtyProduced: totalGood > 0 ? totalGood : 1,
         qtyGood: totalGood,
-        qtyReject: totalReject,
+        qtyReject: totalRejectKg,
         runtimeMinutes: totalRuntime,
         downtimeMinutes: totalDowntime,
         autoRelease: true,
@@ -728,7 +745,7 @@ export function RecordProductionPage() {
                   Defect Scrap / Waste
                 </span>
                 <span className="text-sm font-bold text-red-700 tabular-nums">
-                  {fmt(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)} {runDetail.uom || 'pcs'}
+                  {fmt(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0, 2)} kg
                 </span>
               </div>
               <div className="bg-amber-50/60 rounded-lg p-2 border border-amber-200/70">
@@ -865,46 +882,22 @@ export function RecordProductionPage() {
                     <form onSubmit={handleClockInSubmit} className="space-y-2.5 pt-1">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
-                          <div className="flex items-center justify-between mb-0.5">
-                            <Label className="text-xs font-bold text-zinc-800">
-                              Operator Name *
-                            </Label>
-                            <button
-                              type="button"
-                              className="text-[10px] text-blue-600 hover:underline"
-                              onClick={() =>
-                                setClockInOperatorType(clockInOperatorType === 'SELECT' ? 'CUSTOM' : 'SELECT')
-                              }
-                            >
-                              {clockInOperatorType === 'SELECT' ? 'Manual name' : 'From staff list'}
-                            </button>
-                          </div>
-                          {clockInOperatorType === 'SELECT' ? (
-                            <Select
-                              value={clockInEmployeeId}
-                              onValueChange={(val) => setClockInEmployeeId(val)}
-                            >
-                              <SelectTrigger className="w-full text-xs h-8 bg-white">
-                                <SelectValue placeholder="Select staff member…" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {employeesQuery.data?.map((emp) => (
-                                  <SelectItem key={emp.id} value={String(emp.id)}>
-                                    {emp.firstname} {emp.lastname || ''} {emp.designation ? `(${emp.designation})` : ''}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Input
-                              type="text"
-                              className="h-8 text-xs"
-                              placeholder="e.g. Musa Ibrahim"
-                              value={clockInCustomName}
-                              onChange={(e) => setClockInCustomName(e.target.value)}
-                              required
-                            />
-                          )}
+                          <Label className="text-xs font-bold text-zinc-800 mb-0.5 block">
+                            Operator *
+                          </Label>
+                          <SearchableSelect
+                            value={clockInEmployeeId}
+                            onChange={setClockInEmployeeId}
+                            options={operatorOptions}
+                            placeholder="Select operator…"
+                            searchPlaceholder="Search operator name…"
+                            emptyMessage="No operators found. Add them on the Operators page."
+                            allowClear={false}
+                            triggerClassName="h-8 px-2.5 py-1 text-xs bg-white"
+                            onOpenChange={(open) => {
+                              if (open) void operatorsQuery.refetch()
+                            }}
+                          />
                         </div>
 
                         <div>
@@ -913,7 +906,10 @@ export function RecordProductionPage() {
                           </Label>
                           <Select
                             value={clockInShiftId}
-                            onValueChange={(val) => setClockInShiftId(val)}
+                            onValueChange={(val) => {
+                              setClockInShiftId(val)
+                              applyShiftClockTimes(val)
+                            }}
                           >
                             <SelectTrigger className="w-full text-xs h-8 bg-white">
                               <SelectValue placeholder="Select shift…" />
@@ -1030,19 +1026,24 @@ export function RecordProductionPage() {
 
                       <div className="rounded-lg border border-red-200 bg-red-50/40 p-2.5 space-y-1.5">
                         <Label className="block text-xs font-bold text-red-900">
-                          Defects / Rejects / Scrap ({runDetail?.uom || 'pcs'})
+                          Defects / Rejects / Scrap (kg)
                         </Label>
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-red-800 block mb-0.5">Scrap Pieces</span>
+                          <span className="text-[9px] uppercase font-bold text-red-800 block mb-0.5">
+                            Weighed scrap
+                          </span>
                           <Input
                             type="number"
                             min="0"
+                            step="any"
+                            inputMode="decimal"
                             className="h-8 text-xs font-bold text-red-700 bg-white"
-                            placeholder="0"
-                            value={outputRejectPcs}
-                            onChange={(e) => setOutputRejectPcs(e.target.value)}
+                            placeholder="0.00"
+                            value={outputRejectKg}
+                            onChange={(e) => setOutputRejectKg(e.target.value)}
                           />
                         </div>
+                        <p className="text-[11px] text-red-800/80">Enter the scale weight of damaged scrap.</p>
                       </div>
                     </div>
 
@@ -1109,71 +1110,6 @@ export function RecordProductionPage() {
 
             {/* RIGHT COLUMN: OPERATOR SCORECARD & CHRONOLOGICAL SESSIONS (5 Cols) */}
             <div className="lg:col-span-5 space-y-3">
-              {/* SCORECARD TABLE */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
-                <h3 className="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Users className="size-3.5 text-zinc-500" />
-                  <span>Operator Performance Comparison</span>
-                </h3>
-
-                {scorecardQuery.data?.operatorScorecard && scorecardQuery.data.operatorScorecard.length > 0 ? (
-                  <div className="rounded-lg border border-zinc-200 overflow-hidden">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-zinc-50 text-zinc-500 border-b border-zinc-200 text-[9px] uppercase">
-                        <tr>
-                          <th className="py-1.5 px-2 font-semibold">Operator</th>
-                          <th className="py-1.5 px-2 font-semibold text-right">Hrs</th>
-                          <th className="py-1.5 px-2 font-semibold text-right">Good</th>
-                          <th className="py-1.5 px-2 font-semibold text-right">Scrap</th>
-                          <th className="py-1.5 px-2 font-semibold text-right">Stop</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100">
-                        {scorecardQuery.data.operatorScorecard.map((op: {
-                          operatorName: string
-                          shiftsCount: number
-                          runtimeHours: number
-                          goodProduced: number
-                          rejectProduced: number
-                          scrapRatePercent: number
-                          outputPerHour: number
-                          downtimeMinutes: number
-                          downtimeEvents: number
-                        }) => (
-                          <tr key={op.operatorName} className="hover:bg-zinc-50/50">
-                            <td className="py-1.5 px-2 font-bold text-zinc-900 truncate max-w-[90px]">
-                              {op.operatorName}
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-medium text-zinc-700">
-                              {op.runtimeHours}h
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-bold text-emerald-700">
-                              {fmt(op.goodProduced)}
-                            </td>
-                            <td className="py-1.5 px-2 text-right">
-                              <span
-                                className={`px-1 py-0.2 rounded font-bold text-[9px] ${
-                                  op.scrapRatePercent > 5
-                                    ? 'bg-red-50 text-red-700 border border-red-200'
-                                    : 'text-zinc-600'
-                                }`}
-                              >
-                                {op.scrapRatePercent}%
-                              </span>
-                            </td>
-                            <td className="py-1.5 px-2 text-right font-semibold text-amber-900">
-                              {op.downtimeMinutes}m
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-xs text-zinc-400 py-2 italic">No operator records yet.</p>
-                )}
-              </div>
-
               {/* CHRONOLOGICAL SHIFTS TIMELINE */}
               <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-3.5 shadow-2xs">
                 <h3 className="text-xs font-bold text-zinc-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -1209,6 +1145,11 @@ export function RecordProductionPage() {
                             <span className="font-bold text-emerald-700">
                               {fmt(shift.qtyGood)} pcs
                             </span>
+                            {Number(shift.qtyReject || 0) > 0 ? (
+                              <span className="text-[10px] font-semibold text-red-700">
+                                {fmt(shift.qtyReject, 2)} kg
+                              </span>
+                            ) : null}
                             {isRunActive && (
                               <button
                                 type="button"
@@ -1484,7 +1425,7 @@ export function RecordProductionPage() {
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Total Scrap / Waste:</span>
                     <strong className="text-red-600 font-bold">
-                      {fmt(scorecardQuery.data?.totals?.totalReject || runDetail?.qtyReject || 0)} pcs
+                      {fmt(scorecardQuery.data?.totals?.totalReject || runDetail?.qtyReject || 0, 2)} kg
                     </strong>
                   </div>
                   <div className="flex justify-between">
@@ -1532,7 +1473,7 @@ export function RecordProductionPage() {
 
         {editingShift && (
           <Dialog open={Boolean(editingShift)} onOpenChange={(open) => !open && setEditingShift(null)}>
-            <DialogContent className="max-w-md rounded-2xl border-zinc-200 p-0 overflow-hidden">
+            <DialogContent className="max-w-md rounded-2xl border-zinc-200 p-0 overflow-visible">
               <div className="border-b border-zinc-100 px-5 py-4">
                 <DialogTitle className="text-base font-bold text-zinc-900">Edit shift session</DialogTitle>
                 <DialogDescription className="mt-0.5 text-xs text-zinc-600">
@@ -1547,7 +1488,17 @@ export function RecordProductionPage() {
                 )}
                 <div>
                   <Label className="mb-1 block text-xs font-bold text-zinc-800">Shift</Label>
-                  <Select value={editShiftId || undefined} onValueChange={setEditShiftId}>
+                  <Select
+                    value={editShiftId || undefined}
+                    onValueChange={(val) => {
+                      setEditShiftId(val)
+                      const shift = shiftsQuery.data?.find((s) => String(s.id) === val)
+                      const start = toHhMm(shift?.startTime)
+                      const end = toHhMm(shift?.endTime)
+                      if (start) setEditClockIn(start)
+                      if (end) setEditClockOut(end)
+                    }}
+                  >
                     <SelectTrigger className="h-9 w-full bg-white text-xs">
                       <SelectValue placeholder="Select shift…" />
                     </SelectTrigger>
@@ -1562,11 +1513,18 @@ export function RecordProductionPage() {
                 </div>
                 <div>
                   <Label className="mb-1 block text-xs font-bold text-zinc-800">Operator</Label>
-                  <Input
-                    className="h-9 text-xs"
-                    value={editOperatorName}
-                    onChange={(e) => setEditOperatorName(e.target.value)}
-                    required
+                  <SearchableSelect
+                    value={editOperatorId}
+                    onChange={setEditOperatorId}
+                    options={operatorOptions}
+                    placeholder="Select operator…"
+                    searchPlaceholder="Search operator name…"
+                    emptyMessage="No operators found. Add them on the Operators page."
+                    allowClear={false}
+                    triggerClassName="h-9 px-2.5 py-1 text-xs bg-white"
+                    onOpenChange={(open) => {
+                      if (open) void operatorsQuery.refetch()
+                    }}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
@@ -1609,7 +1567,7 @@ export function RecordProductionPage() {
                     />
                   </div>
                   <div>
-                    <Label className="mb-1 block text-xs font-bold text-zinc-800">Reject pcs</Label>
+                    <Label className="mb-1 block text-xs font-bold text-zinc-800">Scrap (kg)</Label>
                     <Input
                       type="number"
                       min="0"

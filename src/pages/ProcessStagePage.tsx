@@ -13,6 +13,7 @@ import { ColorCombobox } from '@/components/ui/color-combobox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Button } from '@/components/ui/button'
 import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
+import { useOperators } from '@/lib/useOperators'
 
 export const STAGE_META: Record<
   string,
@@ -106,7 +107,8 @@ export const STAGE_META: Record<
     emptyHint: 'No washed lots waiting. Finish washing first.',
     showMachine: false,
     showTeam: false,
-    showOperator: false,
+    showOperator: true,
+    operatorLabel: 'Re-crush Operator',
     showDowntime: false,
     showLabourCost: true,
     labourHourly: false,
@@ -292,19 +294,7 @@ export function ProcessStageForm({
   const [editingColor, setEditingColor] = useState<string | null>(null)
   const [editingKg, setEditingKg] = useState('')
 
-  const staff = useQuery({
-    queryKey: ['masters-employees'],
-    queryFn: async () => {
-      const { data } = await api.get('/masters/employees')
-      return data.data as Array<{
-        id: number
-        firstname?: string
-        lastname?: string
-        employeeCode?: string
-      }>
-    },
-    enabled: STAGE_META[stage]?.showOperator !== false,
-  })
+  const staff = useOperators(STAGE_META[stage]?.showOperator !== false)
 
   const machines = useQuery({
     queryKey: ['machines'],
@@ -1633,7 +1623,10 @@ export function ProcessStageForm({
                       }
                       options={staffOptions}
                       placeholder={`Select ${meta.operatorLabel?.toLowerCase() || 'operator'}…`}
-                      searchPlaceholder="Search staff by name or code…"
+                      searchPlaceholder="Search operators by name or code…"
+                      onOpenChange={(open) => {
+                        if (open) void staff.refetch()
+                      }}
                     />
                   </Field>
                 )}

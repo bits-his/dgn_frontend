@@ -26,6 +26,7 @@ export const SIDEBAR_MENU_ACCESS: MenuAccessItem[] = [
   { group: 'Money & people', key: 'processing_money', label: 'Processing money' },
   { group: 'Money & people', key: 'expenses', label: 'Expenses' },
   { group: 'Money & people', key: 'staff', label: 'Staff' },
+  { group: 'Money & people', key: 'operators', label: 'Operators' },
   { group: 'Money & people', key: 'payroll', label: 'Payroll' },
 
   // Intelligence
@@ -100,7 +101,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
   STOREKEEPER: ['inventory', 'receiving', 'production', 'production_store', 'batches', 'processing_money'],
   SALES_OFFICER: ['sales', 'distributors', 'inventory', 'production_store', 'sales_margins', 'alerts'],
   OUTLET_SELLER: ['distributors'],
-  FINANCE_OFFICER: ['expenses', 'processing_money', 'payroll', 'costs', 'overhead', 'sales', 'distributors', 'sales_margins', 'alerts'],
+  FINANCE_OFFICER: ['expenses', 'processing_money', 'payroll', 'staff', 'operators', 'costs', 'overhead', 'sales', 'distributors', 'sales_margins', 'alerts'],
   FACTORY_MANAGER: SIDEBAR_MENU_ACCESS.map((i) => i.key),
   ADMIN: SIDEBAR_MENU_ACCESS.map((i) => i.key),
 }

@@ -17,6 +17,7 @@ import {
   TrendingUp,
   Receipt,
   Users,
+  HardHat,
   Wallet,
   Layers,
   Banknote,
@@ -71,6 +72,7 @@ export function canAccessNavItem(
     if (item.menuKey) {
       if (user.menuAccess.includes(item.menuKey)) return true
       if (item.menuKey === 'recrushing' && user.menuAccess.includes('crushing')) return true
+      if (item.menuKey === 'operators' && user.menuAccess.includes('staff')) return true
       if (item.menuKey === 'distributors' && user.menuAccess.includes('sales')) return true
       if (
         item.menuKey === 'processing_money' &&
@@ -144,6 +146,7 @@ const financeNav: NavItem[] = [
   { to: '/processing-money', label: 'Processing money', icon: Banknote, menuKey: 'processing_money', permission: 'float.spend' },
   { to: '/expenses', label: 'Expenses', icon: Receipt, menuKey: 'expenses', permission: 'expense.view' },
   { to: '/staff', label: 'Staff', icon: Users, menuKey: 'staff', permission: 'labour.view' },
+  { to: '/operators', label: 'Operators', icon: HardHat, menuKey: 'operators', permission: 'labour.view' },
   { to: '/payroll', label: 'Payroll', icon: Wallet, menuKey: 'payroll', permission: 'labour.view' },
 ]
 

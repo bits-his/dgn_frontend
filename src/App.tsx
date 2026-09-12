@@ -38,6 +38,7 @@ import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LabourPage } from '@/pages/LabourPage'
+import { OperatorWorkPage } from '@/pages/OperatorWorkPage'
 import { PayrollPage } from '@/pages/PayrollPage'
 import { OverheadPage } from '@/pages/OverheadPage'
 import { DashboardPage } from '@/pages/DashboardPage'
@@ -135,7 +136,9 @@ function App() {
                 <Route path="/expenses" element={<ExpensesPage />} />
                 <Route path="/processing-money/:userId" element={<ProcessingMoneyPage />} />
                 <Route path="/processing-money" element={<ProcessingMoneyPage />} />
-                <Route path="/staff" element={<LabourPage />} />
+                <Route path="/staff" element={<LabourPage directory="staff" />} />
+                <Route path="/operators/:id" element={<OperatorWorkPage />} />
+                <Route path="/operators" element={<LabourPage directory="operators" />} />
                 <Route path="/labour" element={<Navigate to="/staff" replace />} />
                 <Route path="/payroll" element={<PayrollPage />} />
                 <Route path="/costs/overhead" element={<OverheadPage />} />

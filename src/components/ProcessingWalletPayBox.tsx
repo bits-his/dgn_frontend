@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Banknote } from 'lucide-react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useHideMoney } from '@/hooks/useHideMoney'
 
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
@@ -31,6 +32,7 @@ export function ProcessingWalletPayBox({
 
   const remaining = Number(wallet.data?.data?.remaining || 0)
   const hasWallet = Boolean(wallet.data?.hasWallet)
+  const { maskMoney } = useHideMoney()
 
   return (
     <label
@@ -53,7 +55,7 @@ export function ProcessingWalletPayBox({
         </p>
         <p className="mt-0.5 text-xs text-zinc-500">
           {hasWallet
-            ? `Remaining ${money(remaining)}. Cash on this save comes off that balance.`
+            ? `Remaining ${maskMoney(money(remaining))}. Cash on this save comes off that balance.`
             : 'No processing money has been given to this account yet. Leave this off, or ask admin to give money first.'}
         </p>
       </div>
