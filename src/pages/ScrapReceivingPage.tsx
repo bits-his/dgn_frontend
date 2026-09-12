@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { Truck, Scale, ShoppingCart, ChevronDown, ChevronUp } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
 
@@ -532,40 +533,53 @@ export function ScrapReceivingPage() {
               </div>
             )}
 
-            {/* Add Colour Form */}
-            <div className="mt-3 pt-3 border-t border-[var(--line)]">
-              <span className="text-xs font-medium text-[var(--ink-muted)] block mb-1.5">
-                Add {colorLines.length > 0 ? 'another' : 'a'} colour:
-              </span>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[1.2fr_1fr_auto]">
-                <Field label="Colour">
-                  <ColorCombobox
-                    value={pickColor}
-                    onChange={setPickColor}
-                    exclude={colorLines.map((l) => l.color)}
-                    placeholder="Select colour…"
-                  />
-                </Field>
-                <Field label="Kg">
-                  <input
-                    type="number"
-                    step="any"
-                    inputMode="decimal"
-                    placeholder="0"
-                    className="dgn-input w-full"
-                    value={pickKg}
-                    onChange={(e) => setPickKg(e.target.value)}
-                  />
-                </Field>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    className="dgn-btn dgn-btn-secondary w-full"
-                    onClick={addColorLine}
-                  >
-                    + Add colour
-                  </button>
-                </div>
+            {/* Add Colour Form — same as crushing: pick colour, type kg, Enter adds */}
+            <div className="mt-4 flex flex-col gap-2.5 sm:flex-row sm:items-end">
+              <div className="flex-1 shrink-0">
+                <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
+                  Colour
+                </label>
+                <ColorCombobox
+                  value={pickColor}
+                  onChange={(code) => {
+                    setPickColor(code)
+                    setServerErrors([])
+                    setTimeout(() => {
+                      document.getElementById('scrap-pick-kg-input')?.focus()
+                    }, 80)
+                  }}
+                  exclude={colorLines.map((l) => l.color)}
+                  placeholder="Pick a colour…"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wide">
+                  Kg
+                </label>
+                <input
+                  id="scrap-pick-kg-input"
+                  inputMode="decimal"
+                  className="dgn-input w-full"
+                  placeholder="0.000"
+                  value={pickKg}
+                  onChange={(e) => setPickKg(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      addColorLine()
+                    }
+                  }}
+                />
+              </div>
+              <div className="sm:w-28 sm:shrink-0">
+                <Button
+                  type="button"
+                  className="h-11 w-full font-semibold"
+                  onClick={addColorLine}
+                >
+                  + Add
+                </Button>
               </div>
             </div>
           </Card>
