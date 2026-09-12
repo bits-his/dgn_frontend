@@ -1360,9 +1360,9 @@ export function ProductionStorePage() {
                   <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-zinc-800">
-                        Batching
+                        Badging
                       </span>
-                      <span className="text-[10px] text-zinc-400 font-medium">Batching additive</span>
+                      <span className="text-[10px] text-zinc-400 font-medium">Badging additive</span>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
