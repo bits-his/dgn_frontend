@@ -62,6 +62,23 @@ type KpiCard = {
   permission?: string
 }
 
+type OperatorRow = {
+  rank: number
+  operatorId: number | null
+  operatorName: string
+  good: number
+  reject: number
+  produced: number
+  rejectPercent: number
+  qualityPercent: number
+  availabilityPercent: number | null
+  downtimeMinutes: number
+  runtimeMinutes: number
+  kgUsable: number
+  shifts: number
+  score: number
+}
+
 type MachineRow = {
   machineId: number
   machineName: string
@@ -128,6 +145,7 @@ type Dashboard = {
     driedKg: number
   }>
   machines: MachineRow[]
+  operators?: OperatorRow[]
   materialFlow: {
     receivedKg: number
     wasteKg?: number
@@ -206,7 +224,7 @@ export function DashboardPage() {
   const canExpense = hasPermission(user, 'expense.view')
   const canCosts = hasPermission(user, 'costs.view')
 
-  const [rangePreset, setRangePreset] = useState('this_week')
+  const [rangePreset, setRangePreset] = useState('this_month')
   const compare = false
   const [viewMode, setViewMode] = useState<'executive' | 'staff'>('executive')
   const [drillKpi, setDrillKpi] = useState<string | null>(null)
@@ -574,6 +592,145 @@ export function DashboardPage() {
               </div>
             </div>
 
+            {/* Operator performance under KPI cards */}
+            <div className="space-y-3 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">
+                    Operator Performance
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Top 5 ranked by good output, quality, and uptime · {d.range.label}
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                  <Link to="/operators">All operators →</Link>
+                </Button>
+              </div>
+
+              {(() => {
+                const ranked = (d.operators || []).slice(0, 5)
+                const leaderScore = ranked[0]?.score || 1
+                if (!ranked.length) {
+                  return (
+                    <Card className="p-4 text-xs text-muted-foreground">
+                      No operator output recorded for this period.
+                    </Card>
+                  )
+                }
+                return (
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+                    <Card className="!p-3 sm:!p-4">
+                      <ol className="space-y-2.5">
+                        {ranked.map((op, idx) => {
+                          const width = Math.max(6, Math.round((Number(op.score || 0) / leaderScore) * 100))
+                          const href = op.operatorId ? `/operators/${op.operatorId}` : '/operators'
+                          return (
+                            <li key={`${op.operatorId || op.operatorName}-${idx}`}>
+                              <Link
+                                to={href}
+                                className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-indigo-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-indigo-900"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <span
+                                    className={cn(
+                                      'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
+                                      idx === 0
+                                        ? 'bg-amber-400 text-amber-950'
+                                        : idx === 1
+                                          ? 'bg-zinc-300 text-zinc-800'
+                                          : idx === 2
+                                            ? 'bg-orange-200 text-orange-900'
+                                            : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
+                                    )}
+                                  >
+                                    {op.rank || idx + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-baseline justify-between gap-2">
+                                      <p className="truncate text-sm font-semibold text-foreground group-hover:text-indigo-700">
+                                        {op.operatorName}
+                                      </p>
+                                      <p className="shrink-0 text-xs font-bold tabular-nums text-foreground">
+                                        {fmt(op.good, 0)}{' '}
+                                        <span className="font-normal text-muted-foreground">good</span>
+                                      </p>
+                                    </div>
+                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+                                      <div
+                                        className={cn(
+                                          'h-full rounded-full',
+                                          idx === 0 ? 'bg-amber-500' : 'bg-indigo-500',
+                                        )}
+                                        style={{ width: `${width}%` }}
+                                      />
+                                    </div>
+                                    <p className="mt-1 text-[10px] text-muted-foreground">
+                                      {op.qualityPercent}% quality
+                                      {op.rejectPercent > 0 ? ` · ${op.rejectPercent}% reject` : ''}
+                                      {op.downtimeMinutes > 0
+                                        ? ` · ${fmt(op.downtimeMinutes, 0)} min down`
+                                        : ''}
+                                      {op.kgUsable > 0 ? ` · ${fmt(op.kgUsable)} kg processed` : ''}
+                                    </p>
+                                  </div>
+                                </div>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                      </ol>
+                    </Card>
+                    <div className="grid grid-cols-2 gap-2 content-start">
+                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Leader
+                        </p>
+                        <p className="mt-0.5 truncate text-sm font-bold text-foreground">
+                          {ranked[0]?.operatorName || '—'}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground tabular-nums">
+                          {fmt(ranked[0]?.good, 0)} good pcs
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Ranked
+                        </p>
+                        <p className="mt-0.5 text-lg font-bold tabular-nums text-indigo-600">
+                          {ranked.length}
+                          <span className="text-xs font-normal text-muted-foreground"> / 5</span>
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Best quality
+                        </p>
+                        <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">
+                          {fmt(
+                            Math.max(...ranked.map((o) => Number(o.qualityPercent || 0))),
+                            0,
+                          )}
+                          %
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                          Team good
+                        </p>
+                        <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                          {fmt(
+                            ranked.reduce((sum, o) => sum + Number(o.good || 0), 0),
+                            0,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+
             {/* Machine performance under KPI cards */}
             <div className="space-y-3 pt-1">
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
@@ -582,7 +739,7 @@ export function DashboardPage() {
                     Machine Performance
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    OEE, output, reject rate, and downtime for {d.periodLabel}
+                    OEE, output, reject rate, and downtime · {d.range.label}
                   </p>
                 </div>
                 <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>

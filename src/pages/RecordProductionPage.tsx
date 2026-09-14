@@ -618,24 +618,25 @@ export function RecordProductionPage() {
       backLabel="Back to Production"
       actions={
         <div className="flex items-center gap-2">
-          {/* Quick Active Run Switcher - hidden on mobile */}
-          <div className="hidden sm:block sm:w-64 md:w-72">
-            <Select value={selectedRunId} onValueChange={handleSelectRun}>
-              <SelectTrigger className="h-8 text-xs bg-white font-medium">
-                <SelectValue placeholder="Select active run…" />
-              </SelectTrigger>
-              <SelectContent>
-                {inProgressRuns.map((r) => (
-                  <SelectItem key={r.id} value={String(r.id)}>
-                    <div className="flex items-center justify-between w-full gap-2">
-                      <span className="font-mono font-semibold">{r.batch?.batchNumber || `RUN-${r.id}`}</span>
-                      <span className="text-zinc-400 text-[11px]">({r.machine?.name})</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {isRunActive && inProgressRuns.length > 0 && (
+            <div className="hidden sm:block sm:w-64 md:w-72">
+              <Select value={selectedRunId} onValueChange={handleSelectRun}>
+                <SelectTrigger className="h-8 text-xs bg-white font-medium">
+                  <SelectValue placeholder="Select active run…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {inProgressRuns.map((r) => (
+                    <SelectItem key={r.id} value={String(r.id)}>
+                      <div className="flex items-center justify-between w-full gap-2">
+                        <span className="font-mono font-semibold">{r.batch?.batchNumber || `RUN-${r.id}`}</span>
+                        <span className="text-zinc-400 text-[11px]">({r.machine?.name})</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {isRunActive && (
             <Button
