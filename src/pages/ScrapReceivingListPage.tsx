@@ -132,6 +132,7 @@ export function ScrapReceivingListPage() {
         header: 'Bought as',
         accessorKey: 'inboundForm',
         cell: ({ row }) => {
+          const r = row.original
           const form = r.inboundForm || 'RAW'
           const label =
             form === 'RECYCLED' ? 'Recycled' : form === 'CRUSHED' ? 'Crushed scrap' : 'Raw scrap'
