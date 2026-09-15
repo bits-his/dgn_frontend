@@ -36,8 +36,8 @@ export function PwaInstallPrompt() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
               {/* Icon badge */}
-              <div className="size-11 rounded-xl bg-gradient-to-br from-violet-600 to-purple-800 p-0.5 shadow-md shrink-0 flex items-center justify-center">
-                <img src="/pwa-192x192.png" alt="DGN" className="size-full rounded-[10px] object-cover" />
+              <div className="size-11 rounded-xl bg-white p-0.5 shadow-md shrink-0 flex items-center justify-center overflow-hidden">
+                <img src="/dgn-logo.png" alt="DGN" className="size-full object-contain" />
               </div>
 
               <div>

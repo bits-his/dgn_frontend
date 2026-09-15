@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Factory, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { BrandMark } from '@/components/BrandMark'
 
 const REMEMBER_KEY = 'dgn_remember_login'
 
@@ -84,9 +85,7 @@ export function LoginPage() {
         <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 sm:p-7 shadow-xs">
           {/* Header */}
           <div className="flex flex-col items-center text-center mb-6">
-            <div className="size-11 rounded-xl bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 flex items-center justify-center shadow-xs mb-3">
-              <Factory className="size-5" />
-            </div>
+            <BrandMark size={72} className="mb-3" />
             <h1 className="text-lg font-bold text-zinc-900 dark:text-white tracking-tight">
               DGN Factory
             </h1>

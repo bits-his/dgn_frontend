@@ -38,6 +38,7 @@ import { api } from '@/lib/api'
 import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
+import { BrandMark } from '@/components/BrandMark'
 
 export type NavItem = {
   to: string
@@ -313,9 +314,7 @@ export function AppShell() {
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-sidebar)] text-white">
       <div className="shrink-0 border-b border-white/10 px-5 py-5">
         <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-[var(--accent)] text-[#1a1205] shadow-lg shadow-amber-900/30">
-            <Factory className="size-5" />
-          </div>
+          <BrandMark size={44} className="rounded-full bg-white ring-1 ring-white/20" />
           <div>
             <p className="text-sm font-semibold tracking-tight">DGN Factory</p>
             <p className="text-xs text-zinc-400">Control System</p>
@@ -430,6 +429,7 @@ export function AppShell() {
               >
                 {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
               </button>
+              <BrandMark size={32} className="lg:hidden" />
               <div>
                 <p className="text-sm font-semibold tracking-tight">Factory floor control</p>
                 <p className="text-xs text-[var(--ink-muted)]">

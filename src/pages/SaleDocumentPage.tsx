@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { useEffect } from 'react'
 import { api } from '@/lib/api'
+import { BrandMark } from '@/components/BrandMark'
 
 type DocLine = {
   id: number
@@ -136,9 +137,12 @@ function paymentsForDocument(sale: DocSale): DocPayment[] {
 
 function FactoryMark() {
   return (
-    <div>
-      <p className="text-xl font-semibold tracking-tight">DGN Factory</p>
-      <p className="mt-0.5 text-sm text-zinc-600">Plastics recycling · NGN · Africa/Lagos</p>
+    <div className="flex items-center gap-3">
+      <BrandMark size={56} />
+      <div>
+        <p className="text-xl font-semibold tracking-tight">DGN Factory</p>
+        <p className="mt-0.5 text-sm text-zinc-600">Plastics recycling · NGN · Africa/Lagos</p>
+      </div>
     </div>
   )
 }

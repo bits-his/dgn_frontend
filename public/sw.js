@@ -1,15 +1,16 @@
 // DGN Factory Control PWA Service Worker
-const CACHE_NAME = 'dgn-control-v2';
+const CACHE_NAME = 'dgn-control-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
-  '/favicon.svg',
+  '/dgn-logo.png',
+  '/favicon.png',
+  '/favicon-32x32.png',
+  '/apple-touch-icon.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
-  '/pwa-maskable-512x512.png',
-  '/pwa-192x192.svg',
-  '/pwa-512x512.svg'
+  '/pwa-maskable-512x512.png'
 ];
 
 // Install: Cache critical static assets
