@@ -13,7 +13,7 @@ type ScrapReceiptRow = {
   id: number
   batchId: number
   receivedAt: string
-  inboundForm: 'RAW' | 'CRUSHED'
+  inboundForm: 'RAW' | 'CRUSHED' | 'RECYCLED'
   sourceLocation?: string | null
   grossWeight: number | string
   tareWeight: number | string
@@ -132,23 +132,26 @@ export function ScrapReceivingListPage() {
         header: 'Bought as',
         accessorKey: 'inboundForm',
         cell: ({ row }) => {
-          const r = row.original
-          const isRaw = r.inboundForm === 'RAW'
+          const form = r.inboundForm || 'RAW'
+          const label =
+            form === 'RECYCLED' ? 'Recycled' : form === 'CRUSHED' ? 'Crushed scrap' : 'Raw scrap'
+          const badgeClass =
+            form === 'RECYCLED'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              : form === 'CRUSHED'
+                ? 'bg-indigo-50 text-indigo-800 border-indigo-300'
+                : 'bg-amber-50 text-amber-800 border-amber-300'
           return (
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm text-foreground">
-                  {isRaw ? 'Raw scrap' : 'Crushed scrap'}
-                </span>
+                <span className="font-medium text-sm text-foreground">{label}</span>
                 <span
                   className={cn(
                     'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border tracking-wide uppercase',
-                    isRaw
-                      ? 'bg-amber-50 text-amber-800 border-amber-300'
-                      : 'bg-indigo-50 text-indigo-800 border-indigo-300',
+                    badgeClass,
                   )}
                 >
-                  {r.inboundForm || 'RAW'}
+                  {form}
                 </span>
               </div>
               <p className="text-xs font-semibold text-emerald-700 mt-0.5">

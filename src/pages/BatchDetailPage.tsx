@@ -486,7 +486,12 @@ export function BatchDetailPage() {
           ? [
               {
                 label: 'Bought as',
-                text: receipt.inboundForm === 'CRUSHED' ? 'Already crushed' : 'Raw scrap',
+                text:
+                  receipt.inboundForm === 'RECYCLED'
+                    ? 'Recycled (material store)'
+                    : receipt.inboundForm === 'CRUSHED'
+                      ? 'Already crushed'
+                      : 'Raw scrap',
               },
             ]
           : []),

@@ -16,8 +16,10 @@ import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
 
+type InboundForm = 'RAW' | 'CRUSHED' | 'RECYCLED'
+
 type FormValues = {
-  inboundForm: 'RAW' | 'CRUSHED'
+  inboundForm: InboundForm
   supplierName: string
   kg: string
   pricePerKg: string
@@ -66,7 +68,7 @@ export function ScrapReceivingPage() {
       const { data } = await api.get(`/receiving/scrap/${editId}`)
       return data.data as {
         id: number
-        inboundForm: 'RAW' | 'CRUSHED'
+        inboundForm: InboundForm
         netWeight: number | string
         pricePerKg: number | string
         purchaseCost: number | string
@@ -132,14 +134,14 @@ export function ScrapReceivingPage() {
 
 
   const inboundForm = watch('inboundForm')
-  const isCrushed = inboundForm === 'CRUSHED'
+  const isColorInbound = inboundForm === 'CRUSHED' || inboundForm === 'RECYCLED'
 
   const colorTotal = useMemo(
     () => +colorLines.reduce((sum, line) => sum + line.qtyKg, 0).toFixed(3),
     [colorLines],
   )
   const rawKg = Number(watch('kg') || 0)
-  const netKg = isCrushed
+  const netKg = isColorInbound
     ? colorTotal
     : Number(Math.max(rawKg, 0).toFixed(3))
 
@@ -154,8 +156,8 @@ export function ScrapReceivingPage() {
 
   const scrapCost = useMemo(() => Number((netKg * pricePerKg).toFixed(2)), [netKg, pricePerKg])
   const sortingCost = useMemo(
-    () => (isCrushed ? 0 : Number((netKg * sortingPricePerKg).toFixed(2))),
-    [isCrushed, netKg, sortingPricePerKg],
+    () => (isColorInbound ? 0 : Number((netKg * sortingPricePerKg).toFixed(2))),
+    [isColorInbound, netKg, sortingPricePerKg],
   )
   const totalOtherCosts = useMemo(
     () =>
@@ -218,7 +220,7 @@ export function ScrapReceivingPage() {
       return
     }
 
-    if (values.inboundForm === 'CRUSHED' && !colorLines.length) {
+    if (isColorInbound && !colorLines.length) {
       setServerErrors([
         {
           label: 'Colours',
@@ -232,10 +234,10 @@ export function ScrapReceivingPage() {
       if (isEdit && editId) {
         await api.patch(`/receiving/scrap/${editId}`, {
           inboundForm: values.inboundForm,
-          kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
-          colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
+          kg: isColorInbound ? colorTotal : Number(values.kg),
+          colorLines: isColorInbound ? colorLines : undefined,
           pricePerKg: Number(values.pricePerKg),
-          sortingPricePerKg: values.inboundForm === 'CRUSHED' ? 0 : Number(values.sortingPricePerKg || 0),
+          sortingPricePerKg: isColorInbound ? 0 : Number(values.sortingPricePerKg || 0),
           transportCost: Number(values.transportCost || 0),
           scaleCost: Number(values.scaleCost || 0),
           netCost: Number(values.netCost || 0),
@@ -261,10 +263,10 @@ export function ScrapReceivingPage() {
         supplierId: matchedSup ? matchedSup.id : undefined,
         supplierName: values.supplierName.trim(),
         inboundForm: values.inboundForm,
-        kg: values.inboundForm === 'CRUSHED' ? colorTotal : Number(values.kg),
-        colorLines: values.inboundForm === 'CRUSHED' ? colorLines : undefined,
+        kg: isColorInbound ? colorTotal : Number(values.kg),
+        colorLines: isColorInbound ? colorLines : undefined,
         pricePerKg: Number(values.pricePerKg),
-        sortingPricePerKg: values.inboundForm === 'CRUSHED' ? 0 : Number(values.sortingPricePerKg || 0),
+        sortingPricePerKg: isColorInbound ? 0 : Number(values.sortingPricePerKg || 0),
         transportCost: Number(values.transportCost || 0),
         scaleCost: Number(values.scaleCost || 0),
         netCost: Number(values.netCost || 0),
@@ -280,6 +282,7 @@ export function ScrapReceivingPage() {
       await queryClient.invalidateQueries({ queryKey: ['scrap-receipts'] })
       await queryClient.invalidateQueries({ queryKey: ['batches'] })
       await queryClient.invalidateQueries({ queryKey: ['process-inputs'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       await queryClient.invalidateQueries({ queryKey: ['stock-ledger'] })
       await queryClient.invalidateQueries()
@@ -384,7 +387,7 @@ export function ScrapReceivingPage() {
               {isEdit ? 'Locked on edit' : 'Select inbound format'}
             </span>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2.5">
+          <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {(
               [
                 {
@@ -396,6 +399,11 @@ export function ScrapReceivingPage() {
                   value: 'CRUSHED' as const,
                   title: 'Already Crushed',
                   desc: 'By colour → Washing',
+                },
+                {
+                  value: 'RECYCLED' as const,
+                  title: 'Recycled',
+                  desc: 'By colour → Material store',
                 },
               ] as const
             ).map((opt) => (
@@ -450,19 +458,27 @@ export function ScrapReceivingPage() {
         </Card>
 
         {/* Section 3: Quantity & Buying Rates */}
-        {isCrushed ? (
+        {isColorInbound ? (
           <Card className="p-3 sm:p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold tracking-tight">Crushed colours</h2>
+                <h2 className="text-base font-semibold tracking-tight">
+                  {inboundForm === 'RECYCLED' ? 'Recycled colours' : 'Crushed colours'}
+                </h2>
                 <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                  {isEdit
-                    ? 'Edit colour lines and weights. All colours remain in the same batch for washing.'
-                    : 'Add each colour and kg. All colours are received in a single batch ready for washing.'}
+                  {inboundForm === 'RECYCLED'
+                    ? isEdit
+                      ? 'Edit colour lines and weights. This lot stays in the material store.'
+                      : 'Add each colour and kg. Goes straight to the material store — no wash, dry, or recrush.'
+                    : isEdit
+                      ? 'Edit colour lines and weights. All colours remain in the same batch for washing.'
+                      : 'Add each colour and kg. All colours are received in a single batch ready for washing.'}
                 </p>
               </div>
               <div className="text-right">
-                <span className="text-xs text-[var(--ink-muted)]">Total crushed weight</span>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {inboundForm === 'RECYCLED' ? 'Total recycled weight' : 'Total crushed weight'}
+                </span>
                 <p className="text-base font-bold text-emerald-600">{colorTotal.toLocaleString()} kg</p>
               </div>
             </div>
@@ -594,7 +610,7 @@ export function ScrapReceivingPage() {
                   inputMode="decimal"
                   placeholder="e.g. 1500"
                   className="dgn-input w-full font-semibold"
-                  {...register('kg', { required: !isCrushed })}
+                  {...register('kg', { required: !isColorInbound })}
                 />
               </Field>
               <Field label="Buying price / kg (₦)">
@@ -754,7 +770,7 @@ export function ScrapReceivingPage() {
                   <span>Material purchase ({netKg.toLocaleString()} kg @ ₦{pricePerKg.toLocaleString()})</span>
                   <span className="font-mono font-medium text-zinc-900">₦{scrapCost.toLocaleString()}</span>
                 </div>
-                {!isCrushed && (
+                {!isColorInbound && (
                   <div className="flex justify-between text-indigo-700">
                     <span>Sorting ({netKg.toLocaleString()} kg @ ₦{sortingPricePerKg.toLocaleString()})</span>
                     <span className="font-mono font-medium">₦{sortingCost.toLocaleString()}</span>
@@ -831,7 +847,7 @@ export function ScrapReceivingPage() {
         <div className="pt-1">
           <button
             type="submit"
-            disabled={formState.isSubmitting || (isCrushed && !colorLines.length)}
+            disabled={formState.isSubmitting || (isColorInbound && !colorLines.length)}
             className="w-full rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 py-3.5 text-[15px] font-bold tracking-wide text-white shadow-lg shadow-emerald-800/30 transition-all hover:from-emerald-500 hover:to-emerald-400 hover:shadow-emerald-700/30 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2.5"
           >
             {formState.isSubmitting ? (
