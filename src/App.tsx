@@ -14,6 +14,7 @@ import { BatchesPage } from '@/pages/BatchesPage'
 import { BatchDetailPage } from '@/pages/BatchDetailPage'
 import { SuppliersPage } from '@/pages/SuppliersPage'
 import { MastersPage } from '@/pages/MastersPage'
+import { SecondGradePage } from '@/pages/SecondGradePage'
 import { ProcessStageListPage } from '@/pages/ProcessStageListPage'
 import { ProcessStagePage } from '@/pages/ProcessStagePage'
 import { CostIntelligencePage } from '@/pages/CostIntelligencePage'
@@ -110,6 +111,7 @@ function App() {
                 <Route path="/receiving/new" element={<ScrapReceivingPage />} />
                 <Route path="/receiving/:id/edit" element={<ScrapReceivingPage />} />
                 <Route path="/receiving/:id" element={<ScrapReceivingDetailPage />} />
+                <Route path="/process/second-grade" element={<SecondGradePage />} />
                 <Route path="/process/:stage" element={<ProcessStageListPage />} />
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />

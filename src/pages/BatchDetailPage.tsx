@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
 import { ChevronDown, ChevronUp, Pencil, Wrench } from 'lucide-react'
+import { PhotoGallery } from '@/components/MaintenanceLogExtras'
+import { parsePhotoUrls } from '@/lib/maintenanceForm'
 
 function money(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return '—'
@@ -114,6 +116,9 @@ type ProcessRunRow = {
   qtyUsable: number
   qtyReject: number
   qtyWaste: number
+  qtySecondGrade?: number
+  secondGradePricePerKg?: number
+  secondGradeValue?: number
   colorBreakdown?: string | null
   machineName?: string | null
   operatorName?: string | null
@@ -205,6 +210,7 @@ export function BatchDetailPage() {
             editable?: boolean
             lockReason?: string | null
             supplier?: { name: string }
+            photoUrls?: string[] | string | null
           }
           processRuns?: ProcessRunRow[]
           productionRun?: {
@@ -325,6 +331,7 @@ export function BatchDetailPage() {
             editable?: boolean
             lockReason?: string | null
             supplier?: { name: string }
+            photoUrls?: string[] | string | null
           }
           siblingBatches?: Array<{
             id: number
@@ -375,6 +382,7 @@ export function BatchDetailPage() {
 
   const batch = detail.data.data
   const receipt = batch.scrapReceipt || batch.originScrapReceipt
+  const receiptPhotos = parsePhotoUrls(receipt?.photoUrls)
   const siblingBatches = batch.siblingBatches || []
   const processRuns = batch.processRuns || []
   const productionRun = batch.productionRun
@@ -386,6 +394,7 @@ export function BatchDetailPage() {
   const stageRows = costSummary?.stageBreakdown || []
   const sortingRun = processRuns.find((r) => r.stage === 'SORTING')
   const crushingRun = processRuns.find((r) => r.stage === 'CRUSHING')
+  const washingRun = processRuns.find((r) => r.stage === 'WASHING')
   const crushedColors = parseColorBreakdown(crushingRun?.colorBreakdown)
 
   // Merge any SORTING stage into Scrap Buying ('BUY') stage, as sorting is part of scrap buying
@@ -851,6 +860,21 @@ export function BatchDetailPage() {
               <Fact compact label="Other cost" value={money(Number(otherExpenses))} />
             </div>
           </Card>
+
+          {washingRun && Number(washingRun.qtySecondGrade || 0) > 0 && (
+            <Card className="!p-3 sm:!p-4 border-amber-200 bg-amber-50/60">
+              <h2 className="text-sm font-semibold text-amber-950">Second grade taken out</h2>
+              <p className="mt-0.5 text-[11px] text-amber-800/80">
+                Not waste — sold or held aside. That value is removed from remaining first-grade cost.
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Fact compact label="Second grade" value={kg(washingRun.qtySecondGrade)} />
+                <Fact compact label="Price / kg" value={`${money(washingRun.secondGradePricePerKg)}/kg`} />
+                <Fact compact label="Value removed" value={money(washingRun.secondGradeValue)} />
+                <Fact compact label="Updated cost / kg" value={costPerKg != null ? `${money(costPerKg)}/kg` : '—'} />
+              </div>
+            </Card>
+          )}
 
           {materialRows.length > 0 && (
             <Card className="!overflow-hidden !p-0">
@@ -1457,6 +1481,15 @@ export function BatchDetailPage() {
             })}
           </div> */}
 
+          {receiptPhotos.length > 0 && (
+            <div className="mt-4 border-t border-[var(--line)] pt-3">
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
+                Scrap photos
+              </p>
+              <PhotoGallery photos={receiptPhotos} />
+            </div>
+          )}
+
           <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3">
             <Fact
               label="Expenses total"
@@ -1757,7 +1790,7 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
       {cost.lines.length > 0 && (
         <ul className="mt-2 divide-y divide-[var(--line)]">
           {cost.lines
-            .filter((row) => Number(row.amount || 0) > 0)
+            .filter((row) => Number(row.amount || 0) !== 0)
             .map((row) => {
             const isScrapBuy =
               row.label === 'Scrap buy' || row.label.toLowerCase().includes('scrap buy')

@@ -168,14 +168,26 @@ export function ProcessStageListPage() {
       title={meta.title}
       description={meta.queueTitle}
       actions={
-        <Button
-          size="sm"
-          className="h-8 text-xs font-semibold cursor-pointer"
-          onClick={() => navigate(`/process/${stage}/new`)}
-        >
-          <Plus className="h-3.5 w-3.5 shrink-0" />
-          <span>Record {meta.title}</span>
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {stage === 'washing' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs font-semibold cursor-pointer"
+              onClick={() => navigate('/process/second-grade')}
+            >
+              Second grade
+            </Button>
+          )}
+          <Button
+            size="sm"
+            className="h-8 text-xs font-semibold cursor-pointer"
+            onClick={() => navigate(`/process/${stage}/new`)}
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0" />
+            <span>Record {meta.title}</span>
+          </Button>
+        </div>
       }
     >
       <div className="space-y-4">

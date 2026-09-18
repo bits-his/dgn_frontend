@@ -16,6 +16,7 @@ import {
   Activity,
   Pencil,
   Gauge,
+  Trash2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
@@ -41,6 +42,14 @@ import {
 import CustomTable1 from '@/components/CustomTable1'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
+import { fmtDozenPcs } from '@/lib/units'
+import { MaintenanceCostAndDowntime, MaintenancePhotoPicker } from '@/components/MaintenanceLogExtras'
+import {
+  downtimeToMinutes,
+  minutesToDowntime,
+  parsePhotoUrls,
+  type DowntimeUnit,
+} from '@/lib/maintenanceForm'
 
 type NamedStat = { name: string; count: number; minutes: number }
 
@@ -70,6 +79,7 @@ type MaintenanceRecord = {
   scheduledDate?: string | null
   performedDate?: string | null
   notes?: string | null
+  photoUrls?: string[] | string | null
   createdAt?: string
   machine?: {
     id: number
@@ -212,6 +222,12 @@ function maintenanceTypeColor(type: string) {
 
 function formatMinutes(min: number) {
   if (!min) return '0 min'
+  if (min >= 1440) {
+    const d = Math.floor(min / 1440)
+    const rem = min % 1440
+    const h = Math.floor(rem / 60)
+    return h ? `${d}d ${h}h` : `${d}d`
+  }
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)
   const m = min % 60
@@ -256,7 +272,9 @@ export function MachinePerformancePage() {
   const [maintStatus, setMaintStatus] = useState('COMPLETED')
   const [maintTechnician, setMaintTechnician] = useState('')
   const [maintCost, setMaintCost] = useState('')
-  const [maintDowntime, setMaintDowntime] = useState('')
+  const [maintDownUnit, setMaintDownUnit] = useState<DowntimeUnit>('hours')
+  const [maintDownValue, setMaintDownValue] = useState('0')
+  const [maintPhotos, setMaintPhotos] = useState<string[]>([])
   const [maintParts, setMaintParts] = useState('')
   const [maintNotes, setMaintNotes] = useState('')
   const [maintPerformedDate, setMaintPerformedDate] = useState('')
@@ -268,7 +286,6 @@ export function MachinePerformancePage() {
   const [machineFormCode, setMachineFormCode] = useState('')
   const [machineFormType, setMachineFormType] = useState('PRODUCTION')
   const [machineFormStatus, setMachineFormStatus] = useState('RUNNING')
-  const [machineFormRatedOutput, setMachineFormRatedOutput] = useState('')
   const [machineFormError, setMachineFormError] = useState('')
 
   // Queries with instant cached data + background refetch
@@ -416,7 +433,8 @@ export function MachinePerformancePage() {
         status: maintStatus,
         technician: maintTechnician.trim() || null,
         cost: maintCost ? Number(maintCost) : 0,
-        downtimeMinutes: maintDowntime ? Number(maintDowntime) : 0,
+        downtimeMinutes: downtimeToMinutes(maintDownUnit, maintDownValue),
+        photoUrls: maintPhotos,
         partsReplaced: maintParts.trim() || null,
         notes: maintNotes.trim() || null,
         performedDate: maintPerformedDate ? new Date(maintPerformedDate).toISOString() : new Date().toISOString(),
@@ -446,6 +464,24 @@ export function MachinePerformancePage() {
     },
   })
 
+  const deleteMaintenanceMutation = useMutation({
+    mutationFn: async (maintenanceId: number) => {
+      const { data } = await api.delete(`/maintenance/${maintenanceId}`)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['masters-maintenance'] })
+      qc.invalidateQueries({ queryKey: ['masters-machines'] })
+      qc.invalidateQueries({ queryKey: ['machine-360'] })
+      qc.invalidateQueries({ queryKey: ['machine-insights'] })
+    },
+  })
+
+  function confirmDeleteMaintenance(rec: MaintenanceRecord) {
+    if (!window.confirm(`Delete maintenance “${rec.title}”?`)) return
+    deleteMaintenanceMutation.mutate(rec.id)
+  }
+
   // Save Machine Mutation
   const saveMachineMutation = useMutation({
     mutationFn: async () => {
@@ -455,7 +491,6 @@ export function MachinePerformancePage() {
         code: machineFormCode.trim() || undefined,
         machineType: machineFormType,
         status: machineFormStatus,
-        ratedOutputPerHour: machineFormRatedOutput ? Number(machineFormRatedOutput) : 0,
         isActive: true,
       }
       if (!payload.name) {
@@ -481,6 +516,24 @@ export function MachinePerformancePage() {
     },
   })
 
+  const deleteMachineMutation = useMutation({
+    mutationFn: async (machineId: number) => {
+      const { data } = await api.delete(`/machines/${machineId}`)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['masters-machines'] })
+      qc.invalidateQueries({ queryKey: ['machine-360'] })
+      qc.invalidateQueries({ queryKey: ['machine-insights'] })
+      qc.invalidateQueries({ queryKey: ['masters-maintenance'] })
+    },
+  })
+
+  function confirmDeleteMachine(m: MachineMaster) {
+    if (!window.confirm(`Delete ${m.name}? It will be removed from the machine list.`)) return
+    deleteMachineMutation.mutate(m.id)
+  }
+
   function openCreateMaintenance(preselectedMachineId?: number) {
     setEditingMaint(null)
     setMaintMachineId(preselectedMachineId ? String(preselectedMachineId) : (allMachines[0]?.id ? String(allMachines[0].id) : ''))
@@ -489,7 +542,9 @@ export function MachinePerformancePage() {
     setMaintStatus('COMPLETED')
     setMaintTechnician('')
     setMaintCost('')
-    setMaintDowntime('')
+    setMaintDownUnit('hours')
+    setMaintDownValue('0')
+    setMaintPhotos([])
     setMaintParts('')
     setMaintNotes('')
     setMaintPerformedDate(new Date().toISOString().slice(0, 16))
@@ -506,7 +561,10 @@ export function MachinePerformancePage() {
     setMaintStatus(rec.status || 'COMPLETED')
     setMaintTechnician(rec.technician || '')
     setMaintCost(rec.cost != null ? String(rec.cost) : '')
-    setMaintDowntime(rec.downtimeMinutes != null ? String(rec.downtimeMinutes) : '')
+    const down = minutesToDowntime(rec.downtimeMinutes)
+    setMaintDownUnit(down.unit)
+    setMaintDownValue(down.value)
+    setMaintPhotos(parsePhotoUrls(rec.photoUrls))
     setMaintParts(rec.partsReplaced || '')
     setMaintNotes(rec.notes || '')
     setMaintPerformedDate(rec.performedDate ? new Date(rec.performedDate).toISOString().slice(0, 16) : '')
@@ -521,7 +579,6 @@ export function MachinePerformancePage() {
     setMachineFormCode('')
     setMachineFormType('PRODUCTION')
     setMachineFormStatus('RUNNING')
-    setMachineFormRatedOutput('')
     setMachineFormError('')
     setIsMachineModalOpen(true)
   }
@@ -532,7 +589,6 @@ export function MachinePerformancePage() {
     setMachineFormCode(m.code || '')
     setMachineFormType(m.machineType || 'PRODUCTION')
     setMachineFormStatus(m.status || 'RUNNING')
-    setMachineFormRatedOutput(m.ratedOutputPerHour != null ? String(m.ratedOutputPerHour) : '')
     setMachineFormError('')
     setIsMachineModalOpen(true)
   }
@@ -545,30 +601,27 @@ export function MachinePerformancePage() {
   const machineColumns = useMemo<ColumnDef<MachineMaster>[]>(
     () => [
       {
-        id: 'code',
-        header: 'Code',
-        cell: ({ row }) => (
-          <span className="font-mono text-xs font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-            {row.original.code || '—'}
-          </span>
-        ),
-      },
-      {
         id: 'name',
-        header: 'Machine Name',
+        header: 'Machine',
         cell: ({ row }) => (
           <button
             type="button"
             onClick={() => open360View(row.original.id)}
-            className="text-left font-bold text-xs text-zinc-900 dark:text-zinc-100 hover:text-[var(--accent-strong)] hover:underline flex items-center gap-1.5"
+            className="text-left min-w-0 font-bold text-xs text-zinc-900 dark:text-zinc-100 hover:text-[var(--accent-strong)] hover:underline"
           >
-            <span>{row.original.name}</span>
+            <span className="block truncate">{row.original.name}</span>
+            {row.original.code ? (
+              <span className="mt-0.5 hidden font-mono text-[10px] font-semibold text-zinc-400 sm:block">
+                {row.original.code}
+              </span>
+            ) : null}
           </button>
         ),
       },
       {
         id: 'machineType',
-        header: 'Type / Line',
+        header: 'Type',
+        meta: { hideOnMobile: true },
         cell: ({ row }) => (
           <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
             {row.original.machineType || 'PRODUCTION'}
@@ -586,17 +639,6 @@ export function MachinePerformancePage() {
             )}
           >
             {row.original.status || 'RUNNING'}
-          </span>
-        ),
-      },
-      {
-        id: 'ratedOutputPerHour',
-        header: 'Rated Speed',
-        cell: ({ row }) => (
-          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-            {Number(row.original.ratedOutputPerHour || 0) > 0
-              ? `${Number(row.original.ratedOutputPerHour)} / hr`
-              : 'Standard'}
           </span>
         ),
       },
@@ -625,12 +667,13 @@ export function MachinePerformancePage() {
       {
         id: 'latestMaintenance',
         header: 'Latest Service',
+        meta: { hideOnMobile: true },
         cell: ({ row }) => {
           const m = row.original.maintenances?.[0]
           if (!m) return <span className="text-xs text-zinc-400 italic">None logged</span>
           return (
             <div className="space-y-0.5 text-xs">
-              <p className="font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-xs">{m.title}</p>
+              <p className="font-semibold text-zinc-800 dark:text-zinc-200 truncate max-w-[10rem]">{m.title}</p>
               <div className="flex items-center gap-1 text-[11px] text-zinc-400">
                 <span>{formatDateTime(m.performedDate || m.createdAt || '')}</span>
                 <span>·</span>
@@ -646,32 +689,40 @@ export function MachinePerformancePage() {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-nowrap items-center justify-end gap-1">
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs font-semibold gap-1 bg-zinc-50 hover:bg-amber-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200"
+              className="h-7 px-2 text-xs font-semibold"
               onClick={() => open360View(row.original.id)}
             >
-              <Activity className="size-3 text-amber-600" />
-              <span>360°</span>
+              View
             </Button>
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs font-semibold gap-1"
+              className="h-7 px-2 text-xs font-semibold"
               onClick={() => openCreateMaintenance(row.original.id)}
             >
-              <Wrench className="size-3" />
-              <span>Maint</span>
+              <Wrench className="size-3.5" />
+              <span className="hidden lg:inline">Maint</span>
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-zinc-400 hover:text-zinc-700"
-              onClick={() => openEditMachine(row.original.id ? row.original : row.original)}
+              className="h-7 w-7 px-0 text-zinc-400 hover:text-zinc-700"
+              onClick={() => openEditMachine(row.original)}
             >
-              <Pencil className="size-3" />
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 px-0 text-zinc-400 hover:text-rose-600"
+              onClick={() => confirmDeleteMachine(row.original)}
+              disabled={deleteMachineMutation.isPending}
+            >
+              <Trash2 className="size-3.5" />
             </Button>
           </div>
         ),
@@ -703,7 +754,7 @@ export function MachinePerformancePage() {
           >
             <span>{row.original.machine?.name || `Machine #${row.original.machineId}`}</span>
             {row.original.machine?.code && (
-              <span className="font-mono text-[10px] font-semibold text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1 py-0.2 rounded">
+              <span className="hidden font-mono text-[10px] font-semibold text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1 py-0.2 rounded sm:inline">
                 {row.original.machine.code}
               </span>
             )}
@@ -713,7 +764,9 @@ export function MachinePerformancePage() {
       {
         id: 'title',
         header: 'Service Title & Type',
-        cell: ({ row }) => (
+        cell: ({ row }) => {
+          const photos = parsePhotoUrls(row.original.photoUrls)
+          return (
           <div className="space-y-1 text-xs">
             <div className="flex items-center gap-1.5">
               <span className={cn('px-1.5 py-0.2 rounded text-[9px] font-extrabold border', maintenanceTypeColor(row.original.maintenanceType))}>
@@ -721,13 +774,19 @@ export function MachinePerformancePage() {
               </span>
               <span className="font-bold text-zinc-800 dark:text-zinc-200">{row.original.title}</span>
             </div>
+            {photos.length > 0 && (
+              <p className="text-[11px] text-zinc-500">
+                {photos.length} photo{photos.length === 1 ? '' : 's'}
+              </p>
+            )}
             {row.original.partsReplaced && (
               <p className="text-[11px] text-zinc-500 truncate max-w-xs">
                 Parts: {row.original.partsReplaced}
               </p>
             )}
           </div>
-        ),
+          )
+        },
       },
       {
         id: 'status',
@@ -773,15 +832,25 @@ export function MachinePerformancePage() {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs font-semibold gap-1"
-            onClick={() => openEditMaintenance(row.original)}
-          >
-            <Pencil className="size-3 text-zinc-400" />
-            <span>Edit</span>
-          </Button>
+          <div className="flex flex-nowrap items-center justify-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold"
+              onClick={() => openEditMaintenance(row.original)}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold text-rose-600 border-rose-200 hover:bg-rose-50"
+              onClick={() => confirmDeleteMaintenance(row.original)}
+              disabled={deleteMaintenanceMutation.isPending}
+            >
+              Delete
+            </Button>
+          </div>
         ),
       },
     ],
@@ -792,22 +861,18 @@ export function MachinePerformancePage() {
 
   return (
     <PageLayout
-      title={
-        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
-          <span className="truncate">Machines & Maintenance</span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:border-emerald-800 dark:text-emerald-300 shrink-0">
-            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500 shrink-0" />
-            <span>Factory floor</span>
-          </span>
-        </div>
+      title="Machines & Maintenance"
+      description={
+        <span className="hidden sm:inline">
+          Manage factory equipment, log and schedule maintenance, track downtimes and review OEE telemetry.
+        </span>
       }
-      description="Manage factory equipment, log and schedule maintenance, track downtimes and review OEE telemetry."
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5"
+            className="h-8 w-8 px-0 sm:w-auto sm:px-3 text-xs font-semibold gap-1.5"
             onClick={() => {
               machinesQuery.refetch()
               maintenanceQuery.refetch()
@@ -816,13 +881,13 @@ export function MachinePerformancePage() {
             disabled={machinesQuery.isFetching || maintenanceQuery.isFetching || insightsQ.isFetching}
           >
             <RefreshCw className={cn('size-3.5', (machinesQuery.isFetching || insightsQ.isFetching) && 'animate-spin')} />
-            <span>Refresh</span>
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5"
+            className="h-8 text-xs font-semibold gap-1.5 px-2.5 sm:px-3"
             onClick={() => openCreateMachine()}
           >
             <Plus className="size-3.5" />
@@ -831,7 +896,7 @@ export function MachinePerformancePage() {
 
           <Button
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205] shadow-xs"
+            className="h-8 text-xs font-semibold gap-1.5 px-2.5 sm:px-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205] shadow-xs"
             onClick={() => openCreateMaintenance()}
           >
             <Wrench className="size-3.5" />
@@ -840,14 +905,14 @@ export function MachinePerformancePage() {
         </div>
       }
     >
-      <div className="space-y-6">
+      <div className="space-y-4">
         {/* Navigation Tabs Bar */}
         <div className="flex items-center border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto">
-          <div className="flex gap-2">
+          <div className="flex gap-1 sm:gap-2">
             {[
-              { id: 'machines', label: 'Machines Overview', icon: Cpu, count: allMachines.length },
-              { id: 'maintenance', label: 'Maintenance Logs', icon: Wrench, count: allMaintenances.length },
-              { id: 'insights', label: 'Telemetry & OEE', icon: Gauge, count: telemetryMachines.length },
+              { id: 'machines', label: 'Machines', icon: Cpu, count: allMachines.length },
+              { id: 'maintenance', label: 'Maintenance', icon: Wrench, count: allMaintenances.length },
+              { id: 'insights', label: 'OEE', icon: Gauge, count: telemetryMachines.length },
             ].map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -857,7 +922,7 @@ export function MachinePerformancePage() {
                   type="button"
                   onClick={() => setActiveTab(tab.id as PageTab)}
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all shrink-0',
+                    'flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 text-xs font-bold border-b-2 transition-all shrink-0',
                     isActive
                       ? 'border-[var(--accent-strong)] text-[var(--accent-strong)] bg-amber-500/5'
                       : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
@@ -883,55 +948,44 @@ export function MachinePerformancePage() {
         {/* TAB 1: MACHINES OVERVIEW (CustomTable1, No stat cards, Shadcn Select) */}
         {/* ==================================================================== */}
         {activeTab === 'machines' && (
-          <div className="space-y-4">
-            {/* Filter Bar */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs">
-              <div className="relative flex-1 max-w-sm">
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-2 gap-1.5 min-[720px]:grid-cols-[minmax(0,1fr)_8.75rem_8.75rem] min-[720px]:max-w-2xl">
+              <div className="relative col-span-2 min-[720px]:col-span-1 min-w-0">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
                 <Input
-                  placeholder="Search machine by name or code…"
-                  className="h-9 pl-8 text-xs bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+                  placeholder="Search machines…"
+                  className="h-8 pl-8 text-xs bg-white dark:bg-zinc-950"
                   value={machineSearch}
                   onChange={(e) => setMachineSearch(e.target.value)}
                 />
               </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-zinc-500 uppercase">Status:</span>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="h-9 w-36 text-xs font-semibold bg-zinc-50 dark:bg-zinc-900">
-                      <SelectValue placeholder="All Statuses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Statuses</SelectItem>
-                      <SelectItem value="RUNNING">Running</SelectItem>
-                      <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
-                      <SelectItem value="IDLE">Idle</SelectItem>
-                      <SelectItem value="STOPPED">Stopped</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-zinc-500 uppercase">Type:</span>
-                  <Select value={typeFilter} onValueChange={setTypeFilter}>
-                    <SelectTrigger className="h-9 w-36 text-xs font-semibold bg-zinc-50 dark:bg-zinc-900">
-                      <SelectValue placeholder="All Types" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Types</SelectItem>
-                      <SelectItem value="PRODUCTION">Production</SelectItem>
-                      <SelectItem value="EXTRUDER">Extruder</SelectItem>
-                      <SelectItem value="CRUSHER">Crusher</SelectItem>
-                      <SelectItem value="WASHER">Washer</SelectItem>
-                      <SelectItem value="DRYER">Dryer</SelectItem>
-                      <SelectItem value="RECYCLING">Recycling</SelectItem>
-                      <SelectItem value="GENERAL">General</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter} className="min-w-0">
+                <SelectTrigger className="h-8 w-full text-xs font-semibold">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  <SelectItem value="RUNNING">Running</SelectItem>
+                  <SelectItem value="MAINTENANCE">Maintenance</SelectItem>
+                  <SelectItem value="IDLE">Idle</SelectItem>
+                  <SelectItem value="STOPPED">Stopped</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter} className="min-w-0">
+                <SelectTrigger className="h-8 w-full text-xs font-semibold">
+                  <SelectValue placeholder="Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All types</SelectItem>
+                  <SelectItem value="PRODUCTION">Production</SelectItem>
+                  <SelectItem value="EXTRUDER">Extruder</SelectItem>
+                  <SelectItem value="CRUSHER">Crusher</SelectItem>
+                  <SelectItem value="WASHER">Washer</SelectItem>
+                  <SelectItem value="DRYER">Dryer</SelectItem>
+                  <SelectItem value="RECYCLING">Recycling</SelectItem>
+                  <SelectItem value="GENERAL">General</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* CustomTable1 for Machines Overview */}
@@ -950,62 +1004,42 @@ export function MachinePerformancePage() {
         {/* TAB 2: MAINTENANCE LOGS (CustomTable1, Shadcn Select) */}
         {/* ==================================================================== */}
         {activeTab === 'maintenance' && (
-          <div className="space-y-4">
-            {/* Filter Bar */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-zinc-950 p-3 rounded-xl border border-zinc-200/90 dark:border-zinc-800 shadow-xs">
-              <div className="relative flex-1 max-w-sm">
+          <div className="space-y-2.5">
+            <div className="grid grid-cols-2 gap-1.5 min-[720px]:grid-cols-[minmax(0,1fr)_10rem_8.75rem] min-[720px]:max-w-2xl">
+              <div className="relative col-span-2 min-[720px]:col-span-1 min-w-0">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
                 <Input
-                  placeholder="Search maintenance title, technician, parts…"
-                  className="h-9 pl-8 text-xs bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+                  placeholder="Search logs…"
+                  className="h-8 pl-8 text-xs bg-white dark:bg-zinc-950"
                   value={maintSearch}
                   onChange={(e) => setMaintSearch(e.target.value)}
                 />
               </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-zinc-500 uppercase">Machine:</span>
-                  <Select value={maintMachineFilter} onValueChange={setMaintMachineFilter}>
-                    <SelectTrigger className="h-9 w-44 text-xs font-semibold bg-zinc-50 dark:bg-zinc-900">
-                      <SelectValue placeholder="All Machines" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Machines</SelectItem>
-                      {allMachines.map((m) => (
-                        <SelectItem key={m.id} value={String(m.id)}>
-                          {m.name} ({m.code || 'NO-CODE'})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-zinc-500 uppercase">Status:</span>
-                  <Select value={maintStatusFilter} onValueChange={setMaintStatusFilter}>
-                    <SelectTrigger className="h-9 w-36 text-xs font-semibold bg-zinc-50 dark:bg-zinc-900">
-                      <SelectValue placeholder="All Statuses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">All Statuses</SelectItem>
-                      <SelectItem value="SCHEDULED">Scheduled</SelectItem>
-                      <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                      <SelectItem value="COMPLETED">Completed</SelectItem>
-                      <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button
-                  size="sm"
-                  className="h-9 text-xs font-semibold gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205]"
-                  onClick={() => openCreateMaintenance()}
-                >
-                  <Plus className="size-3.5" />
-                  <span>Log Maintenance</span>
-                </Button>
-              </div>
+              <Select value={maintMachineFilter} onValueChange={setMaintMachineFilter} className="min-w-0">
+                <SelectTrigger className="h-8 w-full text-xs font-semibold">
+                  <SelectValue placeholder="Machine" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All machines</SelectItem>
+                  {allMachines.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={maintStatusFilter} onValueChange={setMaintStatusFilter} className="min-w-0">
+                <SelectTrigger className="h-8 w-full text-xs font-semibold">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All statuses</SelectItem>
+                  <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                  <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                  <SelectItem value="COMPLETED">Completed</SelectItem>
+                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* CustomTable1 for Maintenance */}
@@ -1026,9 +1060,9 @@ export function MachinePerformancePage() {
         {activeTab === 'insights' && (
           <div className="space-y-6">
             {/* 2-Column Machine Telemetry Panel */}
-            <div className="grid gap-6 lg:grid-cols-[380px_minmax(0,1fr)] items-start">
+            <div className="grid gap-4 lg:grid-cols-[minmax(220px,280px)_minmax(0,1fr)] items-start">
               {/* Left Column: Fleet List */}
-              <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xs overflow-hidden">
+              <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xs overflow-hidden">
                 <div className="p-4 border-b border-zinc-100 dark:border-zinc-800/80 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1041,14 +1075,14 @@ export function MachinePerformancePage() {
                   </div>
 
                   {/* Health Filter */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     {(['ALL', 'HEALTHY', 'WATCH', 'CRITICAL'] as const).map((filter) => (
                       <button
                         key={filter}
                         type="button"
                         onClick={() => setOeeFilter(filter)}
                         className={cn(
-                          'px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all',
+                          'px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all shrink-0',
                           oeeFilter === filter
                             ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
                             : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
@@ -1100,7 +1134,7 @@ export function MachinePerformancePage() {
                             <div className="flex items-center gap-2 text-[11px] text-zinc-500">
                               <span>{m.runs} runs</span>
                               <span>·</span>
-                              <span>{m.produced > 0 ? `${m.produced.toLocaleString()} pcs` : 'No output'}</span>
+                              <span>{m.produced > 0 ? fmtDozenPcs(m.produced) : 'No output'}</span>
                               {m.downtimeMinutes > 0 && (
                                 <>
                                   <span>·</span>
@@ -1141,15 +1175,15 @@ export function MachinePerformancePage() {
               {/* Right Column: Detailed Selected Machine Telemetry */}
               {selectedTelemetry ? (
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-xs">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-lg font-black text-zinc-900 dark:text-white">
+                  <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-zinc-100 dark:border-zinc-800">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h2 className="text-base font-black text-zinc-900 dark:text-white truncate">
                             {selectedTelemetry.machineName}
                           </h2>
                           {selectedTelemetry.machineCode && (
-                            <span className="font-mono text-xs font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md">
+                            <span className="hidden font-mono text-xs font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-md sm:inline">
                               {selectedTelemetry.machineCode}
                             </span>
                           )}
@@ -1157,10 +1191,11 @@ export function MachinePerformancePage() {
                             {selectedTelemetry.status || 'ACTIVE'}
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-500">
-                          {selectedTelemetry.ratedOutputPerHour
-                            ? `Rated output capacity: ${selectedTelemetry.ratedOutputPerHour} units/hour`
-                            : 'Standard floor machine specification'}
+                        <p className="text-xs text-zinc-500 sm:hidden">
+                          Live OEE and downtime
+                        </p>
+                        <p className="hidden text-xs text-zinc-500 sm:block">
+                          Live floor telemetry for this machine
                         </p>
                       </div>
 
@@ -1175,7 +1210,7 @@ export function MachinePerformancePage() {
                           }}
                         >
                           <Activity className="size-3.5" />
-                          <span>Full 360° Specs</span>
+                          <span>View</span>
                         </Button>
 
                         <div className="text-left sm:text-right">
@@ -1195,7 +1230,7 @@ export function MachinePerformancePage() {
                     </div>
 
                     {/* 3 OEE Pillars */}
-                    <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {/* Availability */}
                       <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 p-3 space-y-1.5">
                         <div className="flex items-center justify-between">
@@ -1255,7 +1290,7 @@ export function MachinePerformancePage() {
                           />
                         </div>
                         <p className="text-[10px] text-zinc-400">
-                          Good pieces ({selectedTelemetry.good.toLocaleString()}) vs total output
+                          Good ({fmtDozenPcs(selectedTelemetry.good)}) vs total {fmtDozenPcs(selectedTelemetry.produced)}
                         </p>
                       </div>
                     </div>
@@ -1302,7 +1337,7 @@ export function MachinePerformancePage() {
                                     <p className="text-[10px] text-zinc-400">{p.runs} production runs</p>
                                   </div>
                                   <div className="text-right">
-                                    <span className="font-black text-zinc-800 dark:text-zinc-200">{p.produced.toLocaleString()} pcs</span>
+                                    <span className="font-black text-zinc-800 dark:text-zinc-200">{fmtDozenPcs(p.produced)}</span>
                                     {p.downtimeMinutes > 0 && (
                                       <p className="text-[10px] text-rose-600">{formatMinutes(p.downtimeMinutes)} DT</p>
                                     )}
@@ -1362,7 +1397,7 @@ export function MachinePerformancePage() {
             </div>
 
             {/* Stoppages Breakdown Table */}
-            <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-xs space-y-4">
+            <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="size-4 text-rose-600" />
@@ -1432,7 +1467,7 @@ export function MachinePerformancePage() {
         {/* LOG / EDIT MAINTENANCE MODAL (Shadcn Select) */}
         {/* ==================================================================== */}
         <Dialog open={isMaintModalOpen} onOpenChange={setIsMaintModalOpen}>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-zinc-900 dark:text-white">
                 {editingMaint ? 'Edit Maintenance Record' : 'Log Machine Maintenance'}
@@ -1548,34 +1583,16 @@ export function MachinePerformancePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Cost (₦)
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className="mt-1 h-9 text-xs font-mono"
-                    value={maintCost}
-                    onChange={(e) => setMaintCost(e.target.value)}
-                  />
-                </div>
+              <MaintenanceCostAndDowntime
+                cost={maintCost}
+                onCost={setMaintCost}
+                downUnit={maintDownUnit}
+                downValue={maintDownValue}
+                onDownUnit={setMaintDownUnit}
+                onDownValue={setMaintDownValue}
+              />
 
-                <div>
-                  <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Downtime Caused (min)
-                  </Label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    className="mt-1 h-9 text-xs font-mono"
-                    value={maintDowntime}
-                    onChange={(e) => setMaintDowntime(e.target.value)}
-                  />
-                </div>
-              </div>
+              <MaintenancePhotoPicker photos={maintPhotos} onChange={setMaintPhotos} />
 
               <div>
                 <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
@@ -1642,13 +1659,13 @@ export function MachinePerformancePage() {
         {/* ADD / EDIT MACHINE MODAL (Shadcn Select) */}
         {/* ==================================================================== */}
         <Dialog open={isMachineModalOpen} onOpenChange={setIsMachineModalOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-zinc-900 dark:text-white">
                 {editingMachine ? 'Edit Machine' : 'Add New Machine'}
               </DialogTitle>
               <DialogDescription className="text-xs text-zinc-500">
-                Configure equipment code, name, category, and standard rated output speed.
+                Configure name, optional code, type, and status.
               </DialogDescription>
             </DialogHeader>
 
@@ -1724,19 +1741,6 @@ export function MachinePerformancePage() {
                     </Select>
                   </div>
                 </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                  Rated Output Capacity (units per hour)
-                </Label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  className="mt-1 h-9 text-xs font-mono"
-                  value={machineFormRatedOutput}
-                  onChange={(e) => setMachineFormRatedOutput(e.target.value)}
-                />
               </div>
             </div>
 

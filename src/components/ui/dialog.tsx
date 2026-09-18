@@ -151,13 +151,15 @@ export const DialogContent = React.forwardRef<
           ctx.setOpen(false)
         }
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in-0 duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-0 sm:p-4 backdrop-blur-xs animate-in fade-in-0 duration-200 max-sm:items-stretch"
     >
       <div
         ref={ref}
         role="document"
         className={cn(
-          "relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950",
+          "relative w-full max-w-lg overflow-y-auto border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950",
+          "h-[100dvh] max-h-[100dvh] rounded-none",
+          "sm:h-auto sm:max-h-[90vh] sm:rounded-2xl",
           className
         )}
         {...props}
@@ -166,10 +168,10 @@ export const DialogContent = React.forwardRef<
           <button
             type="button"
             onClick={() => ctx.setOpen(false)}
-            className="absolute right-4 top-4 rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors focus:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+            className="absolute right-4 top-4 rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors focus:outline-none dark:hover:bg-zinc-800 dark:hover:text-zinc-300 max-sm:top-[max(0.75rem,env(safe-area-inset-top))] max-sm:right-[max(0.75rem,env(safe-area-inset-right))] max-sm:flex max-sm:size-12 max-sm:items-center max-sm:justify-center max-sm:rounded-xl max-sm:bg-zinc-100 max-sm:p-0 max-sm:text-zinc-700 dark:max-sm:bg-zinc-800 dark:max-sm:text-zinc-200"
             aria-label="Close"
           >
-            <X className="size-4" />
+            <X className="size-4 max-sm:size-7" />
           </button>
         )}
         {children}
@@ -186,7 +188,7 @@ export function DialogHeader({
   return (
     <div
       className={cn(
-        "flex flex-col space-y-1.5 text-center sm:text-left mb-4",
+        "flex flex-col space-y-1.5 text-center sm:text-left mb-4 max-sm:pr-14",
         className
       )}
       {...props}

@@ -42,6 +42,7 @@ import { cn } from '@/lib/utils'
 import { StaffDashboard } from '@/components/dashboard/StaffDashboard'
 import { OutletDashboard } from '@/components/dashboard/OutletDashboard'
 import { isOutletScoped } from '@/lib/outlet'
+import { fmtDozenPcs } from '@/lib/units'
 
 type AlertTop = {
   id: number
@@ -104,6 +105,10 @@ type Dashboard = {
     downtimeMinutes: number
     outputPerHour: number | null
     byStage: { stage: string; yieldPercent: number; inputKg: number; usableKg: number }[]
+    unitsProducedDozen?: number
+    unitsProducedPcs?: number
+    unitsGoodDozen?: number
+    unitsGoodPcs?: number
   }
   sales: { saleCount: number; revenue: number }
   spend: { approvedExpenses: number; wagesOutstanding: number }
@@ -131,6 +136,8 @@ type Dashboard = {
     wasteKg?: number
     wipKg: number
     fgUnits: number
+    fgDozen?: number
+    fgPcs?: number
     lowStockCount: number
   }
   trend: Array<{
@@ -170,6 +177,28 @@ type Dashboard = {
   compare?: Record<string, { current: number; prior: number; delta: number; improved: boolean | null }>
   activity?: Array<{ at: string; title: string; linkPath: string }>
   operatorShift?: Array<{ operatorName: string; unitsProduced: number; shiftName?: string }>
+  scrapPurchases?: Array<{
+    id: number
+    batchId: number
+    batchNumber: string | null
+    supplierName: string
+    inboundForm: string
+    kg: number
+    cost: number
+    receivedAt: string
+  }>
+  productionOutput?: Array<{
+    id: number
+    batchId: number
+    batchNumber: string | null
+    productId: number
+    productName: string
+    qtyGood: number
+    qtyProduced: number
+    unitsPerDozen: number
+    dozen: number
+    pcs: number
+  }>
 }
 
 type DrillPayload = {
@@ -431,36 +460,30 @@ export function DashboardPage() {
              
 
               {/* Compact KPI scorecards */}
-              <div className="grid grid-cols-2 gap-2 sm:gap-2.5 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-1.5 sm:gap-2 lg:grid-cols-4">
                 {/* Card 1: Raw Material */}
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('raw_material')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('raw_material')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2.5 sm:p-3 shadow-xs transition-all hover:border-emerald-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-emerald-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors truncate">
                       Raw Material
                     </span>
-                    <div className="flex size-5 sm:size-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
-                      <Recycle className="size-3 sm:size-3.5" />
+                    <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
+                      <Recycle className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-base sm:text-xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
                     {fmt(d.materialFlow.receivedKg || 0)}{' '}
                     <span className="text-[10px] font-normal text-muted-foreground">kg</span>
                   </p>
-                  <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
-                      <span>Quantity</span>
-                      <span className="font-semibold tabular-nums text-foreground">
-                        {fmt(d.materialFlow.receivedKg || 0)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Qty available</span>
+                      <span>Available</span>
                       <span className="font-semibold tabular-nums text-emerald-600">
                         {fmt(
                           d.materialFlow.availableKg != null
@@ -479,25 +502,24 @@ export function DashboardPage() {
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('production')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('production')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2.5 sm:p-3 shadow-xs transition-all hover:border-indigo-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-indigo-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors truncate">
                       Production
                     </span>
-                    <div className="flex size-5 sm:size-6 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
-                      <Factory className="size-3 sm:size-3.5" />
+                    <div className="flex size-5 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
+                      <Factory className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-base sm:text-xl font-bold tracking-tight text-foreground tabular-nums truncate">
-                    {fmt(d.production.unitsProduced, 0)}{' '}
-                    <span className="text-[10px] font-normal text-muted-foreground">units</span>
+                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                    {fmtDozenPcs(d.production.unitsProduced)}
                   </p>
-                  <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Good</span>
                       <span className="font-semibold tabular-nums text-emerald-600">
-                        {fmt(d.production.unitsGood, 0)}
+                        {fmtDozenPcs(d.production.unitsGood)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -520,21 +542,20 @@ export function DashboardPage() {
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('finished_goods')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('finished_goods')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2.5 sm:p-3 shadow-xs transition-all hover:border-teal-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-teal-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors truncate">
                       Finished Goods
                     </span>
-                    <div className="flex size-5 sm:size-6 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
-                      <PackageCheck className="size-3 sm:size-3.5" />
+                    <div className="flex size-5 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
+                      <PackageCheck className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-base sm:text-xl font-bold tracking-tight text-foreground tabular-nums truncate">
-                    {fmt(d.inventory.fgUnits, 0)}{' '}
-                    <span className="text-[10px] font-normal text-muted-foreground">in stock</span>
+                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                    {fmtDozenPcs(d.inventory.fgUnits)}
                   </p>
-                  <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Pass rate</span>
                       <span className="font-semibold tabular-nums text-teal-600">
@@ -561,20 +582,20 @@ export function DashboardPage() {
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('sales')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('sales')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2.5 sm:p-3 shadow-xs transition-all hover:border-amber-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-amber-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors truncate">
                       Sales
                     </span>
-                    <div className="flex size-5 sm:size-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
-                      <DollarSign className="size-3 sm:size-3.5" />
+                    <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
+                      <DollarSign className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-base sm:text-xl font-bold tracking-tight text-foreground tabular-nums truncate">
+                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
                     ₦{fmt(d.sales.revenue, 0)}
                   </p>
-                  <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Orders</span>
                       <span className="font-semibold tabular-nums text-foreground">
@@ -619,114 +640,66 @@ export function DashboardPage() {
                   )
                 }
                 return (
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-                    <Card className="!p-3 sm:!p-4">
-                      <ol className="space-y-2.5">
-                        {ranked.map((op, idx) => {
-                          const width = Math.max(6, Math.round((Number(op.score || 0) / leaderScore) * 100))
-                          const href = op.operatorId ? `/operators/${op.operatorId}` : '/operators'
-                          return (
-                            <li key={`${op.operatorId || op.operatorName}-${idx}`}>
-                              <Link
-                                to={href}
-                                className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-indigo-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-indigo-900"
-                              >
-                                <div className="flex items-center gap-2.5">
-                                  <span
-                                    className={cn(
-                                      'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
-                                      idx === 0
-                                        ? 'bg-amber-400 text-amber-950'
-                                        : idx === 1
-                                          ? 'bg-zinc-300 text-zinc-800'
-                                          : idx === 2
-                                            ? 'bg-orange-200 text-orange-900'
-                                            : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
-                                    )}
-                                  >
-                                    {op.rank || idx + 1}
-                                  </span>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-baseline justify-between gap-2">
-                                      <p className="truncate text-sm font-semibold text-foreground group-hover:text-indigo-700">
-                                        {op.operatorName}
-                                      </p>
-                                      <p className="shrink-0 text-xs font-bold tabular-nums text-foreground">
-                                        {fmt(op.good, 0)}{' '}
-                                        <span className="font-normal text-muted-foreground">good</span>
-                                      </p>
-                                    </div>
-                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
-                                      <div
-                                        className={cn(
-                                          'h-full rounded-full',
-                                          idx === 0 ? 'bg-amber-500' : 'bg-indigo-500',
-                                        )}
-                                        style={{ width: `${width}%` }}
-                                      />
-                                    </div>
-                                    <p className="mt-1 text-[10px] text-muted-foreground">
-                                      {op.qualityPercent}% quality
-                                      {op.rejectPercent > 0 ? ` · ${op.rejectPercent}% reject` : ''}
-                                      {op.downtimeMinutes > 0
-                                        ? ` · ${fmt(op.downtimeMinutes, 0)} min down`
-                                        : ''}
-                                      {op.kgUsable > 0 ? ` · ${fmt(op.kgUsable)} kg processed` : ''}
+                  <Card className="!p-3 sm:!p-4">
+                    <ol className="space-y-2.5">
+                      {ranked.map((op, idx) => {
+                        const width = Math.max(6, Math.round((Number(op.score || 0) / leaderScore) * 100))
+                        const href = op.operatorId ? `/operators/${op.operatorId}` : '/operators'
+                        return (
+                          <li key={`${op.operatorId || op.operatorName}-${idx}`}>
+                            <Link
+                              to={href}
+                              className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-indigo-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-indigo-900"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className={cn(
+                                    'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
+                                    idx === 0
+                                      ? 'bg-amber-400 text-amber-950'
+                                      : idx === 1
+                                        ? 'bg-zinc-300 text-zinc-800'
+                                        : idx === 2
+                                          ? 'bg-orange-200 text-orange-900'
+                                          : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
+                                  )}
+                                >
+                                  {op.rank || idx + 1}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <p className="truncate text-sm font-semibold text-foreground group-hover:text-indigo-700">
+                                      {op.operatorName}
+                                    </p>
+                                    <p className="shrink-0 text-xs font-bold tabular-nums text-foreground">
+                                      {fmtDozenPcs(op.good)}
                                     </p>
                                   </div>
+                                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+                                    <div
+                                      className={cn(
+                                        'h-full rounded-full',
+                                        idx === 0 ? 'bg-amber-500' : 'bg-indigo-500',
+                                      )}
+                                      style={{ width: `${width}%` }}
+                                    />
+                                  </div>
+                                  <p className="mt-1 text-[10px] text-muted-foreground">
+                                    {op.qualityPercent}% quality
+                                    {op.rejectPercent > 0 ? ` · ${op.rejectPercent}% reject` : ''}
+                                    {op.downtimeMinutes > 0
+                                      ? ` · ${fmt(op.downtimeMinutes, 0)} min down`
+                                      : ''}
+                                    {op.kgUsable > 0 ? ` · ${fmt(op.kgUsable)} kg processed` : ''}
+                                  </p>
                                 </div>
-                              </Link>
-                            </li>
-                          )
-                        })}
-                      </ol>
-                    </Card>
-                    <div className="grid grid-cols-2 gap-2 content-start">
-                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Leader
-                        </p>
-                        <p className="mt-0.5 truncate text-sm font-bold text-foreground">
-                          {ranked[0]?.operatorName || '—'}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground tabular-nums">
-                          {fmt(ranked[0]?.good, 0)} good pcs
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Ranked
-                        </p>
-                        <p className="mt-0.5 text-lg font-bold tabular-nums text-indigo-600">
-                          {ranked.length}
-                          <span className="text-xs font-normal text-muted-foreground"> / 5</span>
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Best quality
-                        </p>
-                        <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">
-                          {fmt(
-                            Math.max(...ranked.map((o) => Number(o.qualityPercent || 0))),
-                            0,
-                          )}
-                          %
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                          Team good
-                        </p>
-                        <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                          {fmt(
-                            ranked.reduce((sum, o) => sum + Number(o.good || 0), 0),
-                            0,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                              </div>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </Card>
                 )
               })()}
             </div>
@@ -805,9 +778,9 @@ export function DashboardPage() {
                                 </div>
                               )}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(m.produced, 0)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmtDozenPcs(m.produced)}</td>
                             <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-600">
-                              {fmt(m.good, 0)}
+                              {fmtDozenPcs(m.good)}
                             </td>
                             <td
                               className={cn(
@@ -855,7 +828,7 @@ export function DashboardPage() {
                             <td className="py-2 px-3 font-medium">{o.operatorName}</td>
                             <td className="py-2 px-3 text-muted-foreground">{o.shiftName || '—'}</td>
                             <td className="py-2 px-3 text-right font-mono tabular-nums">
-                              {fmt(o.unitsProduced, 0)}
+                              {fmtDozenPcs(o.unitsProduced)}
                             </td>
                           </tr>
                         ))}
@@ -998,7 +971,7 @@ export function DashboardPage() {
 
         {/* Full Details Modal for the 4 Top KPI Cards */}
         <Dialog open={!!activeKpiModal} onOpenChange={(open) => !open && setActiveKpiModal(null)}>
-          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 [&_table_th]:px-2.5 [&_table_th]:py-1.5 [&_table_td]:px-2.5 [&_table_td]:py-1.5">
+          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))] [&_table_th]:px-2.5 [&_table_th]:py-1.5 [&_table_td]:px-2.5 [&_table_td]:py-1.5">
             {activeKpiModal === 'raw_material' && d && (
               <div className="space-y-3">
                 <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
@@ -1074,69 +1047,51 @@ export function DashboardPage() {
 
                 <div className="space-y-1.5">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Recycling flow breakdown
+                    Scrap bought · {d.range.label}
                   </h4>
-                  <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
-                        <tr>
-                          <th className="py-2.5 px-3">Stage</th>
-                          <th className="py-2.5 px-3 text-right">Throughput</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                        {[
-                          { stage: 'Inbound (scrap buy)', kg: d.materialFlow.receivedKg },
-                          { stage: 'Waste', kg: d.materialFlow.wasteKg },
-                          { stage: 'Qty available', kg: d.materialFlow.availableKg },
-                          { stage: 'Sorting', kg: d.materialFlow.sortedKg },
-                          { stage: 'Crushing', kg: d.materialFlow.crushedKg },
-                          { stage: 'Washing', kg: d.materialFlow.washedKg },
-                          { stage: 'Drying', kg: d.materialFlow.driedKg },
-                        ].map((row) => (
-                          <tr key={row.stage} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                            <td className="py-2.5 px-3 font-semibold text-foreground">{row.stage}</td>
-                            <td className="py-2.5 px-3 text-right font-mono tabular-nums">
-                              {fmt(row.kg || 0)} kg
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {d.production.byStage && d.production.byStage.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Stage yield (input → usable)
-                    </h4>
+                  {(d.scrapPurchases || []).length === 0 ? (
+                    <p className="rounded-lg border border-zinc-200 px-3 py-4 text-xs text-muted-foreground dark:border-zinc-800">
+                      No scrap buys in this period.
+                    </p>
+                  ) : (
                     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
-                            <th className="py-2.5 px-3">Stage</th>
-                            <th className="py-2.5 px-3 text-right">Input</th>
-                            <th className="py-2.5 px-3 text-right">Usable</th>
-                            <th className="py-2.5 px-3 text-right">Yield</th>
+                            <th className="py-2.5 px-3">Buy</th>
+                            <th className="py-2.5 px-3 text-right">Kg</th>
+                            <th className="py-2.5 px-3 text-right">Cost</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.production.byStage.map((s, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground capitalize">{s.stage}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(s.inputKg || 0)} kg</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(s.usableKg || 0)} kg</td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-emerald-600">
-                                {s.yieldPercent}%
+                          {(d.scrapPurchases || []).map((row) => (
+                            <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
+                              <td className="py-2.5 px-3">
+                                <Link
+                                  to={`/receiving/${row.id}`}
+                                  onClick={() => setActiveKpiModal(null)}
+                                  className="block min-h-11 font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
+                                >
+                                  {row.batchNumber || `REC-${row.id}`}
+                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                    {row.supplierName}
+                                    {row.inboundForm ? ` · ${row.inboundForm}` : ''}
+                                  </span>
+                                </Link>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
+                                {fmt(row.kg)} kg
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold align-top">
+                                {money(row.cost)}
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <span className="text-[11px] text-muted-foreground">Quick actions:</span>
@@ -1164,10 +1119,10 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <DialogTitle className="text-base font-bold tracking-tight text-foreground">
-                        Production &amp; Machine Performance
+                        Production
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Overall factory throughput, quality pass/reject distribution, and equipment uptime for {d.periodLabel}
+                        Products made in {d.periodLabel}, in dozen and pieces
                       </DialogDescription>
                     </div>
                   </div>
@@ -1175,16 +1130,16 @@ export function DashboardPage() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Units Produced</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Produced</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.production.unitsProduced, 0)}
+                      {fmtDozenPcs(d.production.unitsProduced)}
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Total finished units</span>
+                    <span className="text-[10px] text-muted-foreground">Dozen and pieces</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Good Quality</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">
-                      {fmt(d.production.unitsGood, 0)}
+                      {fmtDozenPcs(d.production.unitsGood)}
                     </p>
                     <span className="text-[10px] text-emerald-600 font-medium">Passed inspection</span>
                   </div>
@@ -1193,7 +1148,7 @@ export function DashboardPage() {
                     <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.production.rejectPercent > 5 ? 'text-red-600' : 'text-foreground')}>
                       {d.production.rejectPercent}%
                     </p>
-                    <span className="text-[10px] text-muted-foreground">{fmt(d.production.unitsReject, 0)} units scrap</span>
+                    <span className="text-[10px] text-muted-foreground">{fmtDozenPcs(d.production.unitsReject)} scrap</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Downtime</span>
@@ -1204,135 +1159,52 @@ export function DashboardPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">Overall Process Yield</span>
-                      <p className="text-base font-bold text-indigo-600 mt-0.5 tabular-nums">
-                        {d.production.processYieldPercent}%
-                      </p>
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Products made · {d.range.label}
+                  </h4>
+                  {(d.productionOutput || []).length === 0 ? (
+                    <p className="rounded-lg border border-zinc-200 px-3 py-4 text-xs text-muted-foreground dark:border-zinc-800">
+                      No production in this period.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
+                          <tr>
+                            <th className="py-2.5 px-3">Product</th>
+                            <th className="py-2.5 px-3 text-right">Dozen</th>
+                            <th className="py-2.5 px-3 text-right">Pcs</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                          {(d.productionOutput || []).map((row) => (
+                            <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
+                              <td className="py-2.5 px-3">
+                                <Link
+                                  to={`/production/${row.id}`}
+                                  onClick={() => setActiveKpiModal(null)}
+                                  className="block min-h-11 font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
+                                >
+                                  {row.productName}
+                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                    {row.batchNumber || `Run ${row.id}`}
+                                  </span>
+                                </Link>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
+                                {row.dozen}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
+                                {row.pcs}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">Average Machine OEE</span>
-                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
-                        {d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">Output Throughput</span>
-                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
-                        {d.production.outputPerHour != null ? `${d.production.outputPerHour}/hr` : '—'}
-                      </p>
-                    </div>
-                  </div>
+                  )}
                 </div>
-
-                {d.production.byStage && d.production.byStage.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Stage conversion &amp; yield
-                    </h4>
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
-                          <tr>
-                            <th className="py-2.5 px-3">Stage</th>
-                            <th className="py-2.5 px-3 text-right">Input Kg</th>
-                            <th className="py-2.5 px-3 text-right">Usable Kg</th>
-                            <th className="py-2.5 px-3 text-right">Yield %</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.production.byStage.map((s, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground capitalize">{s.stage}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(s.inputKg || 0)} kg</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(s.usableKg || 0)} kg</td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-indigo-600">
-                                {s.yieldPercent}%
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {d.machines && d.machines.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Machine performance
-                    </h4>
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
-                          <tr>
-                            <th className="py-2.5 px-3">Machine</th>
-                            <th className="py-2.5 px-3 text-right">Produced</th>
-                            <th className="py-2.5 px-3 text-right">Good</th>
-                            <th className="py-2.5 px-3 text-right">Reject %</th>
-                            <th className="py-2.5 px-3 text-right">Downtime</th>
-                            <th className="py-2.5 px-3 text-right">OEE</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.machines.map((m) => (
-                            <tr key={m.machineId} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground">
-                                <div>{m.machineName}</div>
-                                {(m.lastProduct || m.lastOperator) && (
-                                  <div className="text-[10px] font-normal text-muted-foreground mt-0.5">
-                                    {[m.lastProduct, m.lastOperator].filter(Boolean).join(' · ')}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(m.produced, 0)}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-600">{fmt(m.good, 0)}</td>
-                              <td className={cn('py-2.5 px-3 text-right font-mono tabular-nums', m.rejectPercent > 5 && 'text-red-600 font-semibold')}>
-                                {m.rejectPercent}%
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums text-muted-foreground">
-                                {fmt(m.downtimeMinutes || 0)} min
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-indigo-600">
-                                {m.oeePercent != null ? `${m.oeePercent}%` : '—'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {d.operatorShift && d.operatorShift.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Operator / shift output
-                    </h4>
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
-                          <tr>
-                            <th className="py-2.5 px-3">Operator</th>
-                            <th className="py-2.5 px-3">Shift</th>
-                            <th className="py-2.5 px-3 text-right">Units</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.operatorShift.map((o, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground">{o.operatorName}</td>
-                              <td className="py-2.5 px-3 text-muted-foreground">{o.shiftName || '—'}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(o.unitsProduced, 0)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <span className="text-[11px] text-muted-foreground">Quick actions:</span>
@@ -1370,7 +1242,7 @@ export function DashboardPage() {
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">FG In Stock</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-600">
-                      {fmt(d.inventory.fgUnits, 0)} <span className="text-[11px] font-normal text-muted-foreground">units</span>
+                      {fmtDozenPcs(d.inventory.fgUnits)}
                     </p>
                     <span className="text-[10px] text-muted-foreground">Warehouse inventory</span>
                   </div>
@@ -1408,13 +1280,13 @@ export function DashboardPage() {
                     <div>
                       <span className="text-[10px] text-muted-foreground">Good units</span>
                       <p className="text-base font-bold text-emerald-600 mt-0.5 tabular-nums">
-                        {fmt(d.production.unitsGood, 0)}
+                        {fmtDozenPcs(d.production.unitsGood)}
                       </p>
                     </div>
                     <div>
                       <span className="text-[10px] text-muted-foreground">Rejects</span>
                       <p className={cn('text-base font-bold mt-0.5 tabular-nums', d.production.unitsReject > 0 ? 'text-red-600' : 'text-foreground')}>
-                        {fmt(d.production.unitsReject, 0)}
+                        {fmtDozenPcs(d.production.unitsReject)}
                       </p>
                     </div>
                     <div>

@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Warehouse, AlertCircle, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, ErrorBanner } from '@/components/ui'
+import { Card, Field, ErrorBanner, NairaAmountInput } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 
 import { SORT_COLORS } from '@/lib/sortColors'
@@ -155,6 +155,8 @@ export type FormValues = {
   downtimeMinutes: string
   downtimeReason: string
   notes: string
+  secondGradeKg?: string
+  secondGradePricePerKg?: string
 }
 
 export type InputBatch = {
@@ -253,6 +255,8 @@ const emptyForm = (batchNumber = ''): FormValues => ({
   downtimeMinutes: '0',
   downtimeReason: '',
   notes: '',
+  secondGradeKg: '',
+  secondGradePricePerKg: '',
 })
 
 export function ProcessStageForm({
@@ -337,6 +341,8 @@ export function ProcessStageForm({
               ).toFixed(2),
             )
           : null,
+        accumulatedTotal: Number(data?.costSummary?.accumulatedTotal || 0),
+        costPerKg: data?.costSummary?.costPerKg ?? data?.summary?.costPerKg ?? null,
       }
     },
     enabled: Boolean(activeBatch && (isCrushing || isSorting || isWashing)),
@@ -542,18 +548,23 @@ export function ProcessStageForm({
     () => +lotLines.reduce((sum, line) => sum + Number(line.qtyUsable || 0), 0).toFixed(3),
     [lotLines],
   )
-  const lotTotalWaste = useMemo(
-    () =>
-      +lotLines
-        .reduce((sum, line) => {
-          const usable = Number(line.qtyUsable || 0)
-          if (!(usable > 0)) return sum
-          return sum + Math.max(0, line.qtyIn - usable)
-        }, 0)
-        .toFixed(3),
-    [lotLines],
-  )
-  const lotOverIn = lotLines.some((line) => Number(line.qtyUsable || 0) - line.qtyIn > 0.001)
+  const secondGradeKg = isWashing ? Number(watch('secondGradeKg') || 0) : 0
+  const secondGradePricePerKg = isWashing ? Number(watch('secondGradePricePerKg') || 0) : 0
+  const secondGradeValue = +(secondGradeKg * secondGradePricePerKg).toFixed(2)
+  const lotTotalWaste = useMemo(() => {
+    const leftover = +lotLines
+      .reduce((sum, line) => {
+        const usable = Number(line.qtyUsable || 0)
+        if (!(usable > 0)) return sum
+        return sum + Math.max(0, line.qtyIn - usable)
+      }, 0)
+      .toFixed(3)
+    if (!isWashing) return leftover
+    return Math.max(0, +(leftover - secondGradeKg).toFixed(3))
+  }, [lotLines, isWashing, secondGradeKg])
+  const lotOverIn =
+    lotLines.some((line) => Number(line.qtyUsable || 0) - line.qtyIn > 0.001) ||
+    (isWashing && secondGradeKg + lotTotalUsable - lotTotalIn > 0.001)
   const lotMissingUsable = lotLines.some((line) => !(Number(line.qtyUsable || 0) > 0))
 
   const qtyInput = isMultiLotStage ? lotTotalIn : Number(watch('qtyInput') || 0)
@@ -714,11 +725,21 @@ export function ProcessStageForm({
         setSubmitAction(null)
         return
       }
-      if (lotOverIn) {
+      if (lotLines.some((line) => Number(line.qtyUsable || 0) - line.qtyIn > 0.001)) {
         setServerErrors([
           {
             label: 'Usable',
             message: 'Usable cannot be more than qty in for any colour.',
+          },
+        ])
+        setSubmitAction(null)
+        return
+      }
+      if (isWashing && secondGradeKg + lotTotalUsable - lotTotalIn > 0.001) {
+        setServerErrors([
+          {
+            label: 'Second grade',
+            message: `Second grade (${secondGradeKg} kg) plus first grade (${lotTotalUsable} kg) cannot exceed qty in (${lotTotalIn} kg).`,
           },
         ])
         setSubmitAction(null)
@@ -770,7 +791,7 @@ export function ProcessStageForm({
       const relevantKg = isRecrushing
         ? recrushQty
         : isMultiLotStage
-        ? lotTotalIn
+        ? lotTotalUsable + (isWashing ? secondGradeKg : 0)
         : isSplitting
           ? colorUsable
           : Number(values.qtyUsable) || Number(values.qtyInput) || 0
@@ -807,6 +828,8 @@ export function ProcessStageForm({
             ? qtyReject
             : 0,
         qtyWaste: 0,
+        qtySecondGrade: isWashing ? secondGradeKg : 0,
+        secondGradePricePerKg: isWashing ? secondGradePricePerKg : 0,
         colorLines: isSplitting ? colorLines : undefined,
         colorUpdates: isMultiLotStage
           ? lotLines.map((line) => ({
@@ -1047,7 +1070,7 @@ export function ProcessStageForm({
                   <>
                     {/* Batch Total Summary Strip */}
                     <div className="mt-3.5 rounded-xl border border-zinc-200 bg-zinc-50/90 p-3 sm:p-4">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center divide-y sm:divide-y-0 sm:divide-x divide-zinc-200/80">
+                      <div className={`grid grid-cols-2 gap-3 text-center divide-y sm:divide-y-0 sm:divide-x divide-zinc-200/80 ${isWashing ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
                         <div className="pt-1 sm:pt-0 sm:px-2">
                           <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                             Total In
@@ -1075,6 +1098,17 @@ export function ProcessStageForm({
                             <span className="text-xs font-normal text-zinc-400">kg</span>
                           </p>
                         </div>
+                        {isWashing && (
+                          <div className="pt-3 sm:pt-0 sm:px-2">
+                            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                              Second grade
+                            </p>
+                            <p className="mt-1 text-base sm:text-lg font-bold text-amber-700 font-mono">
+                              {secondGradeKg.toLocaleString()}{' '}
+                              <span className="text-xs font-normal text-zinc-400">kg</span>
+                            </p>
+                          </div>
+                        )}
                         <div className="pt-3 sm:pt-0 sm:px-2">
                           <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
                             Overall Yield
@@ -1085,6 +1119,66 @@ export function ProcessStageForm({
                         </div>
                       </div>
                     </div>
+
+                    {isWashing && (
+                      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 sm:p-4">
+                        <h3 className="text-sm font-semibold text-amber-950">Second grade (not waste)</h3>
+                        <p className="mt-0.5 text-[11px] text-amber-800/80">
+                          Taken out of this lot and can be sold. That value comes off the remaining first-grade cost.
+                        </p>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <Field label="Second grade (kg)">
+                            <input
+                              inputMode="decimal"
+                              className="dgn-input"
+                              placeholder="0"
+                              {...register('secondGradeKg')}
+                            />
+                          </Field>
+                          <Field label="Price / kg (₦)">
+                            <NairaAmountInput
+                              value={watch('secondGradePricePerKg') || ''}
+                              onChange={(v) => setValue('secondGradePricePerKg', v)}
+                              placeholder="0"
+                              className="mt-0 h-11"
+                              inputClassName="h-11"
+                            />
+                          </Field>
+                        </div>
+                        {secondGradeKg > 0 && (
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded-lg bg-white/80 border border-amber-200 px-2.5 py-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/70">
+                                Recovered
+                              </p>
+                              <p className="mt-0.5 font-bold tabular-nums text-amber-950">
+                                ₦{secondGradeValue.toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="rounded-lg bg-white/80 border border-amber-200 px-2.5 py-2">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/70">
+                                Updated ₦ / kg
+                              </p>
+                              <p className="mt-0.5 font-bold tabular-nums text-amber-950">
+                                {(() => {
+                                  const incoming =
+                                    Number(batchDetail.data?.accumulatedTotal || 0) ||
+                                    Number(batchDetail.data?.effectiveCostPerKg || 0) * lotTotalIn
+                                  const labourRate = Number(watch('labourRatePerKg') || 0)
+                                  const extras =
+                                    labourRate * (lotTotalUsable + secondGradeKg) +
+                                    Number(watch('waterQty') || 0) +
+                                    Number(watch('detergentCost') || 0)
+                                  const remaining = incoming + extras - secondGradeValue
+                                  if (!(lotTotalUsable > 0)) return '—'
+                                  return `₦${(remaining / lotTotalUsable).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                                })()}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Desktop & Tablet Table (sm and up) */}
                     <div className="mt-4 hidden sm:block overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-xs">

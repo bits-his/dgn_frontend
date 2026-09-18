@@ -239,9 +239,12 @@ export default function CustomTable1<TData = any>({
             table.getRowModel().rows.map((row) => (
               <div
                 key={row.id}
-                className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-xs space-y-2.5"
+                className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 shadow-xs space-y-1.5"
               >
                 {row.getVisibleCells().map((cell) => {
+                  if ((cell.column.columnDef.meta as { hideOnMobile?: boolean } | undefined)?.hideOnMobile) {
+                    return null
+                  }
                   if (cell.column.id === "actions" || cell.column.id === "action") {
                     return (
                       <div
@@ -272,7 +275,7 @@ export default function CustomTable1<TData = any>({
                   return (
                     <div
                       key={cell.id}
-                      className="flex items-center justify-between gap-3 py-1 border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 text-xs"
+                      className="flex items-center justify-between gap-3 py-0.5 border-b border-zinc-100 dark:border-zinc-800/60 last:border-0 text-xs"
                     >
                       <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider shrink-0 [&_button]:h-auto [&_button]:p-0 [&_button]:text-[11px] [&_button]:font-bold [&_button]:text-zinc-400 [&_button]:uppercase [&_button]:tracking-wider [&_button]:hover:bg-transparent">
                         {headerTitle}
@@ -322,7 +325,7 @@ export default function CustomTable1<TData = any>({
                     <TableHead
                       key={header.id}
                       colSpan={header.colSpan}
-                      className="h-10 px-4 py-2.5 text-left align-middle text-xs font-semibold text-zinc-600 dark:text-zinc-300 whitespace-nowrap"
+                      className="h-9 px-3 py-2 text-left align-middle text-xs font-semibold text-zinc-600 dark:text-zinc-300 whitespace-nowrap"
                     >
                       {header.isPlaceholder
                         ? null
@@ -357,7 +360,7 @@ export default function CustomTable1<TData = any>({
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         key={cell.id}
-                        className="px-4 py-3 text-xs text-zinc-700 dark:text-zinc-200 align-middle"
+                        className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 align-middle"
                       >
                         {flexRender(
                           cell.column.columnDef.cell,

@@ -120,6 +120,7 @@ const recyclingGroup: NavGroup = {
     { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
     { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
     { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
+    { to: '/process/second-grade', label: 'Second grade', icon: Layers, menuKey: 'washing', permission: 'batch.view' },
   ],
 }
 
@@ -429,7 +430,7 @@ export function AppShell() {
               >
                 {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
               </button>
-              <BrandMark size={32} className="lg:hidden" />
+             {/* <BrandMark size={32} className="lg:hidden" /> */}
               <div>
                 <p className="text-sm font-semibold tracking-tight">Factory floor control</p>
                 <p className="text-xs text-[var(--ink-muted)]">

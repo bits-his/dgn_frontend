@@ -8,12 +8,12 @@ import {
   Cpu,
   RefreshCw,
   Wrench,
-  Plus,
   Activity,
   Pencil,
   ExternalLink,
   Layers,
   Users,
+  Trash2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
@@ -40,6 +40,14 @@ import {
 import CustomTable1 from '@/components/CustomTable1'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
+import { fmtDozenPcs } from '@/lib/units'
+import { MaintenanceCostAndDowntime, MaintenancePhotoPicker } from '@/components/MaintenanceLogExtras'
+import {
+  downtimeToMinutes,
+  minutesToDowntime,
+  parsePhotoUrls,
+  type DowntimeUnit,
+} from '@/lib/maintenanceForm'
 
 type MachineMaster = {
   id: number
@@ -66,6 +74,7 @@ type MaintenanceRecord = {
   scheduledDate?: string | null
   performedDate?: string | null
   notes?: string | null
+  photoUrls?: string[] | string | null
   createdAt?: string
 }
 
@@ -178,6 +187,12 @@ function oeeBadgeColor(oee: number | null) {
 
 function formatMinutes(min: number) {
   if (!min) return '0 min'
+  if (min >= 1440) {
+    const d = Math.floor(min / 1440)
+    const rem = min % 1440
+    const h = Math.floor(rem / 60)
+    return h ? `${d}d ${h}h` : `${d}d`
+  }
   if (min < 60) return `${min}m`
   const h = Math.floor(min / 60)
   const m = min % 60
@@ -194,7 +209,7 @@ export function MachineDetailPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState<'maintenance' | 'downtime' | 'telemetry' | 'specs'>('maintenance')
+  const [activeTab, setActiveTab] = useState<'maintenance' | 'downtime' | 'telemetry'>('maintenance')
 
   // Modals
   const [isMaintModalOpen, setIsMaintModalOpen] = useState(false)
@@ -207,7 +222,9 @@ export function MachineDetailPage() {
   const [maintStatus, setMaintStatus] = useState('COMPLETED')
   const [maintTechnician, setMaintTechnician] = useState('')
   const [maintCost, setMaintCost] = useState('')
-  const [maintDowntime, setMaintDowntime] = useState('')
+  const [maintDownUnit, setMaintDownUnit] = useState<DowntimeUnit>('hours')
+  const [maintDownValue, setMaintDownValue] = useState('0')
+  const [maintPhotos, setMaintPhotos] = useState<string[]>([])
   const [maintParts, setMaintParts] = useState('')
   const [maintNotes, setMaintNotes] = useState('')
   const [maintPerformedDate, setMaintPerformedDate] = useState('')
@@ -219,7 +236,6 @@ export function MachineDetailPage() {
   const [machineFormCode, setMachineFormCode] = useState('')
   const [machineFormType, setMachineFormType] = useState('PRODUCTION')
   const [machineFormStatus, setMachineFormStatus] = useState('RUNNING')
-  const [machineFormRatedOutput, setMachineFormRatedOutput] = useState('')
   const [machineFormError, setMachineFormError] = useState('')
 
   // Query machine 360 detail with instant cached data + stale-while-revalidate background fetch
@@ -360,7 +376,8 @@ export function MachineDetailPage() {
         status: maintStatus,
         technician: maintTechnician.trim() || null,
         cost: maintCost ? Number(maintCost) : 0,
-        downtimeMinutes: maintDowntime ? Number(maintDowntime) : 0,
+        downtimeMinutes: downtimeToMinutes(maintDownUnit, maintDownValue),
+        photoUrls: maintPhotos,
         partsReplaced: maintParts.trim() || null,
         notes: maintNotes.trim() || null,
         performedDate: maintPerformedDate ? new Date(maintPerformedDate).toISOString() : new Date().toISOString(),
@@ -398,7 +415,6 @@ export function MachineDetailPage() {
         code: machineFormCode.trim() || undefined,
         machineType: machineFormType,
         status: machineFormStatus,
-        ratedOutputPerHour: machineFormRatedOutput ? Number(machineFormRatedOutput) : 0,
         isActive: true,
       }
       if (!payload.name) {
@@ -417,6 +433,35 @@ export function MachineDetailPage() {
     },
   })
 
+  const deleteMaintenanceMutation = useMutation({
+    mutationFn: async (maintenanceId: number) => {
+      const { data } = await api.delete(`/maintenance/${maintenanceId}`)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['machine-360', id] })
+      qc.invalidateQueries({ queryKey: ['masters-maintenance'] })
+      qc.invalidateQueries({ queryKey: ['masters-machines'] })
+    },
+  })
+
+  function confirmDeleteMaintenance(rec: MaintenanceRecord) {
+    if (!window.confirm(`Delete maintenance “${rec.title}”?`)) return
+    deleteMaintenanceMutation.mutate(rec.id)
+  }
+
+  const deleteMachineMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.delete(`/machines/${id}`)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['masters-machines'] })
+      qc.invalidateQueries({ queryKey: ['machine-insights'] })
+      navigate('/machines')
+    },
+  })
+
   function openCreateMaintenance() {
     setEditingMaint(null)
     setMaintTitle('')
@@ -424,7 +469,9 @@ export function MachineDetailPage() {
     setMaintStatus('COMPLETED')
     setMaintTechnician('')
     setMaintCost('')
-    setMaintDowntime('')
+    setMaintDownUnit('hours')
+    setMaintDownValue('0')
+    setMaintPhotos([])
     setMaintParts('')
     setMaintNotes('')
     setMaintPerformedDate(new Date().toISOString().slice(0, 16))
@@ -440,7 +487,10 @@ export function MachineDetailPage() {
     setMaintStatus(rec.status || 'COMPLETED')
     setMaintTechnician(rec.technician || '')
     setMaintCost(rec.cost != null ? String(rec.cost) : '')
-    setMaintDowntime(rec.downtimeMinutes != null ? String(rec.downtimeMinutes) : '')
+    const down = minutesToDowntime(rec.downtimeMinutes)
+    setMaintDownUnit(down.unit)
+    setMaintDownValue(down.value)
+    setMaintPhotos(parsePhotoUrls(rec.photoUrls))
     setMaintParts(rec.partsReplaced || '')
     setMaintNotes(rec.notes || '')
     setMaintPerformedDate(rec.performedDate ? new Date(rec.performedDate).toISOString().slice(0, 16) : '')
@@ -455,7 +505,6 @@ export function MachineDetailPage() {
     setMachineFormCode(machine.code || '')
     setMachineFormType(machine.machineType || 'PRODUCTION')
     setMachineFormStatus(machine.status || 'RUNNING')
-    setMachineFormRatedOutput(machine.ratedOutputPerHour != null ? String(machine.ratedOutputPerHour) : '')
     setMachineFormError('')
     setIsMachineModalOpen(true)
   }
@@ -475,7 +524,9 @@ export function MachineDetailPage() {
       {
         id: 'title',
         header: 'Service Title & Type',
-        cell: ({ row }) => (
+        cell: ({ row }) => {
+          const photos = parsePhotoUrls(row.original.photoUrls)
+          return (
           <div className="space-y-1 text-xs">
             <div className="flex items-center gap-1.5">
               <span className={cn('px-1.5 py-0.2 rounded text-[9px] font-extrabold border', maintenanceTypeColor(row.original.maintenanceType))}>
@@ -483,13 +534,19 @@ export function MachineDetailPage() {
               </span>
               <span className="font-bold text-zinc-800 dark:text-zinc-200">{row.original.title}</span>
             </div>
+            {photos.length > 0 && (
+              <p className="text-[11px] text-zinc-500">
+                {photos.length} photo{photos.length === 1 ? '' : 's'}
+              </p>
+            )}
             {row.original.partsReplaced && (
               <p className="text-[11px] text-zinc-500 truncate max-w-xs">
                 Parts: {row.original.partsReplaced}
               </p>
             )}
           </div>
-        ),
+          )
+        },
       },
       {
         id: 'status',
@@ -535,15 +592,25 @@ export function MachineDetailPage() {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs font-semibold gap-1"
-            onClick={() => openEditMaintenance(row.original)}
-          >
-            <Pencil className="size-3 text-zinc-400" />
-            <span>Edit</span>
-          </Button>
+          <div className="flex flex-nowrap items-center justify-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold"
+              onClick={() => openEditMaintenance(row.original)}
+            >
+              Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold text-rose-600 border-rose-200 hover:bg-rose-50"
+              onClick={() => confirmDeleteMaintenance(row.original)}
+              disabled={deleteMaintenanceMutation.isPending}
+            >
+              Delete
+            </Button>
+          </div>
         ),
       },
     ],
@@ -556,7 +623,7 @@ export function MachineDetailPage() {
         back={true}
         backTo="/machines"
         backLabel="Machines"
-        title="Machine 360° View"
+        title="Machine"
         description="Loading equipment telemetry and history…"
       >
         <div className="space-y-4">
@@ -605,45 +672,58 @@ export function MachineDetailPage() {
       backTo="/machines"
       backLabel="Machines"
       title={
-        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="truncate">{machine.name}</span>
-          {machine.code && (
-            <span className="font-mono text-xs font-bold text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded">
-              {machine.code}
-            </span>
-          )}
-          <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-black border uppercase', machineStatusColor(machine.status))}>
+          <span className={cn('px-2 py-0.5 rounded-full text-[10px] font-black border uppercase', machineStatusColor(machine.status))}>
             {machine.status || 'RUNNING'}
           </span>
         </div>
       }
-      description={`Category: ${machine.machineType} · Rated Speed: ${Number(machine.ratedOutputPerHour || 0) > 0 ? `${Number(machine.ratedOutputPerHour)} pcs/hr` : 'Standard'} · Registered: ${formatDateTime(machine.createdAt || '')}`}
+      description={
+        <span className="hidden sm:inline">
+          {machine.machineType}
+          {machine.createdAt ? ` · Registered ${formatDateTime(machine.createdAt)}` : ''}
+        </span>
+      }
       actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5"
+            className="h-8 w-8 px-0 sm:w-auto sm:px-3 text-xs font-semibold gap-1.5"
             onClick={() => detailQuery.refetch()}
             disabled={detailQuery.isFetching}
           >
             <RefreshCw className={cn('size-3.5', detailQuery.isFetching && 'animate-spin')} />
-            <span>{detailQuery.isFetching ? 'Updating…' : 'Refresh'}</span>
+            <span className="hidden sm:inline">{detailQuery.isFetching ? 'Updating…' : 'Refresh'}</span>
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5"
+            className="h-8 w-8 px-0 sm:w-auto sm:px-3 text-xs font-semibold gap-1.5"
             onClick={openEditMachineModal}
           >
             <Pencil className="size-3.5" />
-            <span>Edit Machine</span>
+            <span className="hidden sm:inline">Edit</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 px-0 text-zinc-400 hover:text-rose-600"
+            onClick={() => {
+              if (!window.confirm(`Delete ${machine.name}? It will be removed from the machine list.`)) return
+              deleteMachineMutation.mutate()
+            }}
+            disabled={deleteMachineMutation.isPending}
+          >
+            <Trash2 className="size-3.5" />
           </Button>
 
           <Button
             size="sm"
-            className="h-8 text-xs font-semibold gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205] shadow-xs"
+            className="h-8 text-xs font-semibold gap-1.5 px-2.5 sm:px-3 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205] shadow-xs"
             onClick={openCreateMaintenance}
           >
             <Wrench className="size-3.5" />
@@ -652,54 +732,42 @@ export function MachineDetailPage() {
         </div>
       }
     >
-      <div className="space-y-6">
-        {/* 4 KPI Summary Cards (Full View Style like Batch Detail) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Maintenance Visits
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+          <div className="rounded-lg border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-2 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+              Visits
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black text-zinc-900 dark:text-white tabular-nums">
-                {stats.totalMaintenanceCount}
-              </span>
-              <span className="text-xs text-zinc-500">recorded</span>
-            </div>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+              {stats.totalMaintenanceCount}
+            </p>
           </div>
 
-          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Total Maint Spend
+          <div className="rounded-lg border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-2 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+              Spend
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white tabular-nums truncate">
-                {formatNgn(stats.totalMaintenanceCost)}
-              </span>
-            </div>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white truncate">
+              {formatNgn(stats.totalMaintenanceCost)}
+            </p>
           </div>
 
-          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Recorded Downtime
+          <div className="rounded-lg border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-2 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+              Downtime
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black text-rose-600 tabular-nums">
-                {formatMinutes(stats.totalDowntimeMinutes)}
-              </span>
-              <span className="text-xs text-zinc-500">lost run time</span>
-            </div>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-rose-600">
+              {formatMinutes(stats.totalDowntimeMinutes)}
+            </p>
           </div>
 
-          <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Production Output
+          <div className="rounded-lg border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-2 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+              Output
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black text-zinc-900 dark:text-white tabular-nums">
-                {stats.totalProduced.toLocaleString()}
-              </span>
-              <span className="text-xs text-zinc-500">pcs ({stats.totalRuns} runs)</span>
-            </div>
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+              {fmtDozenPcs(stats.totalProduced)}
+            </p>
           </div>
         </div>
 
@@ -707,15 +775,14 @@ export function MachineDetailPage() {
         <div className="flex items-center border-b border-zinc-200 dark:border-zinc-800 overflow-x-auto">
           <div className="flex gap-2">
             {[
-              { id: 'maintenance', label: 'Maintenance History', icon: Wrench, count: maintenances.length },
+              { id: 'maintenance', label: 'Maintenance', icon: Wrench, count: maintenances.length },
               {
                 id: 'downtime',
-                label: 'Downtime & Stoppages',
+                label: 'Downtime',
                 icon: Clock,
                 count: (downtimes.production?.length || 0) + (downtimes.process?.length || 0),
               },
-              { id: 'telemetry', label: 'Telemetry & OEE', icon: Activity },
-              { id: 'specs', label: 'Equipment Specifications', icon: Cpu },
+              { id: 'telemetry', label: 'OEE', icon: Activity },
             ].map((tab) => {
               const Icon = tab.icon
               const isActive = activeTab === tab.id
@@ -725,7 +792,7 @@ export function MachineDetailPage() {
                   type="button"
                   onClick={() => setActiveTab(tab.id as any)}
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition-all shrink-0',
+                    'flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 text-xs font-bold border-b-2 transition-all shrink-0',
                     isActive
                       ? 'border-[var(--accent-strong)] text-[var(--accent-strong)] bg-amber-500/5'
                       : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
@@ -751,36 +818,19 @@ export function MachineDetailPage() {
 
         {/* TAB 1: MAINTENANCE HISTORY */}
         {activeTab === 'maintenance' && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-bold text-sm text-zinc-900 dark:text-white">Maintenance Logbook</h3>
-                <p className="text-xs text-zinc-500">Service visits, scheduled maintenance, and repairs for {machine.name}.</p>
-              </div>
-              <Button
-                size="sm"
-                className="h-8 text-xs font-semibold gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#1a1205]"
-                onClick={openCreateMaintenance}
-              >
-                <Plus className="size-3.5" />
-                <span>Log Maintenance</span>
-              </Button>
-            </div>
-
-            <CustomTable1<MaintenanceRecord>
-              data={maintenances}
-              columns={maintenanceColumns}
-              card={true}
-              pagination={true}
-            />
-          </div>
+          <CustomTable1<MaintenanceRecord>
+            data={maintenances}
+            columns={maintenanceColumns}
+            card={true}
+            pagination={true}
+          />
         )}
 
         {/* TAB 2: DOWNTIME & STOPPAGES */}
         {activeTab === 'downtime' && (
-          <div className="space-y-6">
+          <div className="space-y-3">
             {/* Production Stoppages */}
-            <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-xs space-y-4">
+            <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="size-4 text-rose-600" />
@@ -843,7 +893,7 @@ export function MachineDetailPage() {
 
             {/* Process Stoppages */}
             {downtimes.process && downtimes.process.length > 0 && (
-              <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-xs space-y-4">
+              <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-xs space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="size-4 text-amber-600" />
@@ -907,13 +957,13 @@ export function MachineDetailPage() {
 
         {/* TAB 3: TELEMETRY & OEE */}
         {activeTab === 'telemetry' && (
-          <div className="space-y-5">
+          <div className="space-y-3">
             {telemetry ? (
-              <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5 shadow-xs space-y-5">
-                <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800">
+              <div className="rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-xs space-y-3">
+                <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
                   <div>
-                    <h3 className="text-base font-black text-zinc-900 dark:text-white">OEE & Equipment Effectiveness</h3>
-                    <p className="text-xs text-zinc-400">Live operational telemetry across completed production runs.</p>
+                    <h3 className="text-sm font-black text-zinc-900 dark:text-white">OEE</h3>
+                    <p className="text-xs text-zinc-400">Output in dozen and pieces</p>
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Overall OEE</span>
@@ -955,7 +1005,7 @@ export function MachineDetailPage() {
                     <div className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
                       <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(telemetry.qualityPercent || 0, 100)}%` }} />
                     </div>
-                    <p className="text-[10px] text-zinc-400">Good output vs total ({telemetry.good.toLocaleString()} / {telemetry.produced.toLocaleString()} pcs)</p>
+                    <p className="text-[10px] text-zinc-400">Good vs total ({fmtDozenPcs(telemetry.good)} / {fmtDozenPcs(telemetry.produced)})</p>
                   </div>
                 </div>
 
@@ -976,7 +1026,7 @@ export function MachineDetailPage() {
                               <p className="font-bold text-zinc-900 dark:text-zinc-100">{p.name}</p>
                               <p className="text-[10px] text-zinc-400">{p.runs} runs</p>
                             </div>
-                            <span className="font-black text-zinc-800 dark:text-zinc-200">{p.produced.toLocaleString()} pcs</span>
+                            <span className="font-black text-zinc-800 dark:text-zinc-200">{fmtDozenPcs(p.produced)}</span>
                           </div>
                         ))}
                       </div>
@@ -1018,59 +1068,8 @@ export function MachineDetailPage() {
           </div>
         )}
 
-        {/* TAB 4: SPECIFICATIONS */}
-        {activeTab === 'specs' && (
-          <div className="rounded-2xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
-              <div>
-                <h3 className="font-bold text-sm text-zinc-900 dark:text-white">Machine Profile & Technical Specifications</h3>
-                <p className="text-xs text-zinc-400">Registered hardware parameters and operating configurations.</p>
-              </div>
-              <Button variant="outline" size="sm" onClick={openEditMachineModal} className="gap-1.5 text-xs">
-                <Pencil className="size-3" />
-                <span>Edit Specs</span>
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Equipment Name</span>
-                <p className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">{machine.name}</p>
-              </div>
-
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Machine Code</span>
-                <p className="font-mono font-bold text-zinc-900 dark:text-zinc-100 text-sm">{machine.code || '—'}</p>
-              </div>
-
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Equipment Type</span>
-                <p className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">{machine.machineType}</p>
-              </div>
-
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Operating Status</span>
-                <p className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">{machine.status}</p>
-              </div>
-
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Rated Output Speed</span>
-                <p className="font-bold text-zinc-900 dark:text-zinc-100 text-sm">
-                  {Number(machine.ratedOutputPerHour || 0) > 0 ? `${Number(machine.ratedOutputPerHour)} pcs/hour` : 'Standard'}
-                </p>
-              </div>
-
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-xl space-y-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Registered On</span>
-                <p className="font-medium text-zinc-600 dark:text-zinc-300 text-sm">{formatDateTime(machine.createdAt || '')}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* LOG / EDIT MAINTENANCE MODAL (Shadcn Select) */}
         <Dialog open={isMaintModalOpen} onOpenChange={setIsMaintModalOpen}>
-          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-zinc-900 dark:text-white">
                 {editingMaint ? 'Edit Maintenance Record' : `Log Maintenance: ${machine.name}`}
@@ -1166,34 +1165,16 @@ export function MachineDetailPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Cost (₦)
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    className="mt-1 h-9 text-xs font-mono"
-                    value={maintCost}
-                    onChange={(e) => setMaintCost(e.target.value)}
-                  />
-                </div>
+              <MaintenanceCostAndDowntime
+                cost={maintCost}
+                onCost={setMaintCost}
+                downUnit={maintDownUnit}
+                downValue={maintDownValue}
+                onDownUnit={setMaintDownUnit}
+                onDownValue={setMaintDownValue}
+              />
 
-                <div>
-                  <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Downtime Caused (min)
-                  </Label>
-                  <Input
-                    type="number"
-                    placeholder="0"
-                    className="mt-1 h-9 text-xs font-mono"
-                    value={maintDowntime}
-                    onChange={(e) => setMaintDowntime(e.target.value)}
-                  />
-                </div>
-              </div>
+              <MaintenancePhotoPicker photos={maintPhotos} onChange={setMaintPhotos} />
 
               <div>
                 <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
@@ -1258,7 +1239,7 @@ export function MachineDetailPage() {
 
         {/* EDIT MACHINE MODAL (Shadcn Select) */}
         <Dialog open={isMachineModalOpen} onOpenChange={setIsMachineModalOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle className="text-base font-bold text-zinc-900 dark:text-white">
                 Edit Machine
@@ -1338,19 +1319,6 @@ export function MachineDetailPage() {
                     </Select>
                   </div>
                 </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                  Rated Output Capacity (units per hour)
-                </Label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  className="mt-1 h-9 text-xs font-mono"
-                  value={machineFormRatedOutput}
-                  onChange={(e) => setMachineFormRatedOutput(e.target.value)}
-                />
               </div>
             </div>
 

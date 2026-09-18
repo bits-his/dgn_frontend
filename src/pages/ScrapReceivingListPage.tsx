@@ -1,13 +1,14 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus, Eye, Pencil } from 'lucide-react'
+import { Plus, Eye, Pencil, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { parsePhotoUrls, mediaUrl } from '@/lib/maintenanceForm'
 
 type ScrapReceiptRow = {
   id: number
@@ -33,6 +34,7 @@ type ScrapReceiptRow = {
   contaminationLevel?: string | null
   vehicleInfo?: string | null
   transporterName?: string | null
+  photoUrls?: string[] | string | null
   batch?: {
     id: number
     batchNumber: string
@@ -81,6 +83,8 @@ function formatDate(raw?: string) {
 
 export function ScrapReceivingListPage() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [deleteError, setDeleteError] = useState('')
   const receiptsQuery = useQuery({
     queryKey: ['scrap-receipts'],
     queryFn: async () => {
@@ -90,6 +94,26 @@ export function ScrapReceivingListPage() {
   })
 
   const rows = receiptsQuery.data || []
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await api.delete(`/receiving/scrap/${id}`)
+      return data.data
+    },
+    onSuccess: () => {
+      setDeleteError('')
+      qc.invalidateQueries({ queryKey: ['scrap-receipts'] })
+    },
+    onError: (err: any) => {
+      setDeleteError(err.response?.data?.err || err.message || 'Could not delete this buy')
+    },
+  })
+
+  function confirmDelete(row: ScrapReceiptRow) {
+    const label = row.batch?.batchNumber || `REC-${row.id}`
+    if (!window.confirm(`Delete scrap buy ${label}? This cannot be undone.`)) return
+    deleteMutation.mutate(row.id)
+  }
 
   const columns: ColumnDef<ScrapReceiptRow>[] = useMemo(
     () => [
@@ -110,6 +134,7 @@ export function ScrapReceivingListPage() {
         cell: ({ row }) => {
           const r = row.original
           const batchNum = r.batch?.batchNumber || `REC-${r.id}`
+          const thumbs = parsePhotoUrls(r.photoUrls).slice(0, 3)
           return (
             <div>
               <Link
@@ -122,6 +147,18 @@ export function ScrapReceivingListPage() {
                 <p className="text-xs text-[var(--ink-faint)] truncate max-w-[160px]">
                   {r.supplier.name}
                 </p>
+              )}
+              {thumbs.length > 0 && (
+                <div className="mt-1 flex items-center gap-1">
+                  {thumbs.map((src, i) => (
+                    <img
+                      key={`${src.slice(0, 20)}-${i}`}
+                      src={mediaUrl(src)}
+                      alt=""
+                      className="size-7 rounded object-cover border border-zinc-200"
+                    />
+                  ))}
+                </div>
               )}
             </div>
           )
@@ -276,12 +313,27 @@ export function ScrapReceivingListPage() {
                 <Pencil className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                 <span>Edit</span>
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-medium cursor-pointer text-rose-600 border-rose-200 hover:bg-rose-50"
+                disabled={row.original.editable === false || deleteMutation.isPending}
+                title={
+                  row.original.editable === false
+                    ? row.original.lockReason || 'Already moved to a later stage'
+                    : 'Delete this buy'
+                }
+                onClick={() => confirmDelete(row.original)}
+              >
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                <span>Delete</span>
+              </Button>
             </div>
           )
         },
       },
     ],
-    [navigate],
+    [navigate, deleteMutation.isPending],
   )
 
   return (
@@ -300,6 +352,11 @@ export function ScrapReceivingListPage() {
       }
     >
       <div className="space-y-5">
+        {deleteError ? (
+          <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            {deleteError}
+          </p>
+        ) : null}
      
 
         {/* Table */}

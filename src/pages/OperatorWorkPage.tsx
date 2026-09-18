@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { HardHat, Layers, Factory } from 'lucide-react'
@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card'
 import CustomTable1 from '@/components/CustomTable1'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
+import { fmtDozenPcs } from '@/lib/units'
 
 type WorkRow = {
   id: string
@@ -63,6 +64,15 @@ function formatMinutes(mins: number) {
 
 export function OperatorWorkPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+
+  const goBack = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate('/operators')
+  }
 
   const query = useQuery({
     queryKey: ['operator-work', id],
@@ -88,22 +98,22 @@ export function OperatorWorkPage() {
         accessorKey: 'stage',
         header: 'Work',
         cell: ({ row }) => (
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
+          <div className="space-y-0.5 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0">
               <span
                 className={cn(
-                  'px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide',
+                  'px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0',
                   row.original.kind === 'production'
                     ? 'bg-amber-50 text-amber-800 border border-amber-200'
                     : 'bg-sky-50 text-sky-800 border border-sky-200',
                 )}
               >
-                {row.original.kind === 'production' ? 'Production' : 'Process'}
+                {row.original.kind === 'production' ? 'Prod' : 'Proc'}
               </span>
-              <span className="text-xs font-semibold text-zinc-900">{row.original.stage}</span>
+              <span className="text-xs font-semibold text-zinc-900 truncate">{row.original.stage}</span>
             </div>
             {row.original.productName && (
-              <p className="text-[11px] text-zinc-500">{row.original.productName}</p>
+              <p className="text-[11px] text-zinc-500 truncate">{row.original.productName}</p>
             )}
           </div>
         ),
@@ -127,6 +137,7 @@ export function OperatorWorkPage() {
       {
         accessorKey: 'machineName',
         header: 'Machine',
+        meta: { hideOnMobile: true },
         cell: ({ row }) => (
           <span className="text-xs text-zinc-700">{row.original.machineName || '—'}</span>
         ),
@@ -140,10 +151,10 @@ export function OperatorWorkPage() {
             return (
               <div>
                 <p className="text-xs font-semibold tabular-nums text-zinc-900">
-                  {fmt(r.qtyGood, 0)} good
+                  {fmtDozenPcs(r.qtyGood)} good
                 </p>
                 {Number(r.qtyReject) > 0 && (
-                  <p className="text-[11px] text-rose-600 tabular-nums">{fmt(r.qtyReject, 0)} reject</p>
+                  <p className="text-[11px] text-rose-600 tabular-nums">{fmtDozenPcs(r.qtyReject)} reject</p>
                 )}
               </div>
             )
@@ -161,6 +172,7 @@ export function OperatorWorkPage() {
       {
         accessorKey: 'runtimeMinutes',
         header: 'Time',
+        meta: { hideOnMobile: true },
         cell: ({ row }) =>
           row.original.runtimeMinutes ? (
             <span className="text-xs tabular-nums text-zinc-700">
@@ -173,6 +185,7 @@ export function OperatorWorkPage() {
       {
         accessorKey: 'status',
         header: 'Status',
+        meta: { hideOnMobile: true },
         cell: ({ row }) => (
           <span
             className={cn(
@@ -189,6 +202,7 @@ export function OperatorWorkPage() {
       {
         id: 'open',
         header: '',
+        meta: { hideOnMobile: true },
         cell: ({ row }) =>
           row.original.productionRunId ? (
             <Link
@@ -205,7 +219,7 @@ export function OperatorWorkPage() {
 
   if (query.isLoading) {
     return (
-      <PageLayout back backTo="/operators" backLabel="Operators" title="Operator work">
+      <PageLayout back backLabel="Back" onBack={goBack} title="Operator work">
         <Card className="p-6 text-xs text-zinc-500">Loading operator work…</Card>
       </PageLayout>
     )
@@ -213,7 +227,7 @@ export function OperatorWorkPage() {
 
   if (query.isError || !query.data) {
     return (
-      <PageLayout back backTo="/operators" backLabel="Operators" title="Operator work">
+      <PageLayout back backLabel="Back" onBack={goBack} title="Operator work">
         <Card className="p-6 text-xs text-red-700">This operator could not be found.</Card>
       </PageLayout>
     )
@@ -224,53 +238,49 @@ export function OperatorWorkPage() {
   return (
     <PageLayout
       back
-      backTo="/operators"
-      backLabel="Operators"
+      backLabel="Back"
+      onBack={goBack}
       title={employee.name}
       description={`${employee.employeeCode} · Operator · ${employee.isActive ? 'Active' : 'Inactive'}`}
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Jobs recorded
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
+              Jobs
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black tabular-nums text-zinc-900">{totals.jobs}</span>
-              <span className="text-xs text-zinc-500">total</span>
+            <div className="mt-0.5 flex items-baseline gap-1">
+              <span className="text-sm font-black tabular-nums text-zinc-900">{totals.jobs}</span>
             </div>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
               Production
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black tabular-nums text-zinc-900">{fmt(totals.qtyGood, 0)}</span>
-              <span className="text-xs text-zinc-500">pcs good</span>
-            </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{totals.productionJobs} shifts</p>
+            <p className="mt-0.5 text-sm font-black tabular-nums text-zinc-900">
+              {fmtDozenPcs(totals.qtyGood)}
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-500">{totals.productionJobs} shifts</p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
               Process
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black tabular-nums text-zinc-900">{fmt(totals.kgProcessed)}</span>
-              <span className="text-xs text-zinc-500">kg in</span>
+            <div className="mt-0.5 flex items-baseline gap-1">
+              <span className="text-sm font-black tabular-nums text-zinc-900">{fmt(totals.kgProcessed)}</span>
+              <span className="text-[10px] text-zinc-500">kg</span>
             </div>
-            <p className="mt-1 text-[11px] text-zinc-500">{totals.processJobs} runs</p>
+            <p className="mt-0.5 text-[10px] text-zinc-500">{totals.processJobs} runs</p>
           </div>
-          <div className="rounded-xl border border-zinc-200 bg-white p-4 shadow-xs">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">
+          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
               Runtime
             </span>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-xl font-black tabular-nums text-zinc-900">
-                {formatMinutes(totals.runtimeMinutes)}
-              </span>
-            </div>
+            <p className="mt-0.5 text-sm font-black tabular-nums text-zinc-900">
+              {formatMinutes(totals.runtimeMinutes)}
+            </p>
             {totals.qtyReject > 0 && (
-              <p className="mt-1 text-[11px] text-rose-600">{fmt(totals.qtyReject)} reject</p>
+              <p className="mt-0.5 text-[10px] text-rose-600">{fmtDozenPcs(totals.qtyReject)} reject</p>
             )}
           </div>
         </div>

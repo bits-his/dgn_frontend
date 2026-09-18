@@ -53,7 +53,7 @@ export function PageLayout({
           <BackButton text={backLabel} to={backTo} onClick={onBack} />
         </div>
       ) : null}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 min-[880px]:flex-row min-[880px]:items-start min-[880px]:justify-between min-[880px]:gap-3">
         <div className="min-w-0 flex-1 space-y-0.5">
           {title ? (
             bare ? (

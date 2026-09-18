@@ -12,6 +12,8 @@ import { Truck, Scale, ShoppingCart, ChevronDown, ChevronUp } from 'lucide-react
 import { Button } from '@/components/ui/button'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 import { ProcessingWalletPayBox } from '@/components/ProcessingWalletPayBox'
+import { MaintenancePhotoPicker } from '@/components/MaintenanceLogExtras'
+import { parsePhotoUrls } from '@/lib/maintenanceForm'
 
 type MasterItem = { id: number; name: string; code?: string }
 type ColorLine = { color: string; qtyKg: number }
@@ -55,6 +57,7 @@ export function ScrapReceivingPage() {
   const [pickKg, setPickKg] = useState('')
   const [editBatchNumber, setEditBatchNumber] = useState<string | null>(null)
   const [payFromProcessingWallet, setPayFromProcessingWallet] = useState(true)
+  const [photos, setPhotos] = useState<string[]>([])
 
   const suppliers = useQuery({
     queryKey: ['suppliers'],
@@ -86,6 +89,7 @@ export function ScrapReceivingPage() {
         editable?: boolean
         lockReason?: string | null
         colorLines?: { id?: number; color: string; qtyKg: number }[]
+        photoUrls?: string[] | string | null
       }
     },
   })
@@ -128,6 +132,7 @@ export function ScrapReceivingPage() {
     if (r.colorLines && r.colorLines.length) {
       setColorLines(r.colorLines.map((l) => ({ color: l.color, qtyKg: Number(l.qtyKg || 0) })))
     }
+    setPhotos(parsePhotoUrls(r.photoUrls))
     setIsCostBreakdownOpen(true)
   }, [receiptQuery.data, isEdit, reset])
 
@@ -245,6 +250,7 @@ export function ScrapReceivingPage() {
           unloadingCost: Number(values.unloadingCost || 0),
           otherCost: Number(values.otherCost || 0),
           notes: values.notes || null,
+          photoUrls: photos,
         })
         await queryClient.invalidateQueries({ queryKey: ['scrap-receipts'] })
         await queryClient.invalidateQueries({ queryKey: ['scrap-receipt', editId] })
@@ -274,6 +280,7 @@ export function ScrapReceivingPage() {
         unloadingCost: Number(values.unloadingCost || 0),
         otherCost: Number(values.otherCost || 0),
         notes: values.notes || null,
+        photoUrls: photos,
         confirmUnusualNet,
         payFromProcessingWallet,
       })
@@ -725,6 +732,12 @@ export function ScrapReceivingPage() {
               {...register('notes')}
             />
           </Field>
+
+          <MaintenancePhotoPicker
+            label="Photos (scale ticket, load, truck)"
+            photos={photos}
+            onChange={setPhotos}
+          />
 
           {/* Live Calculation Box - White & Collapsible by default */}
           <div className="rounded-xl border border-zinc-200 bg-white p-3 sm:p-4 shadow-xs">
