@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from 'react'
+import { useMemo, useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -22,53 +22,48 @@ import {
   TrendingUp,
   Calculator,
   Layers,
-  Clock,
-  CheckCircle2,
   Bell,
   ArrowRight,
   Eye,
   EyeOff,
   Banknote,
+  Wrench,
+  Factory,
+  Recycle,
+  RefreshCw,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { canAccessNavItem } from '@/components/AppShell'
 import { cn } from '@/lib/utils'
 import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 import { useHideMoney } from '@/hooks/useHideMoney'
+import { fmtDozenPcs } from '@/lib/units'
 
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
 
-type BatchRow = {
-  id: number
-  batchNumber: string
-  batchType: string
-  status: string
-  qtyRemaining: number | string
-  uom: string
-  createdAt?: string
-  material?: { name: string }
-  product?: { name: string }
-}
-
-type QcQueueItem = {
-  id: number
-  batchNumber: string
-  batchType: string
-  status: string
-  qtyOut?: number | string | null
-  qtyRemaining?: number | string | null
-  uom: string
-  product?: { name: string }
-  material?: { name: string }
-  productName?: string | null
-  materialName?: string | null
-}
+const RANGE_OPTIONS = [
+  { id: 'today', label: 'Today' },
+  { id: 'yesterday', label: 'Yesterday' },
+  { id: 'this_week', label: 'This week' },
+  { id: 'last_week', label: 'Last week' },
+  { id: 'this_month', label: 'This month' },
+  { id: 'last_month', label: 'Last month' },
+  { id: 'this_quarter', label: 'This quarter' },
+  { id: 'this_year', label: 'Year to date' },
+]
 
 type QuickActionItem = {
   to: string
@@ -80,7 +75,105 @@ type QuickActionItem = {
   permission?: string
 }
 
-// All sidebar navigation items mapped to a quick action
+type StaffOpsSections = {
+  scrap?: {
+    periodBuys?: number
+    periodKg?: number
+    periodCost?: number
+    todayBuys: number
+    todayKg: number
+    todayCost: number
+    openTickets: number
+  }
+  crushing?: {
+    openLots: number
+    openKg: number
+    periodRuns?: number
+    periodOutKg?: number
+    todayRuns: number
+    todayInKg: number
+    todayOutKg: number
+  }
+  washing?: {
+    openLots: number
+    openKg: number
+    periodRuns?: number
+    periodOutKg?: number
+    todayRuns: number
+    todayInKg: number
+    todayOutKg: number
+  }
+  drying?: {
+    openLots: number
+    openKg: number
+    periodRuns?: number
+    periodOutKg?: number
+    todayRuns: number
+    todayInKg: number
+    todayOutKg: number
+  }
+  recrushing?: { waitingLots: number }
+  recycling?: {
+    openLots: number
+    openKg: number
+    periodRuns?: number
+    periodOutKg?: number
+    todayRuns: number
+    todayOutKg: number
+  }
+  productionStore?: { lots: number; kg: number; pendingHandover: number }
+  production?: {
+    activeRuns: number
+    openBatches: number
+    periodGood?: number
+    periodReject?: number
+    periodCompleted?: number
+    periodDowntimeMinutes?: number
+    todayGood: number
+    todayReject: number
+    todayCompleted: number
+    todayDowntimeMinutes: number
+  }
+  machines?: {
+    totalMachines: number
+    running: number
+    maintenance: number
+    stopped: number
+    openJobs: number
+    scheduled: number
+    periodCost?: number
+    periodDowntimeMinutes?: number
+    monthCost: number
+    monthDowntimeMinutes: number
+  }
+  inventory?: { rawKg: number; wipKg: number; finishedQty: number; lowStockLines: number }
+  sales?: {
+    periodSales?: number
+    periodRevenue?: number
+    todaySales: number
+    todayRevenue: number
+  }
+  qc?: { pendingQueue: number }
+  expenses?: {
+    periodCount?: number
+    periodTotal?: number
+    todayCount: number
+    todayTotal: number
+    pendingCount: number
+  }
+  alerts?: { totalUnacknowledged: number; bySeverity: Record<string, number> }
+}
+
+type KpiCard = {
+  key: string
+  label: string
+  value: string
+  hint: string
+  icon: ComponentType<{ className?: string }>
+  tone: string
+  to?: string
+}
+
 const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
   {
     to: '/receiving/new',
@@ -291,17 +384,52 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
   },
 ]
 
-function qcQueueQty(item: QcQueueItem) {
-  const n = Number(item.qtyRemaining ?? item.qtyOut)
-  return Number.isFinite(n) ? n : 0
+function stageCards(
+  key: string,
+  title: string,
+  to: string,
+  icon: ComponentType<{ className?: string }>,
+  periodLabel: string,
+  data?: {
+    openLots: number
+    openKg: number
+    periodRuns?: number
+    periodOutKg?: number
+    todayRuns: number
+    todayInKg?: number
+    todayOutKg: number
+  },
+): KpiCard[] {
+  if (!data) return []
+  const runs = data.periodRuns ?? data.todayRuns
+  const outKg = data.periodOutKg ?? data.todayOutKg
+  return [
+    {
+      key: `${key}-open`,
+      label: `${title} waiting`,
+      value: String(data.openLots),
+      hint: `${Number(data.openKg || 0).toLocaleString()} kg open`,
+      icon,
+      tone: 'text-violet-600',
+      to,
+    },
+    {
+      key: `${key}-period`,
+      label: `${title} · ${periodLabel}`,
+      value: String(runs),
+      hint: `${Number(outKg || 0).toLocaleString()} kg out`,
+      icon,
+      tone: 'text-emerald-600',
+      to,
+    },
+  ]
 }
 
 export function StaffDashboard() {
   const user = useAuthStore((s) => s.user)
   const { hidden: hideMoney, toggle: toggleHideMoney, maskMoney } = useHideMoney()
+  const [rangePreset, setRangePreset] = useState('this_month')
 
-  const canBatchView = hasPermission(user, 'batch.view')
-  const canQcInspect = hasPermission(user, 'qc.inspect')
   const canSeeQc = canAccessNavItem(user, {
     to: '/qc',
     label: 'Quality control',
@@ -309,60 +437,21 @@ export function StaffDashboard() {
     menuKey: 'qc',
     permission: 'qc.inspect',
   })
-  const canInventory = hasPermission(user, 'inventory.view')
-  const canAlert = hasPermission(user, 'alert.view')
+  const canQcInspect = hasPermission(user, 'qc.inspect')
 
-  // Fetch recent batches for metric calculations
-  const batchesQuery = useQuery({
-    queryKey: ['staff-recent-batches'],
+  const opsQuery = useQuery({
+    queryKey: ['staff-ops-dashboard', rangePreset],
     queryFn: async () => {
-      const { data } = await api.get('/batches', { params: { limit: 20 } })
-      return data.data as BatchRow[]
-    },
-    enabled: canBatchView,
-    refetchInterval: 30_000,
-  })
-
-  const qcQueueQuery = useQuery({
-    queryKey: ['staff-qc-queue'],
-    queryFn: async () => {
-      const { data } = await api.get('/qc/queue')
-      const items = (data.data as QcQueueItem[]) || []
-      return items.filter(
-        (b) => !(b.batchType === 'PROD' && (b.status === 'IN_PROGRESS' || b.status === 'PENDING')),
-      )
-    },
-    enabled: canSeeQc,
-    refetchInterval: 30_000,
-  })
-
-  // Fetch Inventory overview if inventory access
-  const inventoryQuery = useQuery({
-    queryKey: ['staff-inventory-overview'],
-    queryFn: async () => {
-      const { data } = await api.get('/inventory/overview')
+      const { data } = await api.get('/dashboard/staff', {
+        params: { rangePreset },
+      })
       return data.data as {
-        totals: {
-          rawMaterialQty: number
-          wipQty: number
-          finishedGoodsQty: number
-          lines: number
-        }
+        businessDate: string
+        range?: { preset: string; from: string; to: string; label: string }
+        sections: StaffOpsSections
       }
     },
-    enabled: canInventory,
-    refetchInterval: 60_000,
-  })
-
-  // Fetch alerts summary if alert view
-  const alertsQuery = useQuery({
-    queryKey: ['staff-alerts-summary'],
-    queryFn: async () => {
-      const { data } = await api.get('/alerts/summary')
-      return data.data as { totalUnacknowledged: number; bySeverity: Record<string, number> }
-    },
-    enabled: canAlert,
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
   })
 
   const walletQuery = useQuery({
@@ -376,16 +465,247 @@ export function StaffDashboard() {
     },
     refetchInterval: 30_000,
   })
+
+  const qcQueueQuery = useQuery({
+    queryKey: ['staff-qc-queue'],
+    queryFn: async () => {
+      const { data } = await api.get('/qc/queue')
+      const items = (data.data as Array<{
+        id: number
+        batchNumber: string
+        batchType: string
+        status: string
+        qtyOut?: number | string | null
+        qtyRemaining?: number | string | null
+        uom: string
+        product?: { name: string }
+        material?: { name: string }
+        productName?: string | null
+        materialName?: string | null
+      }>) || []
+      return items.filter(
+        (b) => !(b.batchType === 'PROD' && (b.status === 'IN_PROGRESS' || b.status === 'PENDING')),
+      )
+    },
+    enabled: canSeeQc,
+    refetchInterval: 30_000,
+  })
+
   const hasWallet = Boolean(walletQuery.data?.hasWallet)
   const wallet = walletQuery.data?.data
+  const sections = opsQuery.data?.sections || {}
+  const rangeLabel =
+    opsQuery.data?.range?.label ||
+    RANGE_OPTIONS.find((o) => o.id === rangePreset)?.label ||
+    'This month'
+  const shortLabel =
+    rangePreset === 'today'
+      ? 'Today'
+      : rangePreset === 'yesterday'
+        ? 'Yesterday'
+        : rangeLabel
 
-  // Calculate batch metrics
-  const batchList = batchesQuery.data || []
-  const activeBatchesCount = batchList.filter((b) => b.status === 'IN_PROGRESS' || b.status === 'OPEN').length
-  const completedTodayCount = batchList.filter((b) => b.status === 'COMPLETED').length
-  const qcQueueCount = qcQueueQuery.data?.length || 0
+  const kpiCards = useMemo(() => {
+    const cards: KpiCard[] = []
+    const s = sections
 
-  // Filter all sidebar quick actions based on user access
+    if (s.scrap) {
+      const buys = s.scrap.periodBuys ?? s.scrap.todayBuys
+      const kg = s.scrap.periodKg ?? s.scrap.todayKg
+      const cost = s.scrap.periodCost ?? s.scrap.todayCost
+      cards.push(
+        {
+          key: 'scrap-buys',
+          label: `Scrap buys · ${shortLabel}`,
+          value: String(buys),
+          hint: `${Number(kg || 0).toLocaleString()} kg`,
+          icon: PackagePlus,
+          tone: 'text-amber-600',
+          to: '/receiving',
+        },
+        {
+          key: 'scrap-cost',
+          label: `Scrap spend · ${shortLabel}`,
+          value: money(cost),
+          hint: `${s.scrap.openTickets} open tickets`,
+          icon: Banknote,
+          tone: 'text-amber-700',
+          to: '/receiving',
+        },
+      )
+    }
+
+    cards.push(...stageCards('crush', 'Crushing', '/process/crushing', Hammer, shortLabel, s.crushing))
+    cards.push(...stageCards('wash', 'Washing', '/process/washing', Droplets, shortLabel, s.washing))
+    cards.push(...stageCards('dry', 'Drying', '/process/drying', Factory, shortLabel, s.drying))
+
+    if (s.recrushing) {
+      cards.push({
+        key: 'recrush-wait',
+        label: 'Re-crush waiting',
+        value: String(s.recrushing.waitingLots),
+        hint: 'Wash / dry lots ready',
+        icon: RotateCcw,
+        tone: 'text-slate-700',
+        to: '/process/recrushing',
+      })
+    }
+
+    if (s.recycling) {
+      cards.push(...stageCards('recycle', 'Recycling', '/process/recycling', Recycle, shortLabel, s.recycling))
+    }
+
+    if (s.productionStore) {
+      cards.push(
+        {
+          key: 'store-kg',
+          label: 'Material store',
+          value: `${Number(s.productionStore.kg || 0).toLocaleString()} kg`,
+          hint: `${s.productionStore.lots} lots on hand`,
+          icon: Warehouse,
+          tone: 'text-emerald-600',
+          to: '/production/store',
+        },
+        {
+          key: 'store-pending',
+          label: 'Pending handover',
+          value: String(s.productionStore.pendingHandover),
+          hint: 'Dry / recycle waiting',
+          icon: Warehouse,
+          tone: 'text-emerald-700',
+          to: '/production/store',
+        },
+      )
+    }
+
+    if (s.production) {
+      const good = s.production.periodGood ?? s.production.todayGood
+      const reject = s.production.periodReject ?? s.production.todayReject
+      const down = s.production.periodDowntimeMinutes ?? s.production.todayDowntimeMinutes
+      cards.push(
+        {
+          key: 'prod-active',
+          label: 'Active production',
+          value: String(s.production.activeRuns),
+          hint: `${s.production.openBatches} open batches`,
+          icon: Play,
+          tone: 'text-violet-600',
+          to: '/production',
+        },
+        {
+          key: 'prod-good',
+          label: `Good · ${shortLabel}`,
+          value: fmtDozenPcs(good),
+          hint: `${fmtDozenPcs(reject)} reject · ${down}m down`,
+          icon: Factory,
+          tone: 'text-violet-700',
+          to: '/production',
+        },
+      )
+    }
+
+    if (s.machines) {
+      const cost = s.machines.periodCost ?? s.machines.monthCost
+      const down = s.machines.periodDowntimeMinutes ?? s.machines.monthDowntimeMinutes
+      cards.push(
+        {
+          key: 'mach-fleet',
+          label: 'Machines running',
+          value: `${s.machines.running}/${s.machines.totalMachines}`,
+          hint: `${s.machines.maintenance} in maint · ${s.machines.stopped} stopped`,
+          icon: Gauge,
+          tone: 'text-orange-600',
+          to: '/machines',
+        },
+        {
+          key: 'mach-jobs',
+          label: 'Maintenance jobs',
+          value: String(s.machines.openJobs + s.machines.scheduled),
+          hint: `${s.machines.openJobs} in progress · ${s.machines.scheduled} scheduled`,
+          icon: Wrench,
+          tone: 'text-orange-700',
+          to: '/machines',
+        },
+        {
+          key: 'mach-cost',
+          label: `Maint. cost · ${shortLabel}`,
+          value: money(cost),
+          hint: `${down} min downtime`,
+          icon: Wrench,
+          tone: 'text-rose-600',
+          to: '/machines',
+        },
+      )
+    }
+
+    if (s.inventory) {
+      cards.push(
+        {
+          key: 'inv-raw',
+          label: 'Raw scrap stock',
+          value: `${Number(s.inventory.rawKg || 0).toLocaleString()} kg`,
+          hint: `${Number(s.inventory.wipKg || 0).toLocaleString()} kg WIP`,
+          icon: Boxes,
+          tone: 'text-sky-600',
+          to: '/inventory',
+        },
+        {
+          key: 'inv-fg',
+          label: 'Finished goods',
+          value: fmtDozenPcs(s.inventory.finishedQty),
+          hint: s.inventory.lowStockLines
+            ? `${s.inventory.lowStockLines} below reorder`
+            : 'Store inventory',
+          icon: Boxes,
+          tone: 'text-sky-700',
+          to: '/inventory',
+        },
+      )
+    }
+
+    if (s.sales) {
+      const salesCount = s.sales.periodSales ?? s.sales.todaySales
+      const revenue = s.sales.periodRevenue ?? s.sales.todayRevenue
+      cards.push({
+        key: 'sales-period',
+        label: `Sales · ${shortLabel}`,
+        value: String(salesCount),
+        hint: money(revenue),
+        icon: Truck,
+        tone: 'text-indigo-600',
+        to: '/sales',
+      })
+    }
+
+    if (s.qc) {
+      cards.push({
+        key: 'qc-pending',
+        label: 'QC pending',
+        value: String(s.qc.pendingQueue),
+        hint: s.qc.pendingQueue ? 'Awaiting inspection' : 'Queue clear',
+        icon: ShieldCheck,
+        tone: 'text-teal-600',
+        to: '/qc',
+      })
+    }
+
+    if (s.expenses) {
+      const total = s.expenses.periodTotal ?? s.expenses.todayTotal
+      const count = s.expenses.periodCount ?? s.expenses.todayCount
+      cards.push({
+        key: 'exp-period',
+        label: `Expenses · ${shortLabel}`,
+        value: money(total),
+        hint: `${count} logged · ${s.expenses.pendingCount} pending`,
+        icon: Receipt,
+        tone: 'text-rose-600',
+        to: '/expenses',
+      })
+    }
+
+    return cards
+  }, [sections, shortLabel])
+
   const fastActions = useMemo(() => {
     return ALL_SIDEBAR_QUICK_ACTIONS.filter((act) =>
       canAccessNavItem(user, {
@@ -408,24 +728,54 @@ export function StaffDashboard() {
     })
   }, [user])
 
+  const alertCount = sections.alerts?.totalUnacknowledged || 0
+
   return (
     <div className="space-y-6">
-      {/* Alert Banner */}
-      {canAlert && (alertsQuery.data?.totalUnacknowledged || 0) > 0 && (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Showing <span className="font-semibold text-foreground">{rangeLabel}</span>
+        </p>
+        <div className="flex items-center gap-1.5">
+          <Select value={rangePreset} onValueChange={setRangePreset}>
+            <SelectTrigger className="h-8 w-32 sm:w-40 text-xs bg-white dark:bg-zinc-900">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((o) => (
+                <SelectItem key={o.id} value={o.id} className="text-xs">
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => opsQuery.refetch()}
+            aria-label="Refresh"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', opsQuery.isFetching && 'animate-spin')} />
+          </Button>
+        </div>
+      </div>
+
+      {alertCount > 0 && (
         <Link
           to="/alerts"
           className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-medium text-amber-900 transition hover:bg-amber-100"
         >
           <Bell className="h-4 w-4 text-amber-700 shrink-0" />
-          <span>{alertsQuery.data?.totalUnacknowledged} unacknowledged operational alert(s)</span>
+          <span>{alertCount} unacknowledged operational alert(s)</span>
           <ArrowRight className="h-3.5 w-3.5 ml-auto text-amber-700 shrink-0" />
         </Link>
       )}
 
-      {/* Role-Specific Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
         {hasWallet && (
-          <Card className="col-span-2 p-2 sm:p-4 bg-white dark:bg-zinc-900 border-emerald-200/80">
+          <Card className="col-span-2 p-2.5 sm:p-4 bg-white dark:bg-zinc-900 border-emerald-200/80">
             <div className="flex items-center justify-between gap-1">
               <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate">
                 Processing money
@@ -469,87 +819,43 @@ export function StaffDashboard() {
           </Card>
         )}
 
-        {canBatchView && (
-          <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="Active Batches">
-                Active Batches
-              </span>
-              <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-amber-600 shrink-0" />
-            </div>
-            <p className="mt-1 sm:mt-2 text-base sm:text-2xl font-bold tracking-tight text-foreground truncate">
-              {activeBatchesCount}
-            </p>
-            <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">In progress</p>
-          </Card>
+        {opsQuery.isLoading && !kpiCards.length && (
+          <Card className="col-span-2 p-4 text-xs text-muted-foreground">Loading your KPIs…</Card>
         )}
 
-        {canSeeQc && (
-          <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="QC Pending">
-                QC Pending
-              </span>
-              <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
-            </div>
-            <p className="mt-1 sm:mt-2 text-base sm:text-2xl font-bold tracking-tight text-foreground truncate">
-              {qcQueueCount}
-            </p>
-            <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">
-              {qcQueueCount === 0 ? 'Queue clear' : 'Awaiting QC'}
-            </p>
-          </Card>
-        )}
-
-        {canInventory && inventoryQuery.data && (
-          <>
-            <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
+        {kpiCards.map((card) => {
+          const Icon = card.icon
+          const body = (
+            <>
               <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="Raw Scrap Stock">
-                  Raw Scrap
+                <span
+                  className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate"
+                  title={card.label}
+                >
+                  {card.label}
                 </span>
-                <Boxes className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-sky-600 shrink-0" />
+                <Icon className={cn('h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0', card.tone)} />
               </div>
-              <p className="mt-1 sm:mt-2 text-sm sm:text-2xl font-bold tracking-tight text-foreground truncate">
-                {Number(inventoryQuery.data.totals.rawMaterialQty || 0).toLocaleString()}{' '}
-                <span className="text-[9px] sm:text-xs font-normal text-muted-foreground">kg</span>
+              <p className="mt-1 sm:mt-2 text-sm sm:text-xl font-bold tracking-tight text-foreground truncate">
+                {card.value}
               </p>
-              <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">Yard balance</p>
+              <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">{card.hint}</p>
+            </>
+          )
+          return card.to ? (
+            <Link key={card.key} to={card.to} className="block">
+              <Card className="h-full p-2.5 sm:p-4 bg-white dark:bg-zinc-900 transition hover:border-amber-300 hover:shadow-xs">
+                {body}
+              </Card>
+            </Link>
+          ) : (
+            <Card key={card.key} className="p-2.5 sm:p-4 bg-white dark:bg-zinc-900">
+              {body}
             </Card>
-
-            <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="Finished Goods">
-                  Finished
-                </span>
-                <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-violet-600 shrink-0" />
-              </div>
-              <p className="mt-1 sm:mt-2 text-sm sm:text-2xl font-bold tracking-tight text-foreground truncate">
-                {Number(inventoryQuery.data.totals.finishedGoodsQty || 0).toLocaleString()}{' '}
-                <span className="text-[9px] sm:text-xs font-normal text-muted-foreground">pcs</span>
-              </p>
-              <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">Store inventory</p>
-            </Card>
-          </>
-        )}
-
-        {!canInventory && canBatchView && (
-          <Card className="p-2 sm:p-4 bg-white dark:bg-zinc-900">
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground truncate" title="Completed">
-                Completed
-              </span>
-              <CheckCircle2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
-            </div>
-            <p className="mt-1 sm:mt-2 text-base sm:text-2xl font-bold tracking-tight text-foreground truncate">
-              {completedTodayCount}
-            </p>
-            <p className="mt-0.5 text-[9px] sm:text-xs text-muted-foreground truncate">Recent lots</p>
-          </Card>
-        )}
+          )
+        })}
       </div>
 
-      {/* Quick Actions Bar */}
       {fastActions.length > 0 && (
         <div>
           <h2 className="mb-3 text-sm font-semibold tracking-wide uppercase text-muted-foreground">
@@ -560,20 +866,23 @@ export function StaffDashboard() {
               const Icon = act.icon
               return (
                 <Link
-                  key={act.to}
+                  key={`${act.menuKey}-${act.to}`}
                   to={act.to}
                   className="group flex items-start gap-3.5 rounded-xl border border-zinc-200/80 bg-white p-3.5 transition-all hover:-translate-y-0.5 hover:border-amber-400 hover:shadow-xs dark:border-zinc-800 dark:bg-zinc-900"
                 >
-                  <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg shadow-xs', act.tone)}>
+                  <div
+                    className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-lg shadow-xs',
+                      act.tone,
+                    )}
+                  >
                     <Icon className="size-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-semibold text-sm text-foreground group-hover:text-[var(--accent-strong)] truncate">
                       {act.title}
                     </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-                      {act.desc}
-                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{act.desc}</p>
                   </div>
                   <ArrowRight className="size-4 shrink-0 text-zinc-400 transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--accent-strong)]" />
                 </Link>
@@ -597,29 +906,32 @@ export function StaffDashboard() {
             </Button>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {qcQueueQuery.data!.slice(0, 3).map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-lg border border-amber-200/80 bg-white p-3 shadow-2xs"
-              >
-                <div>
-                  <p className="font-semibold text-xs text-foreground">{item.batchNumber}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {item.productName ||
-                      item.materialName ||
-                      item.product?.name ||
-                      item.material?.name ||
-                      item.batchType}{' '}
-                    · {qcQueueQty(item).toLocaleString()} {item.uom || 'kg'}
-                  </p>
+            {qcQueueQuery.data!.slice(0, 3).map((item) => {
+              const qty = Number(item.qtyRemaining ?? item.qtyOut)
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center justify-between rounded-lg border border-amber-200/80 bg-white p-3 shadow-2xs"
+                >
+                  <div>
+                    <p className="font-semibold text-xs text-foreground">{item.batchNumber}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {item.productName ||
+                        item.materialName ||
+                        item.product?.name ||
+                        item.material?.name ||
+                        item.batchType}{' '}
+                      · {(Number.isFinite(qty) ? qty : 0).toLocaleString()} {item.uom || 'kg'}
+                    </p>
+                  </div>
+                  {canQcInspect && (
+                    <Button size="sm" variant="default" className="h-7 text-xs" asChild>
+                      <Link to={`/qc?batch=${item.batchNumber}`}>Inspect</Link>
+                    </Button>
+                  )}
                 </div>
-                {canQcInspect && (
-                  <Button size="sm" variant="default" className="h-7 text-xs" asChild>
-                    <Link to={`/qc?batch=${item.batchNumber}`}>Inspect</Link>
-                  </Button>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
       )}
