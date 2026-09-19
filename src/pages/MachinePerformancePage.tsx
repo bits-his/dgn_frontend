@@ -47,7 +47,11 @@ import { MaintenanceCostAndDowntime, MaintenancePhotoPicker } from '@/components
 import {
   downtimeToMinutes,
   minutesToDowntime,
+  minutesBetweenDateTimes,
+  combineDateAndTime,
   parsePhotoUrls,
+  toDateInputValue,
+  toTimeInputValue,
   type DowntimeUnit,
 } from '@/lib/maintenanceForm'
 
@@ -78,6 +82,8 @@ type MaintenanceRecord = {
   partsReplaced?: string | null
   scheduledDate?: string | null
   performedDate?: string | null
+  startedAt?: string | null
+  endedAt?: string | null
   notes?: string | null
   photoUrls?: string[] | string | null
   createdAt?: string
@@ -277,7 +283,9 @@ export function MachinePerformancePage() {
   const [maintPhotos, setMaintPhotos] = useState<string[]>([])
   const [maintParts, setMaintParts] = useState('')
   const [maintNotes, setMaintNotes] = useState('')
-  const [maintPerformedDate, setMaintPerformedDate] = useState('')
+  const [maintDate, setMaintDate] = useState('')
+  const [maintFromTime, setMaintFromTime] = useState('')
+  const [maintToTime, setMaintToTime] = useState('')
   const [updateMachineStatusOnMaint, setUpdateMachineStatusOnMaint] = useState(true)
   const [maintFormError, setMaintFormError] = useState('')
 
@@ -426,6 +434,17 @@ export function MachinePerformancePage() {
   const saveMaintenanceMutation = useMutation({
     mutationFn: async () => {
       setMaintFormError('')
+      if (!maintDate) throw new Error('Select a date')
+      if (!maintFromTime || !maintToTime) throw new Error('Select from and to time')
+      const fromLocal = combineDateAndTime(maintDate, maintFromTime)
+      const toLocal = combineDateAndTime(maintDate, maintToTime)
+      if (new Date(toLocal) < new Date(fromLocal)) {
+        throw new Error('End time must be after start time')
+      }
+      const fromMins = minutesBetweenDateTimes(maintDate, maintFromTime, maintToTime)
+      const downtimeMinutes =
+        fromMins > 0 ? fromMins : downtimeToMinutes(maintDownUnit, maintDownValue)
+      const endIso = new Date(toLocal).toISOString()
       const payload = {
         machineId: Number(maintMachineId),
         title: maintTitle.trim(),
@@ -433,11 +452,13 @@ export function MachinePerformancePage() {
         status: maintStatus,
         technician: maintTechnician.trim() || null,
         cost: maintCost ? Number(maintCost) : 0,
-        downtimeMinutes: downtimeToMinutes(maintDownUnit, maintDownValue),
+        downtimeMinutes,
         photoUrls: maintPhotos,
         partsReplaced: maintParts.trim() || null,
         notes: maintNotes.trim() || null,
-        performedDate: maintPerformedDate ? new Date(maintPerformedDate).toISOString() : new Date().toISOString(),
+        startedAt: new Date(fromLocal).toISOString(),
+        endedAt: endIso,
+        performedDate: endIso,
         updateMachineStatus: updateMachineStatusOnMaint,
       }
       if (!payload.machineId || !payload.title) {
@@ -534,6 +555,15 @@ export function MachinePerformancePage() {
     deleteMachineMutation.mutate(m.id)
   }
 
+  function syncMaintDowntime(date: string, fromTime: string, toTime: string) {
+    const mins = minutesBetweenDateTimes(date, fromTime, toTime)
+    if (mins > 0) {
+      const down = minutesToDowntime(mins)
+      setMaintDownUnit(down.unit)
+      setMaintDownValue(down.value)
+    }
+  }
+
   function openCreateMaintenance(preselectedMachineId?: number) {
     setEditingMaint(null)
     setMaintMachineId(preselectedMachineId ? String(preselectedMachineId) : (allMachines[0]?.id ? String(allMachines[0].id) : ''))
@@ -547,7 +577,10 @@ export function MachinePerformancePage() {
     setMaintPhotos([])
     setMaintParts('')
     setMaintNotes('')
-    setMaintPerformedDate(new Date().toISOString().slice(0, 16))
+    const now = new Date()
+    setMaintDate(toDateInputValue(now))
+    setMaintFromTime(toTimeInputValue(now))
+    setMaintToTime(toTimeInputValue(now))
     setUpdateMachineStatusOnMaint(true)
     setMaintFormError('')
     setIsMaintModalOpen(true)
@@ -567,7 +600,11 @@ export function MachinePerformancePage() {
     setMaintPhotos(parsePhotoUrls(rec.photoUrls))
     setMaintParts(rec.partsReplaced || '')
     setMaintNotes(rec.notes || '')
-    setMaintPerformedDate(rec.performedDate ? new Date(rec.performedDate).toISOString().slice(0, 16) : '')
+    const startRaw = rec.startedAt || rec.performedDate
+    const endRaw = rec.endedAt || rec.performedDate
+    setMaintDate(toDateInputValue(startRaw || endRaw))
+    setMaintFromTime(toTimeInputValue(startRaw))
+    setMaintToTime(toTimeInputValue(endRaw))
     setUpdateMachineStatusOnMaint(false)
     setMaintFormError('')
     setIsMaintModalOpen(true)
@@ -736,12 +773,19 @@ export function MachinePerformancePage() {
     () => [
       {
         id: 'date',
-        header: 'Date',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-500 tabular-nums whitespace-nowrap">
-            {formatDateTime(row.original.performedDate || row.original.createdAt || '')}
-          </span>
-        ),
+        header: 'From → To',
+        cell: ({ row }) => {
+          const from = row.original.startedAt || row.original.performedDate || row.original.createdAt
+          const to = row.original.endedAt || row.original.performedDate
+          return (
+            <div className="text-xs text-zinc-500 tabular-nums whitespace-nowrap">
+              <p>{formatDateTime(from || '')}</p>
+              {to && from && String(to) !== String(from) && (
+                <p className="text-[10px] text-zinc-400">→ {formatDateTime(to)}</p>
+              )}
+            </div>
+          )
+        },
       },
       {
         id: 'machine',
@@ -1557,31 +1601,71 @@ export function MachinePerformancePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                  Technician / Contractor
+                </Label>
+                <Input
+                  placeholder="e.g. Isaac Kwesi / MechTech"
+                  className="mt-1 h-9 text-xs"
+                  value={maintTechnician}
+                  onChange={(e) => setMaintTechnician(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Technician / Contractor
+                    Date *
                   </Label>
                   <Input
-                    placeholder="e.g. Isaac Kwesi / MechTech"
+                    type="date"
                     className="mt-1 h-9 text-xs"
-                    value={maintTechnician}
-                    onChange={(e) => setMaintTechnician(e.target.value)}
+                    value={maintDate}
+                    onChange={(e) => {
+                      setMaintDate(e.target.value)
+                      syncMaintDowntime(e.target.value, maintFromTime, maintToTime)
+                    }}
                   />
                 </div>
-
                 <div>
                   <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Date & Time
+                    From time *
                   </Label>
                   <Input
-                    type="datetime-local"
+                    type="time"
                     className="mt-1 h-9 text-xs"
-                    value={maintPerformedDate}
-                    onChange={(e) => setMaintPerformedDate(e.target.value)}
+                    value={maintFromTime}
+                    onChange={(e) => {
+                      setMaintFromTime(e.target.value)
+                      syncMaintDowntime(maintDate, e.target.value, maintToTime)
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                    To time *
+                  </Label>
+                  <Input
+                    type="time"
+                    className="mt-1 h-9 text-xs"
+                    value={maintToTime}
+                    onChange={(e) => {
+                      setMaintToTime(e.target.value)
+                      syncMaintDowntime(maintDate, maintFromTime, e.target.value)
+                    }}
                   />
                 </div>
               </div>
+              {minutesBetweenDateTimes(maintDate, maintFromTime, maintToTime) > 0 && (
+                <p className="text-[11px] text-zinc-500 -mt-2">
+                  Duration:{' '}
+                  {minutesBetweenDateTimes(maintDate, maintFromTime, maintToTime).toLocaleString()} min
+                  {minutesBetweenDateTimes(maintDate, maintFromTime, maintToTime) >= 60
+                    ? ` (${(minutesBetweenDateTimes(maintDate, maintFromTime, maintToTime) / 60).toFixed(1)} h)`
+                    : ''}
+                </p>
+              )}
 
               <MaintenanceCostAndDowntime
                 cost={maintCost}

@@ -84,6 +84,48 @@ export function mediaUrl(src: string) {
   return `${base}${src.startsWith('/') ? src : `/${src}`}`
 }
 
+export function toDatetimeLocalValue(raw?: string | Date | null) {
+  if (!raw) return ''
+  const d = raw instanceof Date ? raw : new Date(raw)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export function toDateInputValue(raw?: string | Date | null) {
+  if (!raw) return ''
+  const d = raw instanceof Date ? raw : new Date(raw)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+export function toTimeInputValue(raw?: string | Date | null) {
+  if (!raw) return ''
+  const d = raw instanceof Date ? raw : new Date(raw)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+export function combineDateAndTime(date: string, time: string) {
+  if (!date) return ''
+  const t = time && /^\d{2}:\d{2}/.test(time) ? time.slice(0, 5) : '00:00'
+  return `${date}T${t}`
+}
+
+export function minutesBetweenLocal(from: string, to: string) {
+  if (!from || !to) return 0
+  const a = new Date(from).getTime()
+  const b = new Date(to).getTime()
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 0
+  return Math.round((b - a) / 60_000)
+}
+
+export function minutesBetweenDateTimes(date: string, fromTime: string, toTime: string) {
+  return minutesBetweenLocal(combineDateAndTime(date, fromTime), combineDateAndTime(date, toTime))
+}
+
 export async function compressImageFile(file: File, maxEdge = 2048, quality = 0.9): Promise<string> {
   const bitmap =
     'createImageBitmap' in window
