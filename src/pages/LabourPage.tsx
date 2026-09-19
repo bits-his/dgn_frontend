@@ -129,6 +129,12 @@ type Employee = {
   access?: EmployeeAccess | null
 }
 
+function isFloorOperator(row: { roleType?: string | null; designation?: string | null }) {
+  const role = String(row.roleType || '').toUpperCase()
+  const title = String(row.designation || '').toUpperCase()
+  return role === 'OPERATOR' || title === 'OPERATOR'
+}
+
 type LabourSummary = {
   periodLabel: string
   workforce: number
@@ -652,7 +658,7 @@ function Workforce({
 
   const filtered = useMemo(() => {
     const list = (employees.data?.rows ?? []).filter((e) =>
-      isOperators ? !e.access : Boolean(e.access),
+      isOperators ? isFloorOperator(e) : !isFloorOperator(e),
     )
     if (!search.trim()) return list
     const q = search.trim().toLowerCase()
@@ -813,7 +819,7 @@ function Workforce({
                 Edit
               </Button>
             )}
-            {canAccess && (
+            {canAccess && !isOperators && (
               <Button
                 variant="outline"
                 size="sm"
@@ -891,13 +897,18 @@ function Workforce({
             payTypes={employees.data?.payTypes ?? []}
             employmentTypes={employees.data?.employmentTypes ?? []}
             shifts={employees.data?.shifts ?? []}
-            onSaved={() => {
+            onSaved={async (created) => {
               setAdding(false)
-              queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
-              queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
+              await queryClient.invalidateQueries({ queryKey: ['labour-employees'] })
+              await queryClient.invalidateQueries({ queryKey: ['masters-employees'] })
               queryClient.invalidateQueries({ queryKey: ['processing-wallet-holders'] })
               queryClient.invalidateQueries({ queryKey: ['processing-wallets'] })
               queryClient.invalidateQueries({ queryKey: ['attendance'] })
+              if (!isOperators && canAccess && created?.id) {
+                const refreshed = await employees.refetch()
+                const row = refreshed.data?.rows.find((e) => e.id === created.id)
+                if (row) setAccessFor(row)
+              }
             }}
           />
         </DialogContent>
@@ -1082,7 +1093,10 @@ function AccessPanelForm({
   const [password, setPassword] = useState('')
   const [isActive, setIsActive] = useState(employee.access?.isActive !== false)
   const [department, setDepartment] = useState(employee.department || 'Production')
-  const [role, setRole] = useState(employee.access?.roleCode || employee.roleType || 'OPERATOR')
+  const [role, setRole] = useState(
+    employee.access?.roleCode ||
+      (isFloorOperator(employee) ? 'OPERATOR' : 'PROD_SUPERVISOR'),
+  )
   const [outletId, setOutletId] = useState(
     employee.access?.outletCustomerId ? String(employee.access.outletCustomerId) : 'none',
   )
@@ -1399,7 +1413,7 @@ function NewEmployeeForm({
   payTypes: string[]
   employmentTypes: string[]
   shifts: ShiftOption[]
-  onSaved: () => void
+  onSaved: (created?: { id: number }) => void | Promise<void>
 }) {
   const isOperators = kind === 'operators'
   const [form, setForm] = useState({
@@ -1428,7 +1442,7 @@ function NewEmployeeForm({
       .filter((key) => selectedShifts[Number(key)])
       .map(Number)
     try {
-      await api.post('/labour/employees', isOperators
+      const { data } = await api.post('/labour/employees', isOperators
         ? {
             firstname: form.firstname.trim(),
             lastname: form.lastname.trim(),
@@ -1446,12 +1460,12 @@ function NewEmployeeForm({
             lastname: form.lastname.trim(),
             phone: form.phone.trim() || null,
             designation: form.designation,
-            roleType: form.designation,
+            roleType: 'STAFF',
             payRate: form.payRate ? Number(form.payRate) : 0,
             overtimeRate: form.overtimeRate ? Number(form.overtimeRate) : 0,
             shiftIds,
           })
-      onSaved()
+      await onSaved(data?.data)
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
       if (body && body.errors) {
@@ -1700,10 +1714,7 @@ function EditEmployeeForm({
               phone: form.phone.trim() || null,
               department: form.department,
               designation: form.designation,
-              roleType:
-                employee.roleType === 'OPERATOR' || form.designation === 'Operator'
-                  ? 'OPERATOR'
-                  : form.designation,
+              roleType: 'STAFF',
               employmentType: form.employmentType,
               payType: form.payType,
               payRate: form.payRate ? Number(form.payRate) : 0,
