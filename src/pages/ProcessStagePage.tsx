@@ -952,20 +952,35 @@ export function ProcessStageForm({
   return (
     <PageLayout
       title={
-        isMultiLotStage
-          ? `Record ${meta.title}`
-          : selected
-            ? `${meta.title}: ${selected.batchNumber}`
-            : `Record ${meta.title}`
+        selected
+          ? `${meta.title} · ${selected.batchNumber}`
+          : `Record ${meta.title}`
       }
       description={
         selected
-          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} available`
+          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} in queue`
           : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
       }
       back={true}
       backLabel={`Back to ${meta.title} queue`}
       onBack={backToQueue}
+      actions={
+        selected ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 text-xs font-semibold"
+            onClick={() => {
+              setActiveBatch(null)
+              setSearchParams({}, { replace: true })
+              reset(emptyForm())
+            }}
+          >
+            Change batch
+          </Button>
+        ) : null
+      }
     >
       <div className="w-full space-y-4">
         {!selected ? (
@@ -993,45 +1008,6 @@ export function ProcessStageForm({
                   {meta.emptyHint}
                 </p>
               )}
-            </div>
-          </Card>
-        ) : selected ? (
-          <Card className="p-3.5 sm:p-4 bg-zinc-50/90 border-zinc-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-200 text-zinc-700">
-                    Selected Batch
-                  </span>
-                  <h3 className="text-base sm:text-lg font-bold text-zinc-900">
-                    {selected.batchNumber}
-                  </h3>
-                </div>
-                <p className="text-xs text-[var(--ink-muted)] mt-1">
-                  {(formatBusinessDate(selected.businessDate) || formatCreatedAt(selected.createdAt)) && (
-                    <strong className="text-zinc-900 font-bold mr-2">
-                      {formatBusinessDate(selected.businessDate) || formatCreatedAt(selected.createdAt)}
-                    </strong>
-                  )}
-                  {selected.material?.name || selected.batchType} · Available in queue:{' '}
-                  <strong className="text-emerald-700 font-bold">
-                    {qtyLabel(selected.qtyRemaining, selected.uom)}
-                  </strong>
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 text-xs font-semibold shrink-0 cursor-pointer self-start sm:self-center"
-                onClick={() => {
-                  setActiveBatch(null)
-                  setSearchParams({}, { replace: true })
-                  reset(emptyForm())
-                }}
-              >
-                Change Batch
-              </Button>
             </div>
           </Card>
         ) : null}
@@ -1121,62 +1097,55 @@ export function ProcessStageForm({
                     </div>
 
                     {isWashing && (
-                      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3 sm:p-4">
-                        <h3 className="text-sm font-semibold text-amber-950">Second grade (not waste)</h3>
-                        <p className="mt-0.5 text-[11px] text-amber-800/80">
-                          Taken out of this lot and can be sold. That value comes off the remaining first-grade cost.
-                        </p>
-                        <div className="mt-3 grid grid-cols-2 gap-2">
-                          <Field label="Second grade (kg)">
-                            <input
-                              inputMode="decimal"
-                              className="dgn-input"
-                              placeholder="0"
-                              {...register('secondGradeKg')}
-                            />
-                          </Field>
-                          <Field label="Price / kg (₦)">
-                            <NairaAmountInput
-                              value={watch('secondGradePricePerKg') || ''}
-                              onChange={(v) => setValue('secondGradePricePerKg', v)}
-                              placeholder="0"
-                              className="mt-0 h-11"
-                              inputClassName="h-11"
-                            />
-                          </Field>
-                        </div>
-                        {secondGradeKg > 0 && (
-                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                            <div className="rounded-lg bg-white/80 border border-amber-200 px-2.5 py-2">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/70">
-                                Recovered
+                      <div className="mt-4 rounded-xl border border-amber-200/80 bg-amber-50/40 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-sm font-semibold text-zinc-900">Second grade</h3>
+                            <p className="mt-0.5 text-xs text-zinc-600">
+                              Optional — leave blank if none from this wash.
+                            </p>
+                          </div>
+                          {secondGradeKg > 0 && secondGradeValue > 0 && (
+                            <div className="shrink-0 rounded-lg bg-white border border-amber-200 px-2.5 py-1.5 text-right">
+                              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                                Total
                               </p>
-                              <p className="mt-0.5 font-bold tabular-nums text-amber-950">
+                              <p className="text-sm font-bold tabular-nums text-amber-900">
                                 ₦{secondGradeValue.toLocaleString()}
                               </p>
                             </div>
-                            <div className="rounded-lg bg-white/80 border border-amber-200 px-2.5 py-2">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800/70">
-                                Updated ₦ / kg
-                              </p>
-                              <p className="mt-0.5 font-bold tabular-nums text-amber-950">
-                                {(() => {
-                                  const incoming =
-                                    Number(batchDetail.data?.accumulatedTotal || 0) ||
-                                    Number(batchDetail.data?.effectiveCostPerKg || 0) * lotTotalIn
-                                  const labourRate = Number(watch('labourRatePerKg') || 0)
-                                  const extras =
-                                    labourRate * (lotTotalUsable + secondGradeKg) +
-                                    Number(watch('waterQty') || 0) +
-                                    Number(watch('detergentCost') || 0)
-                                  const remaining = incoming + extras - secondGradeValue
-                                  if (!(lotTotalUsable > 0)) return '—'
-                                  return `₦${(remaining / lotTotalUsable).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                                })()}
-                              </p>
+                          )}
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+                              How many kg?
+                            </label>
+                            <div className="relative">
+                              <input
+                                inputMode="decimal"
+                                className="dgn-input pr-10 h-11 text-sm font-semibold tabular-nums"
+                                placeholder="e.g. 50"
+                                {...register('secondGradeKg')}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
+                                kg
+                              </span>
                             </div>
                           </div>
-                        )}
+                          <div>
+                            <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+                              Price per kg
+                            </label>
+                            <NairaAmountInput
+                              value={watch('secondGradePricePerKg') || ''}
+                              onChange={(v) => setValue('secondGradePricePerKg', v)}
+                              placeholder="e.g. 200"
+                              className="mt-0"
+                              inputClassName="h-11 text-sm font-semibold"
+                            />
+                          </div>
+                        </div>
                       </div>
                     )}
 

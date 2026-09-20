@@ -5,22 +5,16 @@ import type { ColumnDef } from '@tanstack/react-table'
 import {
   CheckCircle2,
   Search,
-  ExternalLink,
   X,
   AlertTriangle,
   Palette,
   Send,
   Cpu,
-  ArrowRight,
   ChevronDown,
   ChevronUp,
   PackageCheck,
-  Layers,
-  Sparkles,
 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { useAuthStore } from '@/stores/auth-store'
-import { canAccessNavItem } from '@/components/AppShell'
 import { StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
@@ -33,7 +27,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SearchableSelect } from '@/components/ui/searchable-select'
 import { SORT_COLORS } from '@/lib/sortColors'
 
 type BatchColorItem = {
@@ -144,29 +137,11 @@ function formatDate(raw?: string | null) {
   })
 }
 
-function formatTime(raw?: string | null) {
-  if (!raw) return '—'
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 export function ProductionStorePage() {
   const queryClient = useQueryClient()
-  const user = useAuthStore((s) => s.user)
-  const canOpenProduction = canAccessNavItem(user, {
-    to: '/production',
-    label: 'Production',
-    icon: Cpu,
-    menuKey: 'production',
-    permission: 'batch.view',
-  })
   const [search, setSearch] = useState('')
-  const [showActiveFloor, setShowActiveFloor] = useState(true)
-  const [showFinishedGoods, setShowFinishedGoods] = useState(true)
+  const [showActiveFloor, setShowActiveFloor] = useState(false)
+  const [showFinishedGoods, setShowFinishedGoods] = useState(false)
   const [showColorStock, setShowColorStock] = useState(false)
 
   // Notifications
@@ -279,7 +254,7 @@ export function ProductionStorePage() {
               colorItemId: c.id,
               qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
               uom: b.uom || 'kg',
-              receivedDate: b.updatedAt || b.createdAt,
+              receivedDate: b.businessDate || b.createdAt || b.updatedAt,
               batchItem: b,
             })
           }
@@ -295,10 +270,16 @@ export function ProductionStorePage() {
         color: b.sortColor || 'Natural',
         qtyRemaining: Number(b.qtyRemaining || 0),
         uom: b.uom || 'kg',
-        receivedDate: b.updatedAt || b.createdAt,
+        receivedDate: b.businessDate || b.createdAt || b.updatedAt,
         batchItem: b,
       })
     }
+    // Newest received first
+    lines.sort((a, b) => {
+      const ta = a.receivedDate ? new Date(a.receivedDate).getTime() : 0
+      const tb = b.receivedDate ? new Date(b.receivedDate).getTime() : 0
+      return tb - ta
+    })
     return lines
   }, [rawMaterialBatches])
 
@@ -374,8 +355,8 @@ export function ProductionStorePage() {
 
   const handleOpenIssueModal = (preselected?: StoreMaterialLine) => {
     setIssueModalError('')
-    const firstKey = preselected?.key || rawMaterialLines[0]?.key || ''
-    setIssueMaterialLines([{ id: String(Date.now()), lineKey: firstKey, qty: '0' }])
+    const firstKey = preselected?.key || ''
+    setIssueMaterialLines([{ id: String(Date.now()), lineKey: firstKey, qty: '' }])
     setIssueMasterBatchKg('0')
     setIssueMasterBatchPricePerKg('0')
     setIssueBatchingKg('0')
@@ -459,7 +440,7 @@ export function ProductionStorePage() {
         notes: issueNotes.trim() || undefined,
       }
 
-      await api.post('/production/runs/start', payload)
+      const startRes = await api.post('/production/runs/start', payload)
 
       const targetMachine = productionMachines.find((m) => m.id === Number(issueMachineId))
       const materialSummary = materials
@@ -472,7 +453,9 @@ export function ProductionStorePage() {
         .join(' + ')
 
       setSuccessBanner(
-        `Successfully issued ${materialSummary} to Machine ${targetMachine?.name || issueMachineId}!`,
+        startRes.data?.addedToExisting
+          ? `Added ${materialSummary} to running ${targetMachine?.name || 'machine'}.`
+          : `Issued ${materialSummary} to ${targetMachine?.name || issueMachineId}.`,
       )
 
       await Promise.all([
@@ -495,14 +478,12 @@ export function ProductionStorePage() {
     }
   }
 
-  // Options for SearchableSelect
-  const materialLineOptions = useMemo(() => {
-    return rawMaterialLines.map((l) => ({
-      value: l.key,
-      label: `${l.batchNumber} · ${colorName(l.color)} (${fmt(l.qtyRemaining, 1)} kg)`,
-      sublabel: `${l.materialName} · Stage: ${l.batchType}`,
-    }))
-  }, [rawMaterialLines])
+  const activeRunForMachine = useMemo(() => {
+    if (!issueMachineId) return null
+    return (
+      activeFloorRuns.find((r) => Number(r.machineId) === Number(issueMachineId)) || null
+    )
+  }, [activeFloorRuns, issueMachineId])
 
 
 
@@ -513,68 +494,46 @@ export function ProductionStorePage() {
     () => [
       {
         id: 'batchNumber',
-        header: 'Batch Lot',
+        header: 'Lot',
         accessorKey: 'batchNumber',
         cell: ({ row }) => (
           <Link
             to={`/batches/${row.original.batchNumber}`}
-            className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 font-mono"
+            className="font-semibold text-xs text-[var(--accent-strong)] hover:underline font-mono"
           >
             {row.original.batchNumber}
-            <ExternalLink className="size-3 text-zinc-400" />
           </Link>
         ),
       },
       {
         id: 'material',
-        header: 'Material / Stage',
+        header: 'Material',
         accessorKey: 'materialName',
         cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="font-semibold text-xs text-zinc-900">
-              {row.original.materialName}
-            </span>
-            <span className="text-[10px] text-zinc-500 uppercase font-medium">
-              Stage: {row.original.batchType}
-            </span>
-          </div>
+          <span className="font-semibold text-xs text-zinc-900">{row.original.materialName}</span>
         ),
       },
       {
         id: 'color',
-        header: 'Color / Lot',
+        header: 'Color',
         accessorKey: 'color',
         cell: ({ row }) => (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-bold bg-zinc-100 text-zinc-800 border border-zinc-200">
-            <span className="size-2 rounded-full bg-violet-600" />
-            {colorName(row.original.color)}
-          </span>
+          <span className="text-xs font-medium text-zinc-800">{colorName(row.original.color)}</span>
         ),
       },
       {
         id: 'qtyRemaining',
-        header: 'Available (kg)',
+        header: 'Available',
         accessorKey: 'qtyRemaining',
         cell: ({ row }) => (
           <span className="font-bold tabular-nums text-emerald-700 text-xs">
-            {fmt(row.original.qtyRemaining, 1)}{' '}
-            <span className="text-[11px] font-normal text-zinc-500">{row.original.uom}</span>
-          </span>
-        ),
-      },
-      {
-        id: 'receivedDate',
-        header: 'Received Date',
-        accessorKey: 'receivedDate',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-500 tabular-nums">
-            {formatDate(row.original.receivedDate)}
+            {fmt(row.original.qtyRemaining, 1)} kg
           </span>
         ),
       },
       {
         id: 'actions',
-        header: 'Action',
+        header: '',
         cell: ({ row }) => (
           <Button
             type="button"
@@ -583,7 +542,7 @@ export function ProductionStorePage() {
             onClick={() => handleOpenIssueModal(row.original)}
           >
             <Send className="size-3" />
-            <span>Issue to Machine</span>
+            Issue
           </Button>
         ),
       },
@@ -598,67 +557,34 @@ export function ProductionStorePage() {
     () => [
       {
         id: 'machine',
-        header: 'Production Machine',
-        accessorKey: 'machine',
+        header: 'Machine',
         cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-lg bg-blue-100 text-blue-800 font-bold text-xs shrink-0">
-              <Cpu className="size-3.5" />
-            </div>
-            <div>
-              <span className="font-bold text-xs text-zinc-900 block">
-                {row.original.machine?.name || `Machine #${row.original.machineId}`}
-              </span>
-              {row.original.machine?.code && (
-                <span className="text-[10px] font-mono text-zinc-400">
-                  {row.original.machine.code}
-                </span>
-              )}
-            </div>
-          </div>
-        ),
-      },
-      {
-        id: 'product',
-        header: 'Target Product',
-        accessorKey: 'product',
-        cell: ({ row }) => (
-          <span className="font-semibold text-xs text-zinc-800">
-            {row.original.product?.name || 'Finished Product'}
+          <span className="font-semibold text-xs text-zinc-900">
+            {row.original.machine?.name || `Machine #${row.original.machineId}`}
           </span>
         ),
       },
       {
-        id: 'inputBatch',
-        header: 'Issued Material Lot',
-        cell: ({ row }) => {
-          const inputNum = row.original.inputBatch?.batchNumber
-          return inputNum ? (
-            <Link
-              to={`/batches/${inputNum}`}
-              className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 font-mono"
-            >
-              {inputNum}
-              <ExternalLink className="size-2.5 text-zinc-400" />
-            </Link>
-          ) : (
-            <span className="text-zinc-400 text-xs">—</span>
-          )
-        },
+        id: 'product',
+        header: 'Product',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-800">
+            {row.original.product?.name || '—'}
+          </span>
+        ),
       },
       {
         id: 'color',
-        header: 'Color Blend',
+        header: 'Color',
         cell: ({ row }) => (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
+          <span className="text-xs text-zinc-700">
             {colorName(row.original.batch?.sortColor || row.original.inputBatch?.sortColor)}
           </span>
         ),
       },
       {
         id: 'materialConsumed',
-        header: 'Issued (kg)',
-        accessorKey: 'materialConsumed',
+        header: 'Issued',
         cell: ({ row }) => (
           <span className="font-bold tabular-nums text-blue-700 text-xs">
             {fmt(row.original.materialConsumed, 1)} kg
@@ -666,62 +592,16 @@ export function ProductionStorePage() {
         ),
       },
       {
-        id: 'operator',
-        header: 'Shift & Operator',
-        cell: ({ row }) => (
-          <div className="flex flex-col text-xs">
-            <span className="font-medium text-zinc-900">
-              {row.original.operatorName || 'Operator'}
-            </span>
-            <span className="text-[10px] text-zinc-400">
-              {row.original.shift?.name || 'Shift'}
-            </span>
-          </div>
-        ),
-      },
-      {
         id: 'startedAt',
-        header: 'Issued Time',
+        header: 'When',
         cell: ({ row }) => (
-          <div className="text-xs text-zinc-600">
-            <span className="block font-medium">
-              {formatDate(row.original.startedAt || row.original.createdAt)}
-            </span>
-            <span className="text-[10px] text-zinc-400">
-              {formatTime(row.original.startedAt || row.original.createdAt)}
-            </span>
-          </div>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Floor Status',
-        cell: () => (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            In Production
+          <span className="text-xs text-zinc-500 tabular-nums">
+            {formatDate(row.original.startedAt || row.original.createdAt)}
           </span>
         ),
       },
-      ...(canOpenProduction
-        ? [
-            {
-              id: 'link',
-              header: 'Action',
-              cell: () => (
-                <Link
-                  to="/production"
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700 hover:text-violet-900 hover:underline"
-                >
-                  <span>Production Room</span>
-                  <ArrowRight className="size-3" />
-                </Link>
-              ),
-            } satisfies ColumnDef<ProductionRunRow>,
-          ]
-        : []),
     ],
-    [canOpenProduction]
+    []
   )
 
   // -------------------------------------------------------------
@@ -731,108 +611,51 @@ export function ProductionStorePage() {
     () => [
       {
         id: 'batchNumber',
-        header: 'FG Lot #',
+        header: 'Lot',
         cell: ({ row }) => (
           <Link
             to={`/batches/${row.original.batch?.batchNumber}`}
-            className="font-mono text-xs font-bold text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1"
+            className="font-mono text-xs font-bold text-[var(--accent-strong)] hover:underline"
           >
             {row.original.batch?.batchNumber || `Run #${row.original.id}`}
-            <ExternalLink className="size-2.5 text-zinc-400" />
           </Link>
         ),
       },
       {
         id: 'product',
-        header: 'Manufactured Product',
-        accessorKey: 'product',
+        header: 'Product',
         cell: ({ row }) => (
-          <div className="flex flex-col">
-            <span className="font-bold text-xs text-zinc-900">
-              {row.original.product?.name || 'Finished Product'}
-            </span>
-            {row.original.product?.code && (
-              <span className="text-[10px] font-mono text-zinc-400">
-                {row.original.product.code}
-              </span>
-            )}
-          </div>
+          <span className="font-semibold text-xs text-zinc-900">
+            {row.original.product?.name || 'Finished Product'}
+          </span>
         ),
       },
       {
         id: 'color',
-        header: 'Product Color',
+        header: 'Color',
         cell: ({ row }) => (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
-            {colorName(row.original.batch?.sortColor)}
-          </span>
+          <span className="text-xs text-zinc-700">{colorName(row.original.batch?.sortColor)}</span>
         ),
       },
       {
         id: 'qtyGood',
-        header: 'Good Quantity',
+        header: 'Qty',
         cell: ({ row }) => {
           const pcs = Number(row.original.qtyGood || row.original.qtyProduced || row.original.goodQuantity || 0)
-          const dz = Math.floor(pcs / 12)
-          const remPcs = pcs % 12
           return (
-            <div className="flex flex-col text-xs">
-              <span className="font-black tabular-nums text-emerald-700">
-                {fmt(pcs, 0)} {row.original.product?.uom || 'pcs'}
-              </span>
-              {dz > 0 && (
-                <span className="text-[10px] text-zinc-500 font-medium">
-                  ({dz} dz {remPcs > 0 ? `${remPcs} pcs` : ''})
-                </span>
-              )}
-            </div>
+            <span className="font-bold tabular-nums text-emerald-700 text-xs">
+              {fmt(pcs, 0)} pcs
+            </span>
           )
         },
       },
       {
-        id: 'machine',
-        header: 'Produced On',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-700 font-medium">
-            {row.original.machine?.name || `Machine #${row.original.machineId}`}
-          </span>
-        ),
-      },
-      {
         id: 'completedAt',
-        header: 'Production Date',
+        header: 'Date',
         cell: ({ row }) => (
-          <div className="text-xs text-zinc-600">
-            <span className="block font-medium">
-              {formatDate(row.original.endedAt || row.original.createdAt)}
-            </span>
-            <span className="text-[10px] text-zinc-400">
-              {row.original.shift?.name || ''}
-            </span>
-          </div>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Inventory State',
-        cell: () => (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-            <PackageCheck className="size-3" />
-            Ready for Sales
+          <span className="text-xs text-zinc-500 tabular-nums">
+            {formatDate(row.original.endedAt || row.original.createdAt)}
           </span>
-        ),
-      },
-      {
-        id: 'salesAction',
-        header: 'Action',
-        cell: () => (
-          <Link
-            to="/sales/new"
-            className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline"
-          >
-            <span>Create Sale</span>
-            <ArrowRight className="size-3" />
-          </Link>
         ),
       },
     ],
@@ -846,7 +669,7 @@ export function ProductionStorePage() {
     () => [
       {
         id: 'batchNumber',
-        header: 'Stock Lot #',
+        header: 'Lot',
         accessorKey: 'batchNumber',
         cell: ({ row }) => (
           <span className="font-mono text-xs font-bold text-zinc-900">
@@ -856,47 +679,29 @@ export function ProductionStorePage() {
       },
       {
         id: 'type',
-        header: 'Formulation Type',
+        header: 'Type',
         accessorKey: 'batchType',
         cell: ({ row }) => (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
-              row.original.batchType === 'MASTERBATCH'
-                ? 'bg-violet-100 text-violet-800 border border-violet-200'
-                : 'bg-amber-100 text-amber-800 border border-amber-200'
-            }`}
-          >
-            {row.original.batchType === 'MASTERBATCH' ? 'Masterbatch Pellets' : 'Normal Pigment'}
+          <span className="text-xs text-zinc-700">
+            {row.original.batchType === 'MASTERBATCH' ? 'Masterbatch' : 'Pigment'}
           </span>
         ),
       },
       {
         id: 'color',
-        header: 'Color Shade',
+        header: 'Color',
         accessorKey: 'sortColor',
         cell: ({ row }) => (
-          <span className="font-semibold text-xs text-zinc-900">
-            {colorName(row.original.sortColor)}
-          </span>
+          <span className="text-xs text-zinc-900">{colorName(row.original.sortColor)}</span>
         ),
       },
       {
         id: 'qtyRemaining',
-        header: 'In Stock (kg)',
+        header: 'Stock',
         accessorKey: 'qtyRemaining',
         cell: ({ row }) => (
           <span className="font-bold tabular-nums text-violet-700 text-xs">
             {fmt(row.original.qtyRemaining, 2)} kg
-          </span>
-        ),
-      },
-      {
-        id: 'updatedAt',
-        header: 'Date Added',
-        accessorKey: 'updatedAt',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-500 tabular-nums">
-            {formatDate(row.original.updatedAt || row.original.createdAt)}
           </span>
         ),
       },
@@ -907,7 +712,7 @@ export function ProductionStorePage() {
   return (
     <PageLayout
       title="Material Store"
-      description="Central inventory control: manage separated color flake lots, additives, finished goods, and issue directly to production machines."
+      description="Issue color lots to machines."
       actions={
         <Button
           type="button"
@@ -916,32 +721,21 @@ export function ProductionStorePage() {
           disabled={rawMaterialLines.length === 0}
         >
           <Send className="size-3.5" />
-          <span>Issue to Machine</span>
+          Issue
         </Button>
       }
     >
       <div className="space-y-4">
-        {/* KPI Summary Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 gap-2.5">
           <StatPill
-            label="Raw Material in Store"
+            label="In store"
             value={`${fmt(totalStoreKg, 1)} kg`}
             tone="success"
           />
           <StatPill
-            label="Separated Color Lots"
+            label="Color lots"
             value={String(rawMaterialLines.length)}
             tone={rawMaterialLines.length > 0 ? 'accent' : 'default'}
-          />
-          <StatPill
-            label="Active on Machines"
-            value={`${fmt(totalActiveFloorKg, 1)} kg`}
-            tone={activeFloorRuns.length > 0 ? 'accent' : 'default'}
-          />
-          <StatPill
-            label="Finished Goods in Store"
-            value={`${fmt(totalFinishedGoodsPcs, 0)} pcs`}
-            tone="success"
           />
         </div>
 
@@ -978,32 +772,20 @@ export function ProductionStorePage() {
           </div>
         )}
 
-        {/* ============================================================= */}
-        {/* 1. RAW MATERIAL INVENTORY (SEPARATED BY INDIVIDUAL COLOR LOT)  */}
-        {/* ============================================================= */}
         <div className="space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-bold text-zinc-900">
-                Raw Material Lots in Store (Separated Colors)
-              </h2>
-              <p className="text-xs text-zinc-500">
-                Available colored flakes ready to be issued to production machines.
-              </p>
-            </div>
-
+            <h2 className="text-sm font-bold text-zinc-900">Raw material</h2>
             <div className="flex items-center gap-2 text-xs">
-              <div className="relative w-full sm:w-64">
+              <div className="relative w-full sm:w-56">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
                 <Input
                   type="text"
                   className="pl-8 text-xs h-8 w-full bg-white"
-                  placeholder="Search batch, color, material…"
+                  placeholder="Search…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-
               {colorBatches.length > 0 && (
                 <Button
                   type="button"
@@ -1013,22 +795,18 @@ export function ProductionStorePage() {
                   onClick={() => setShowColorStock((prev) => !prev)}
                 >
                   <Palette className="size-3.5 text-violet-600" />
-                  <span>Additives ({colorBatches.length})</span>
+                  Additives ({colorBatches.length})
                   {showColorStock ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
                 </Button>
               )}
             </div>
           </div>
 
-          {/* Color stock drawer if toggled */}
           {showColorStock && (
-            <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-2 animate-in fade-in">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-violet-950 flex items-center gap-1.5">
-                  <Palette className="size-3.5 text-violet-600" />
-                  Masterbatch & Pigment Additive Stock ({totalColorStockKg.toFixed(1)} kg)
-                </span>
-              </div>
+            <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-2">
+              <span className="text-xs font-bold text-violet-950">
+                Additives · {totalColorStockKg.toFixed(1)} kg
+              </span>
               <CustomTable1
                 data={colorBatches}
                 columns={colorColumns}
@@ -1039,7 +817,6 @@ export function ProductionStorePage() {
             </div>
           )}
 
-          {/* Main Raw Materials by Color Table */}
           <CustomTable1
             data={filteredLines}
             columns={storeColumns}
@@ -1049,44 +826,19 @@ export function ProductionStorePage() {
           />
         </div>
 
-        {/* ============================================================= */}
-        {/* 2. ACTIVE MATERIAL ON PRODUCTION MACHINES (FLOOR TRACKING)    */}
-        {/* ============================================================= */}
         {activeFloorRuns.length > 0 && (
           <div className="space-y-2 pt-3 border-t border-zinc-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="size-4 text-blue-600 shrink-0" />
-                <div>
-                  <h3 className="text-xs font-bold text-zinc-900">
-                    Material Active on Machines ({activeFloorRuns.length} running · {fmt(totalActiveFloorKg, 1)} kg)
-                  </h3>
-                  <p className="text-[11px] text-zinc-500">
-                    Raw material issued from store currently being manufactured on factory machines.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {canOpenProduction ? (
-                  <Link
-                    to="/production"
-                    className="text-xs font-bold text-blue-700 hover:underline shrink-0"
-                  >
-                    Go to Production →
-                  </Link>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-zinc-500"
-                  onClick={() => setShowActiveFloor((prev) => !prev)}
-                >
-                  {showActiveFloor ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                </Button>
-              </div>
-            </div>
-
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
+              onClick={() => setShowActiveFloor((prev) => !prev)}
+            >
+              <span className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                <Cpu className="size-3.5 text-blue-600" />
+                On machines ({activeFloorRuns.length} · {fmt(totalActiveFloorKg, 1)} kg)
+              </span>
+              {showActiveFloor ? <ChevronUp className="size-3 text-zinc-400" /> : <ChevronDown className="size-3 text-zinc-400" />}
+            </button>
             {showActiveFloor && (
               <CustomTable1
                 data={activeFloorRuns}
@@ -1099,42 +851,19 @@ export function ProductionStorePage() {
           </div>
         )}
 
-        {/* ============================================================= */}
-        {/* 3. FINISHED GOODS PRODUCED (READY FOR WAREHOUSE & SALES)      */}
-        {/* ============================================================= */}
         {finishedGoodsRuns.length > 0 && (
           <div className="space-y-2 pt-3 border-t border-zinc-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <PackageCheck className="size-4 text-emerald-600 shrink-0" />
-                <div>
-                  <h3 className="text-xs font-bold text-zinc-900">
-                    Produced Finished Goods ({finishedGoodsRuns.length} lots · {fmt(totalFinishedGoodsPcs, 0)} pcs in store)
-                  </h3>
-                  <p className="text-[11px] text-zinc-500">
-                    Finished items manufactured by production, received back into store, and ready for sales dispatch.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  to="/sales"
-                  className="text-xs font-bold text-emerald-700 hover:underline shrink-0"
-                >
-                  Go to Sales →
-                </Link>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-zinc-500"
-                  onClick={() => setShowFinishedGoods((prev) => !prev)}
-                >
-                  {showFinishedGoods ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                </Button>
-              </div>
-            </div>
-
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
+              onClick={() => setShowFinishedGoods((prev) => !prev)}
+            >
+              <span className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                <PackageCheck className="size-3.5 text-emerald-600" />
+                Finished goods ({finishedGoodsRuns.length} · {fmt(totalFinishedGoodsPcs, 0)} pcs)
+              </span>
+              {showFinishedGoods ? <ChevronUp className="size-3 text-zinc-400" /> : <ChevronDown className="size-3 text-zinc-400" />}
+            </button>
             {showFinishedGoods && (
               <CustomTable1
                 data={finishedGoodsRuns}
@@ -1151,20 +880,10 @@ export function ProductionStorePage() {
         {/* MODAL: ISSUE MATERIAL TO MACHINE (CUSTOM SHADCN SELECTS)      */}
         {/* ============================================================= */}
         {isIssueModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-            <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
-              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="flex size-8 items-center justify-center rounded-xl bg-violet-100 text-violet-800">
-                    <Send className="size-4" />
-                  </div>
-                  <div>
-                    <h2 className="text-sm font-bold text-zinc-900">Issue Material to Machine</h2>
-                    <p className="text-[11px] text-zinc-500">
-                      Release raw material from store inventory to a factory production machine.
-                    </p>
-                  </div>
-                </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+            <div className="relative w-full max-w-md rounded-xl bg-white p-4 shadow-xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
+                <h2 className="text-sm font-bold text-zinc-900">Issue to machine</h2>
                 <button
                   type="button"
                   className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 cursor-pointer"
@@ -1175,46 +894,37 @@ export function ProductionStorePage() {
               </div>
 
               {issueModalError && (
-                <div className="mt-3 rounded-xl bg-red-50 p-2.5 text-xs text-red-700 border border-red-200 flex items-center gap-2">
-                  <AlertTriangle className="size-4 text-red-600 shrink-0" />
-                  <span>{issueModalError}</span>
+                <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs text-red-700 border border-red-200">
+                  {issueModalError}
                 </div>
               )}
 
-              <form className="mt-3 space-y-3.5" onSubmit={handleExecuteIssueToMachine}>
-                {/* 1. Target Production Machine & Product to Produce */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <form className="mt-3 space-y-3" onSubmit={handleExecuteIssueToMachine}>
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Production Machine <span className="text-red-500">*</span>
+                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                      Machine
                     </label>
-                    <Select
-                      value={issueMachineId}
-                      onValueChange={(val) => setIssueMachineId(val)}
-                    >
-                      <SelectTrigger className="h-8 text-xs bg-white font-medium">
-                        <SelectValue placeholder="Choose machine…" />
+                    <Select value={issueMachineId} onValueChange={setIssueMachineId}>
+                      <SelectTrigger className="h-8 text-xs bg-white">
+                        <SelectValue placeholder="Machine…" />
                       </SelectTrigger>
                       <SelectContent>
                         {productionMachines.map((m) => (
                           <SelectItem key={m.id} value={String(m.id)}>
-                            {m.name} {m.code ? `(${m.code})` : ''}
+                            {m.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-
                   <div>
-                    <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                      Product to Produce <span className="text-red-500">*</span>
+                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                      Product
                     </label>
-                    <Select
-                      value={issueProductId}
-                      onValueChange={(val) => setIssueProductId(val)}
-                    >
-                      <SelectTrigger className="h-8 text-xs bg-white font-medium">
-                        <SelectValue placeholder="Choose product…" />
+                    <Select value={issueProductId} onValueChange={setIssueProductId}>
+                      <SelectTrigger className="h-8 text-xs bg-white">
+                        <SelectValue placeholder="Product…" />
                       </SelectTrigger>
                       <SelectContent>
                         {productsQuery.data?.map((p) => (
@@ -1227,281 +937,158 @@ export function ProductionStorePage() {
                   </div>
                 </div>
 
-                {/* 2. Materials to Issue — multiple lots (e.g. white + blue) */}
-                <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/70 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
-                      <Layers className="size-3.5 text-violet-600" />
-                      <span className="text-xs font-bold text-zinc-800">Materials to Issue</span>
+                {activeRunForMachine ? (
+                  <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
+                    Machine is running — material will add to the current run
+                    {activeRunForMachine.batch?.batchNumber
+                      ? ` (${activeRunForMachine.batch.batchNumber})`
+                      : ''}
+                    .
+                  </p>
+                ) : null}
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="grid grid-cols-[1fr_5.5rem] gap-2 flex-1 pr-2">
+                      <span className="text-[11px] font-semibold text-zinc-600">Color</span>
+                      <span className="text-[11px] font-semibold text-zinc-600">KG</span>
                     </div>
-                    <Button
+                    <button
                       type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-7 px-2 text-[11px] font-semibold"
+                      className="text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer shrink-0"
                       onClick={() =>
                         setIssueMaterialLines((prev) => [
                           ...prev,
-                          { id: String(Date.now()), lineKey: '', qty: '0' },
+                          { id: String(Date.now()), lineKey: '', qty: '' },
                         ])
                       }
                     >
-                      + Add material
-                    </Button>
+                      + Add
+                    </button>
                   </div>
-                  <p className="text-[10px] text-zinc-500">
-                    Issue more than one colour/lot together (e.g. white and blue) to the same machine run.
-                  </p>
 
-                  {issueMaterialLines.map((row, index) => {
+                  {issueMaterialLines.map((row) => {
                     const selected = lineByKey.get(row.lineKey) || null
                     return (
-                      <div
-                        key={row.id}
-                        className="rounded-lg border border-zinc-200 bg-white p-2.5 space-y-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold text-zinc-700">
-                            Material {index + 1}
-                          </span>
-                          {issueMaterialLines.length > 1 ? (
-                            <button
-                              type="button"
-                              className="text-[10px] font-semibold text-red-600 hover:underline"
-                              onClick={() =>
-                                setIssueMaterialLines((prev) => prev.filter((l) => l.id !== row.id))
-                              }
-                            >
-                              Remove
-                            </button>
-                          ) : null}
+                      <div key={row.id} className="flex items-center gap-1.5">
+                        <div className="grid grid-cols-[1fr_5.5rem] gap-2 flex-1 min-w-0">
+                          <Select
+                            value={row.lineKey || undefined}
+                            onValueChange={(val) =>
+                              setIssueMaterialLines((prev) =>
+                                prev.map((l) =>
+                                  l.id === row.id ? { ...l, lineKey: val, qty: '' } : l,
+                                ),
+                              )
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs bg-white">
+                              <SelectValue placeholder="Select color…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {rawMaterialLines.map((l) => (
+                                <SelectItem key={l.key} value={l.key}>
+                                  {colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <input
+                            type="number"
+                            step="any"
+                            min={0}
+                            className="dgn-input font-semibold text-xs h-8"
+                            placeholder="kg"
+                            value={row.qty}
+                            onChange={(e) =>
+                              setIssueMaterialLines((prev) =>
+                                prev.map((l) =>
+                                  l.id === row.id ? { ...l, qty: e.target.value } : l,
+                                ),
+                              )
+                            }
+                          />
                         </div>
-                        <SearchableSelect
-                          size="sm"
-                          value={row.lineKey}
-                          onChange={(val) =>
-                            setIssueMaterialLines((prev) =>
-                              prev.map((l) => (l.id === row.id ? { ...l, lineKey: val } : l)),
-                            )
-                          }
-                          options={materialLineOptions}
-                          placeholder="Choose material lot & color…"
-                          searchPlaceholder="Search batch, material, or color…"
-                        />
-                        {selected ? (
-                          <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
-                            <span className="font-mono font-semibold text-zinc-800">
-                              {selected.batchNumber}
-                            </span>
-                            <span className="inline-flex items-center gap-1 font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200">
-                              {colorName(selected.color)}
-                            </span>
-                            <span className="tabular-nums text-emerald-700 font-semibold">
-                              Avail {fmt(selected.qtyRemaining, 1)} kg
-                            </span>
-                          </div>
-                        ) : null}
-                        <div className="flex items-end gap-2">
-                          <div className="flex-1">
-                            <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
-                              Amount (kg)
-                            </label>
-                            <input
-                              type="number"
-                              step="any"
-                              min={0}
-                              className="dgn-input font-bold text-xs"
-                              placeholder="0"
-                              value={row.qty}
-                              onChange={(e) =>
-                                setIssueMaterialLines((prev) =>
-                                  prev.map((l) =>
-                                    l.id === row.id ? { ...l, qty: e.target.value } : l,
-                                  ),
-                                )
-                              }
-                              onFocus={(e) => {
-                                if (e.target.value === '0') {
-                                  setIssueMaterialLines((prev) =>
-                                    prev.map((l) => (l.id === row.id ? { ...l, qty: '' } : l)),
-                                  )
-                                }
-                              }}
-                            />
-                          </div>
-                          {selected ? (
-                            <button
-                              type="button"
-                              className="h-8 px-2 text-[10px] font-bold text-violet-700 hover:underline"
-                              onClick={() =>
-                                setIssueMaterialLines((prev) =>
-                                  prev.map((l) =>
-                                    l.id === row.id
-                                      ? { ...l, qty: String(selected.qtyRemaining || '') }
-                                      : l,
-                                  ),
-                                )
-                              }
-                            >
-                              Max
-                            </button>
-                          ) : null}
-                        </div>
+                        {issueMaterialLines.length > 1 ? (
+                          <button
+                            type="button"
+                            className="text-zinc-400 hover:text-red-600 cursor-pointer shrink-0 p-1"
+                            onClick={() =>
+                              setIssueMaterialLines((prev) =>
+                                prev.filter((l) => l.id !== row.id),
+                              )
+                            }
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        ) : (
+                          <span className="w-5 shrink-0" />
+                        )}
                       </div>
                     )
                   })}
                 </div>
 
-                {/* 3. Additives Section: Master Batch & Batching (Amount in kg and Price for both) */}
-                <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/70 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles className="size-3.5 text-violet-600" />
-                      <span className="text-xs font-bold text-zinc-800">Additives (Master Batch & Batching)</span>
-                    </div>
-                    <span className="text-[10px] text-zinc-500">Optional additives feed</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                      Masterbatch kg
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="dgn-input text-xs h-8"
+                      placeholder="0"
+                      value={issueMasterBatchKg}
+                      onChange={(e) => setIssueMasterBatchKg(e.target.value)}
+                    />
                   </div>
-
-                  {/* Master Batch */}
-                  <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-zinc-800">
-                        Master Batch
-                      </span>
-                      <span className="text-[10px] text-zinc-400 font-medium">Color additive</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
-                          Amount (kg)
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          className="dgn-input font-bold text-xs"
-                          placeholder="0"
-                          value={issueMasterBatchKg}
-                          onChange={(e) => setIssueMasterBatchKg(e.target.value)}
-                          onFocus={(e) => {
-                            if (e.target.value === '0') setIssueMasterBatchKg('')
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
-                          Price (₦ / kg)
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          className="dgn-input text-xs"
-                          placeholder="0"
-                          value={issueMasterBatchPricePerKg}
-                          onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
-                          onFocus={(e) => {
-                            if (e.target.value === '0') setIssueMasterBatchPricePerKg('')
-                          }}
-                        />
-                      </div>
-                    </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                      MB ₦/kg
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="dgn-input text-xs h-8"
+                      placeholder="0"
+                      value={issueMasterBatchPricePerKg}
+                      onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
+                    />
                   </div>
-
-                  {/* Batching */}
-                  <div className="rounded-lg border border-zinc-200/80 bg-white p-2.5 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-zinc-800">
-                        Badging
-                      </span>
-                      <span className="text-[10px] text-zinc-400 font-medium">Badging additive</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
-                          Amount (kg)
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          className="dgn-input font-bold text-xs"
-                          placeholder="0"
-                          value={issueBatchingKg}
-                          onChange={(e) => setIssueBatchingKg(e.target.value)}
-                          onFocus={(e) => {
-                            if (e.target.value === '0') setIssueBatchingKg('')
-                          }}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
-                          Price (₦ / kg)
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          className="dgn-input text-xs"
-                          placeholder="0"
-                          value={issueBatchingPricePerKg}
-                          onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
-                          onFocus={(e) => {
-                            if (e.target.value === '0') setIssueBatchingPricePerKg('')
-                          }}
-                        />
-                      </div>
-                    </div>
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                      Batching kg
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="dgn-input text-xs h-8"
+                      placeholder="0"
+                      value={issueBatchingKg}
+                      onChange={(e) => setIssueBatchingKg(e.target.value)}
+                    />
                   </div>
-
-                  {/* Summary Callout for Feed & Total Additives Cost */}
-                  {(issueMaterialLines.some((l) => Number(l.qty) > 0) ||
-                    Number(issueMasterBatchKg) > 0 ||
-                    Number(issueBatchingKg) > 0) && (
-                    <div className="rounded-lg bg-violet-50/80 border border-violet-200/70 p-2 text-xs space-y-1 text-violet-950">
-                      <div className="flex items-center justify-between font-semibold">
-                        <span className="text-zinc-600">Total Mix Weight:</span>
-                        <span className="font-mono font-bold text-violet-900">
-                          {(
-                            issueMaterialLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0) +
-                            (Number(issueMasterBatchKg) || 0) +
-                            (Number(issueBatchingKg) || 0)
-                          ).toFixed(2)}{' '}
-                          kg
-                        </span>
-                      </div>
-                      {(Number(issueMasterBatchPricePerKg) > 0 || Number(issueBatchingPricePerKg) > 0) && (
-                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-violet-200/50">
-                          <span className="text-zinc-500">Estimated Additives Cost:</span>
-                          <span className="font-mono font-bold text-emerald-800">
-                            ₦{' '}
-                            {(
-                              (Number(issueMasterBatchKg || 0) * Number(issueMasterBatchPricePerKg || 0)) +
-                              (Number(issueBatchingKg || 0) * Number(issueBatchingPricePerKg || 0))
-                            ).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                      Batching ₦/kg
+                    </label>
+                    <input
+                      type="number"
+                      step="any"
+                      min={0}
+                      className="dgn-input text-xs h-8"
+                      placeholder="0"
+                      value={issueBatchingPricePerKg}
+                      onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
+                    />
+                  </div>
                 </div>
 
-                {/* 4. Store Dispatch Notes */}
-                <div>
-                  <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    Store Dispatch Notes (Optional)
-                  </label>
-                  <input
-                    type="text"
-                    className="dgn-input text-xs"
-                    placeholder="e.g. Issued to Machine for production..."
-                    value={issueNotes}
-                    onChange={(e) => setIssueNotes(e.target.value)}
-                  />
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
                   <Button
                     type="button"
                     variant="ghost"
@@ -1513,11 +1100,11 @@ export function ProductionStorePage() {
                   <Button
                     type="submit"
                     disabled={isIssueSubmitting}
-                    className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5 cursor-pointer"
+                    className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
                     size="sm"
                   >
                     <Send className="size-3.5" />
-                    {isIssueSubmitting ? 'Issuing to Machine…' : 'Confirm & Issue to Machine'}
+                    {isIssueSubmitting ? 'Issuing…' : 'Issue'}
                   </Button>
                 </div>
               </form>

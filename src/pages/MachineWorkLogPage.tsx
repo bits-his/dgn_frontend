@@ -5,9 +5,8 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   Check,
+  CheckCircle2,
   Clock,
-  Cpu,
-  Package,
   Pencil,
   Save,
 } from 'lucide-react'
@@ -47,6 +46,7 @@ const FAULT_CATEGORIES = [
 type ActiveRun = {
   id: number
   batchNumber: string | null
+  productId?: number | null
   productName: string | null
   productCode: string | null
   materialConsumed: number
@@ -189,6 +189,22 @@ export function MachineWorkLogPage() {
     }
   }, [activeRuns, runId])
 
+  const mergedTotals = useMemo(() => {
+    if (!activeRuns.length) return null
+    return {
+      materialConsumed: activeRuns.reduce((s, r) => s + Number(r.materialConsumed || 0), 0),
+      qtyGood: activeRuns.reduce((s, r) => s + Number(r.qtyGood || 0), 0),
+      qtyReject: activeRuns.reduce((s, r) => s + Number(r.qtyReject || 0), 0),
+      downtimeMinutes: activeRuns.reduce((s, r) => s + Number(r.downtimeMinutes || 0), 0),
+      materialUom: activeRuns[0]?.materialUom || 'kg',
+      inputBatchNumber: activeRuns.map((r) => r.inputBatchNumber).filter(Boolean).join(' + ') || null,
+      inputBatchColor: activeRuns.map((r) => r.inputBatchColor).filter(Boolean).join(' + ') || null,
+      materialName: activeRuns[0]?.materialName || null,
+      productName: activeRuns[0]?.productName || null,
+      batchNumber: activeRuns.map((r) => r.batchNumber || `RUN-${r.id}`).join(' + '),
+    }
+  }, [activeRuns])
+
   const runDetail = useQuery({
     queryKey: ['run-shifts-and-faults', selectedRun?.id],
     enabled: Boolean(selectedRun?.id),
@@ -208,7 +224,7 @@ export function MachineWorkLogPage() {
   const [goodPcs, setGoodPcs] = useState('')
   const [damagePcs, setDamagePcs] = useState('')
   const [wasteKg, setWasteKg] = useState('')
-  const [closeRun, setCloseRun] = useState(false)
+  const [finalizeOpen, setFinalizeOpen] = useState(false)
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   const [faultCategory, setFaultCategory] = useState('OTHER')
@@ -217,6 +233,24 @@ export function MachineWorkLogPage() {
 
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferMachineId, setTransferMachineId] = useState('')
+  const [transferKg, setTransferKg] = useState('')
+  const [transferProductId, setTransferProductId] = useState('')
+
+  const productsQuery = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => {
+      const { data } = await api.get('/masters/products')
+      return (data.data || []) as Array<{ id: number; name: string; isActive?: boolean }>
+    },
+  })
+
+  const productOptions = useMemo(
+    () =>
+      (productsQuery.data || [])
+        .filter((p) => p.isActive !== false)
+        .map((p) => ({ value: String(p.id), label: p.name })),
+    [productsQuery.data],
+  )
 
   const [editing, setEditing] = useState<ShiftLogRow | null>(null)
   const [editOperatorId, setEditOperatorId] = useState('')
@@ -253,20 +287,19 @@ export function MachineWorkLogPage() {
         qtyGood: good,
         qtyReject: damage,
         qtyWaste: waste,
-        complete: closeRun,
+        complete: false,
       })
       return data
     },
     onSuccess: async () => {
       setBanner({
         type: 'ok',
-        text: closeRun ? 'Production recorded and run closed' : 'Production recorded',
+        text: 'Production recorded',
       })
       setGoodDozen('')
       setGoodPcs('')
       setDamagePcs('')
       setWasteKg('')
-      setCloseRun(false)
       await invalidate()
     },
     onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
@@ -299,21 +332,60 @@ export function MachineWorkLogPage() {
     onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
   })
 
-  const transferMut = useMutation({
+  const finalizeMut = useMutation({
     mutationFn: async () => {
       if (!selectedRun) throw new Error('No open run')
-      if (!transferMachineId) throw new Error('Select a destination machine')
-      const { data } = await api.patch(`/production/runs/${selectedRun.id}/machine`, {
-        machineId: Number(transferMachineId),
+      const totalGood = Number(selectedRun.qtyGood || 0)
+      const totalReject = Number(selectedRun.qtyReject || 0)
+      const { data } = await api.post(`/production/runs/${selectedRun.id}/complete`, {
+        qtyProduced: totalGood > 0 ? totalGood : 1,
+        qtyGood: totalGood,
+        qtyReject: totalReject,
+        runtimeMinutes: 0,
+        downtimeMinutes: Number(selectedRun.downtimeMinutes || 0),
+        autoRelease: true,
+        confirmUnusualRun: true,
       })
       return data
     },
     onSuccess: async () => {
+      setFinalizeOpen(false)
+      setBanner({ type: 'ok', text: 'Run finalized — goods released to finished store' })
+      await invalidate()
+      navigate('/production')
+    },
+    onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
+  })
+
+  const transferMut = useMutation({
+    mutationFn: async () => {
+      if (!selectedRun) throw new Error('No open run')
+      if (!transferMachineId) throw new Error('Select a destination machine')
+      const kg = Number(transferKg)
+      if (!(kg > 0)) throw new Error('Enter the weighed leftover kg')
+      const maxKg = Number(selectedRun.materialConsumed || 0)
+      if (kg - maxKg > 0.001) {
+        throw new Error(`Only ${fmt(maxKg)} kg issued on this run`)
+      }
+      const { data } = await api.patch(`/production/runs/${selectedRun.id}/machine`, {
+        machineId: Number(transferMachineId),
+        materialKg: kg,
+        productId: transferProductId ? Number(transferProductId) : selectedRun.productId,
+      })
+      return data
+    },
+    onSuccess: async (data) => {
+      const kg = Number(data?.materialKg || transferKg)
+      const destName = data?.data?.machine?.name || 'destination machine'
       setTransferOpen(false)
       setTransferMachineId('')
-      setBanner({ type: 'ok', text: 'Run transferred' })
+      setTransferKg('')
+      setTransferProductId('')
+      setBanner({
+        type: 'ok',
+        text: `Moved ${fmt(kg)} kg leftover to ${destName}. Production already made stays on this machine.`,
+      })
       await invalidate()
-      navigate('/production', { replace: true })
     },
     onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
   })
@@ -366,28 +438,44 @@ export function MachineWorkLogPage() {
   return (
     <PageLayout
       title={machine ? `${machine.name} · Work & Log` : 'Work & Log'}
-      description={
-        machine
-          ? `${machine.code || 'Machine'} · record production once, edit later if needed`
-          : 'Loading…'
-      }
+      description={undefined}
       back
-      backTo={`/production/machines/${machineId}`}
+      backTo="/production"
+      backLabel="Back to production"
       actions={
         selectedRun ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-8 text-xs gap-1.5 bg-white"
-            onClick={() => {
-              setBanner(null)
-              setTransferOpen(true)
-            }}
-          >
-            <ArrowRightLeft className="size-3.5" />
-            Transfer machine
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 sm:h-8 px-2 sm:px-3 text-[11px] sm:text-xs gap-1 bg-white"
+              onClick={() => {
+                setBanner(null)
+                setTransferKg('')
+                setTransferProductId(
+                  selectedRun?.productId ? String(selectedRun.productId) : '',
+                )
+                setTransferMachineId('')
+                setTransferOpen(true)
+              }}
+            >
+              <ArrowRightLeft className="size-3.5" />
+              Transfer kg
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 sm:h-8 px-2 sm:px-3 text-[11px] sm:text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => {
+                setBanner(null)
+                setFinalizeOpen(true)
+              }}
+            >
+              <CheckCircle2 className="size-3.5" />
+              Finalize
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -417,85 +505,44 @@ export function MachineWorkLogPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
             {/* Main column */}
             <div className="lg:col-span-8 space-y-3">
-              {/* Machine + material issued */}
-              <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white">
-                      <Cpu className="size-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-zinc-900 truncate">
-                        {machine?.name}
-                      </h2>
-                      <p className="text-[11px] text-zinc-500 truncate">
-                        {machine?.code || '—'}
-                        {machine?.machineType ? ` · ${machine.machineType}` : ''}
+              {/* Material issued / run summary — compact on mobile */}
+              <div className="rounded-xl border border-zinc-200 bg-white p-2.5 sm:p-3.5 shadow-xs">
+                {selectedRun && mergedTotals ? (
+                  <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                    <div className="rounded-md sm:rounded-lg bg-sky-50/70 border border-sky-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 min-w-0">
+                      <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-sky-700 truncate">
+                        Material
+                      </p>
+                      <p className="text-xs sm:text-sm font-bold tabular-nums text-sky-950 mt-0.5 truncate">
+                        {fmt(mergedTotals.materialConsumed)} {mergedTotals.materialUom || 'kg'}
+                      </p>
+                      <p className="text-[9px] sm:text-[11px] text-sky-800/80 truncate mt-0.5">
+                        {mergedTotals.inputBatchNumber || mergedTotals.materialName || '—'}
+                        {mergedTotals.inputBatchColor ? ` · ${mergedTotals.inputBatchColor}` : ''}
                       </p>
                     </div>
-                  </div>
-
-                  {activeRuns.length > 1 ? (
-                    <div className="w-full sm:w-[220px]">
-                      <Label className="text-[10px] font-bold uppercase text-zinc-400 mb-1 block">
-                        Open run
-                      </Label>
-                      <Select value={String(selectedRun?.id || '')} onValueChange={setRunId}>
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeRuns.map((r) => (
-                            <SelectItem key={r.id} value={String(r.id)}>
-                              {r.batchNumber || `RUN-${r.id}`} · {r.productName || 'Product'}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ) : null}
-                </div>
-
-                {selectedRun ? (
-                  <div className="mt-3 pt-3 border-t border-zinc-100 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div className="rounded-lg bg-sky-50/70 border border-sky-100 px-2.5 py-2">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
-                        <Package className="size-3" />
-                        Material issued
-                      </p>
-                      <p className="text-sm font-bold tabular-nums text-sky-950 mt-0.5">
-                        {fmt(selectedRun.materialConsumed)} {selectedRun.materialUom || 'kg'}
-                      </p>
-                      <p className="text-[11px] text-sky-800/80 truncate mt-0.5">
-                        {selectedRun.materialName || 'Material'}
-                        {selectedRun.inputBatchNumber
-                          ? ` · ${selectedRun.inputBatchNumber}`
-                          : ''}
-                        {selectedRun.inputBatchColor ? ` · ${selectedRun.inputBatchColor}` : ''}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-2.5 py-2">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                    <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 min-w-0">
+                      <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-400 truncate">
                         Product
                       </p>
-                      <p className="text-sm font-bold text-zinc-900 mt-0.5 truncate">
-                        {selectedRun.productName || '—'}
+                      <p className="text-xs sm:text-sm font-bold text-zinc-900 mt-0.5 truncate">
+                        {mergedTotals.productName || '—'}
                       </p>
-                      <p className="text-[11px] text-zinc-500 font-mono truncate">
+                      <p className="text-[9px] sm:text-[11px] text-zinc-500 font-mono truncate">
                         {selectedRun.batchNumber || `RUN-${selectedRun.id}`}
                       </p>
                     </div>
-                    <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-2.5 py-2">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
-                        Run so far
+                    <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 min-w-0">
+                      <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-400 truncate">
+                        So far
                       </p>
-                      <p className="text-sm font-bold tabular-nums text-emerald-700 mt-0.5">
-                        {fmtDozenPcs(selectedRun.qtyGood)}
+                      <p className="text-xs sm:text-sm font-bold tabular-nums text-emerald-700 mt-0.5 truncate">
+                        {fmtDozenPcs(mergedTotals.qtyGood)}
                       </p>
-                      <p className="text-[11px] text-zinc-500">
-                        {fmt(selectedRun.qtyReject)} dmg
-                        {selectedRun.downtimeMinutes > 0
-                          ? ` · ${selectedRun.downtimeMinutes}m down`
+                      <p className="text-[9px] sm:text-[11px] text-zinc-500 truncate">
+                        {fmt(mergedTotals.qtyReject)} dmg
+                        {mergedTotals.downtimeMinutes > 0
+                          ? ` · ${mergedTotals.downtimeMinutes}m`
                           : ''}
                       </p>
                     </div>
@@ -607,16 +654,6 @@ export function MachineWorkLogPage() {
                     />
                   </div>
                 </div>
-
-                <label className="flex items-center gap-2 text-[11px] text-zinc-600">
-                  <input
-                    type="checkbox"
-                    checked={closeRun}
-                    onChange={(e) => setCloseRun(e.target.checked)}
-                    className="rounded border-zinc-300"
-                  />
-                  Close run after saving (finished goods accepted)
-                </label>
 
                 <Button
                   type="submit"
@@ -798,20 +835,49 @@ export function MachineWorkLogPage() {
             <div>
               <DialogTitle className="text-base font-bold text-zinc-900 flex items-center gap-2">
                 <ArrowRightLeft className="size-4" />
-                Transfer run
+                Transfer leftover material
               </DialogTitle>
-              <DialogDescription className="mt-0.5 text-xs text-zinc-600">
-                Move this open run to another machine to continue production.
-              </DialogDescription>
             </div>
             <div>
-              <Label className="text-xs font-semibold mb-1 block">Destination machine</Label>
+              <Label className="text-xs font-semibold mb-1 block">To machine</Label>
               <SearchableSelect
                 value={transferMachineId}
                 onChange={setTransferMachineId}
                 options={machineOptions}
                 placeholder="Select machine…"
                 searchPlaceholder="Search machine…"
+                allowClear={false}
+                triggerClassName="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold mb-1 block">Leftover kg (weighed)</Label>
+              <Input
+                type="number"
+                step="any"
+                min={0}
+                className="h-8 text-xs"
+                placeholder="e.g. 45"
+                value={transferKg}
+                onChange={(e) => setTransferKg(e.target.value)}
+              />
+              {selectedRun ? (
+                <p className="text-[10px] text-zinc-500 mt-1">
+                  Issued on this run: {fmt(selectedRun.materialConsumed)}{' '}
+                  {selectedRun.materialUom || 'kg'} · enter only what you weighed out
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <Label className="text-xs font-semibold mb-1 block">
+                Product on destination (if starting fresh)
+              </Label>
+              <SearchableSelect
+                value={transferProductId}
+                onChange={setTransferProductId}
+                options={productOptions}
+                placeholder="Product they will run…"
+                searchPlaceholder="Search product…"
                 allowClear={false}
                 triggerClassName="h-8 text-xs"
               />
@@ -834,7 +900,81 @@ export function MachineWorkLogPage() {
                 onClick={() => transferMut.mutate()}
               >
                 <Check className="size-3.5" />
-                {transferMut.isPending ? 'Transferring…' : 'Transfer'}
+                {transferMut.isPending ? 'Moving kg…' : 'Transfer kg'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={finalizeOpen} onOpenChange={setFinalizeOpen}>
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200 p-0 overflow-hidden">
+          <div className="bg-gradient-to-r from-emerald-600/10 via-emerald-500/5 to-transparent border-b border-emerald-200 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                <CheckCircle2 className="size-4" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-zinc-900">
+                  Finalize & complete run
+                </DialogTitle>
+                <DialogDescription className="text-xs text-zinc-600 mt-0.5">
+                  Close this run and release goods to finished store.
+                </DialogDescription>
+              </div>
+            </div>
+          </div>
+          <div className="p-4 space-y-3 text-xs text-zinc-700">
+            {selectedRun ? (
+              <div className="rounded-xl bg-zinc-50 p-3 border border-zinc-200/80 space-y-2">
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500">Material issued</span>
+                  <strong className="tabular-nums">
+                    {fmt(selectedRun.materialConsumed)} {selectedRun.materialUom || 'kg'}
+                  </strong>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500">Good produced</span>
+                  <strong className="text-emerald-700 tabular-nums">
+                    {fmtDozenPcs(selectedRun.qtyGood)}
+                  </strong>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500">Damage</span>
+                  <strong className="text-red-600 tabular-nums">
+                    {fmt(selectedRun.qtyReject)} pcs
+                  </strong>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-zinc-500">Batch</span>
+                  <strong className="font-mono">
+                    {selectedRun.batchNumber || `RUN-${selectedRun.id}`}
+                  </strong>
+                </div>
+              </div>
+            ) : null}
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              Make sure all production for this run is recorded before finalizing.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs font-semibold"
+                onClick={() => setFinalizeOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={finalizeMut.isPending}
+                onClick={() => finalizeMut.mutate()}
+                className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+              >
+                <CheckCircle2 className="size-3.5" />
+                {finalizeMut.isPending ? 'Finalizing…' : 'Confirm & complete'}
               </Button>
             </div>
           </div>

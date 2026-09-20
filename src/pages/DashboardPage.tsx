@@ -499,12 +499,22 @@ export function DashboardPage() {
                       <Recycle className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{d.range.label}</p>
                   <div className="mt-2 space-y-1.5 text-[11px]">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-muted-foreground">Scrap bought</span>
                       <span className="font-bold tabular-nums text-foreground">
                         {fmt(d.materialFlow.receivedKg || 0)} kg
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">Available</span>
+                      <span className="font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                        {fmt(
+                          d.materialFlow.availableKg ??
+                            d.inventory.availableKg ??
+                            0,
+                        )}{' '}
+                        kg
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -656,12 +666,12 @@ export function DashboardPage() {
               </div>
             </div>
 
-            {/* Operator performance under KPI cards */}
+            {/* Operator Leaderboard under KPI cards */}
             <div className="space-y-3 pt-1">
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
                 <div>
                   <h2 className="text-base font-semibold tracking-tight text-foreground">
-                    Operator Performance
+                    Operator Leaderboard
                   </h2>
                   <p className="text-xs text-muted-foreground">
                     Top 5 ranked by good output, quality, and uptime · {d.range.label}

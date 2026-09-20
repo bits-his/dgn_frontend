@@ -72,12 +72,10 @@ function formatDate(raw?: string) {
   if (!raw) return '—'
   const d = new Date(raw)
   if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString(undefined, {
+  return d.toLocaleDateString(undefined, {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
   })
 }
 
@@ -265,12 +263,7 @@ export function ScrapReceivingListPage() {
                 })}
               </span>
               <span className="text-xs text-[var(--ink-muted)] block mt-0.5">
-                Buy ₦
-                {Number(r.purchaseCost || 0).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{' '}
-                · @ ₦
+                Buying at ₦
                 {Number(r.pricePerKg || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,

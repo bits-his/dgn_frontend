@@ -717,6 +717,16 @@ export function RecordProductionPage() {
               </Select>
             </div>
           )}
+          {isRunActive && (
+            <Button
+              type="button"
+              onClick={() => setIsFinalizeModalOpen(true)}
+              className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+            >
+              <CheckCircle2 className="size-3.5" />
+              <span>Finalize Run</span>
+            </Button>
+          )}
         </div>
       }
     >
@@ -836,18 +846,13 @@ export function RecordProductionPage() {
             <div>
               <h3 className="text-sm font-bold text-zinc-900">No Active Production Run Selected</h3>
               <p className="text-xs text-zinc-500 mt-1 leading-relaxed">
-                Production runs are created when raw material and color additives are issued to a machine from the Material Store. Select an active run from the dropdown above, or visit the Material Store.
+                Select an active run from the dropdown above, or wait for material to be issued to a machine.
               </p>
             </div>
             <div className="flex items-center justify-center gap-2 pt-1">
               <Button variant="outline" size="sm" asChild>
                 <Link to="/production">
-                  View Floor Table
-                </Link>
-              </Button>
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                <Link to="/production/store">
-                  Go to Material Store
+                  Back to production
                 </Link>
               </Button>
             </div>
@@ -896,7 +901,18 @@ export function RecordProductionPage() {
                         </SelectTrigger>
                         <SelectContent>
                           {(machinesQuery.data || [])
-                            .filter((m) => m.isActive !== false)
+                            .filter((m) => {
+                              if (m.isActive === false) return false
+                              const t = String(m.machineType || 'PRODUCTION').toUpperCase()
+                              return (
+                                t === 'PRODUCTION' ||
+                                t.includes('PROD') ||
+                                t.includes('INJECT') ||
+                                t.includes('BLOW') ||
+                                t.includes('MOULD') ||
+                                t.includes('MOLD')
+                              )
+                            })
                             .map((m) => (
                               <SelectItem key={m.id} value={String(m.id)}>
                                 {m.name}{m.code ? ` (${m.code})` : ''}

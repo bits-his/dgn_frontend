@@ -2,10 +2,8 @@ import { useMemo } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Cpu, Lock } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
-import { Button } from '@/components/ui/button'
 import CustomTable1 from '@/components/CustomTable1'
 import {
   Select,
@@ -42,16 +40,6 @@ type ProductionRow = {
   pcs: number
 }
 
-type ActiveRun = {
-  id: number
-  batchNumber: string | null
-  productName: string | null
-  materialConsumed: number
-  inputBatchNumber: string | null
-  locked?: boolean
-  activeShift?: { operatorName: string; shiftName: string | null } | null
-}
-
 type DetailPayload = {
   machine: {
     id: number
@@ -63,7 +51,6 @@ type DetailPayload = {
   }
   range: { label: string; preset: string }
   totals: { qtyGood: number; qtyDamage: number; runs: number }
-  activeRuns: ActiveRun[]
   productions: ProductionRow[]
 }
 
@@ -93,6 +80,12 @@ export function MachineProductionPage() {
     },
     refetchInterval: 15_000,
   })
+
+  const productions = useMemo(() => {
+    return (detail.data?.productions || []).filter(
+      (row) => Number(row.qtyGood || 0) > 0 || Number(row.qtyDamage || 0) > 0,
+    )
+  }, [detail.data?.productions])
 
   const columns = useMemo<ColumnDef<ProductionRow>[]>(
     () => [
@@ -161,132 +154,70 @@ export function MachineProductionPage() {
 
   const d = detail.data
   const machine = d?.machine
-  const activeRuns = d?.activeRuns || []
 
   return (
     <PageLayout
-      title={machine?.name || 'Machine production'}
-      description={
-        machine
-          ? `${machine.code || 'Machine'} · ${d?.range.label || ''} · production history`
-          : 'Loading machine…'
-      }
+      title={machine?.name || 'Machine'}
+      description={d?.range.label ? `History · ${d.range.label}` : undefined}
       back
       backTo={`/production?rangePreset=${rangePreset}`}
+      backLabel="Back to production"
+      headerClassName="[&_h3]:!text-sm sm:[&_h3]:!text-base md:[&_h3]:!text-lg [&_h3]:leading-snug"
       actions={
-        <div className="flex items-center gap-2">
-          <Select value={rangePreset} onValueChange={setRange}>
-            <SelectTrigger className="h-8 w-[160px] text-xs bg-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {activeRuns.length > 0 ? (
-            <Button asChild size="sm" className="h-8 text-xs gap-1.5">
-              <Link to={`/production/machines/${machineId}/work`}>
-                <Lock className="size-3.5" />
-                Work &amp; Log
-              </Link>
-            </Button>
-          ) : null}
-        </div>
+        <Select value={rangePreset} onValueChange={setRange}>
+          <SelectTrigger className="h-8 w-[140px] sm:w-[160px] text-xs bg-white shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {RANGE_OPTIONS.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       }
     >
       <div className="space-y-4">
         {machine ? (
-          <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-600 text-white">
-                  <Cpu className="size-5" />
-                </div>
-                <div>
-                  <h2 className="text-sm font-bold text-zinc-900">{machine.name}</h2>
-                  <p className="text-[11px] text-zinc-500">
-                    {machine.code || '—'}
-                    {machine.machineType ? ` · ${machine.machineType}` : ''}
-                    {machine.ratedOutputPerHour
-                      ? ` · Rated ${fmt(Number(machine.ratedOutputPerHour))}/hr`
-                      : ''}
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2 min-w-[240px]">
-                <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-2 py-1.5 text-center">
-                  <p className="text-[9px] uppercase font-bold text-zinc-400">Produced</p>
-                  <p className="text-xs font-bold tabular-nums text-zinc-900">
-                    {fmtDozenPcs(d?.totals.qtyGood || 0)}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-2 py-1.5 text-center">
-                  <p className="text-[9px] uppercase font-bold text-zinc-400">Damage</p>
-                  <p className="text-xs font-bold tabular-nums text-red-700">
-                    {fmt(d?.totals.qtyDamage || 0)}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-zinc-50 border border-zinc-100 px-2 py-1.5 text-center">
-                  <p className="text-[9px] uppercase font-bold text-zinc-400">Runs</p>
-                  <p className="text-xs font-bold tabular-nums text-zinc-900">{d?.totals.runs || 0}</p>
-                </div>
-              </div>
-            </div>
-
-            {activeRuns.length > 0 ? (
-              <div className="mt-3 pt-3 border-t border-zinc-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div className="space-y-1">
-                  {activeRuns.map((r) => (
-                    <p key={r.id} className="text-[11px] text-zinc-600">
-                      <span className="font-mono font-semibold text-zinc-800">
-                        {r.batchNumber || `RUN-${r.id}`}
-                      </span>
-                      {r.productName ? ` · ${r.productName}` : ''}
-                      {r.locked && r.activeShift ? (
-                        <span className="ml-1.5 text-amber-700 font-semibold">
-                          · In session · {r.activeShift.operatorName}
-                        </span>
-                      ) : (
-                        <span className="ml-1.5 text-emerald-700 font-semibold">· Open</span>
-                      )}
-                    </p>
-                  ))}
-                </div>
-                <Button asChild size="sm" className="h-8 text-xs gap-1.5 shrink-0">
-                  <Link to={`/production/machines/${machineId}/work`}>
-                    <Lock className="size-3.5" />
-                    Work &amp; Log
-                  </Link>
-                </Button>
-              </div>
-            ) : (
-              <div className="mt-3 pt-3 border-t border-zinc-100">
-                <p className="text-[11px] text-zinc-500">
-                  No open run on this machine.
+          <div className="rounded-xl border border-zinc-200 bg-white p-2.5 sm:p-3.5 shadow-xs">
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 text-center">
+                <p className="text-[8px] sm:text-[9px] uppercase font-bold text-zinc-400">Produced</p>
+                <p className="text-xs sm:text-sm font-bold tabular-nums text-zinc-900">
+                  {fmtDozenPcs(d?.totals.qtyGood || 0)}
                 </p>
               </div>
-            )}
+              <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 text-center">
+                <p className="text-[8px] sm:text-[9px] uppercase font-bold text-zinc-400">Damage</p>
+                <p className="text-xs sm:text-sm font-bold tabular-nums text-red-700">
+                  {fmt(d?.totals.qtyDamage || 0)}
+                </p>
+              </div>
+              <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 text-center">
+                <p className="text-[8px] sm:text-[9px] uppercase font-bold text-zinc-400">Runs</p>
+                <p className="text-xs sm:text-sm font-bold tabular-nums text-zinc-900">
+                  {productions.length}
+                </p>
+              </div>
+            </div>
           </div>
         ) : null}
 
         <div className="space-y-2">
           <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-            Production · {d?.range.label || 'period'}
+            Produced · {d?.range.label || 'period'}
           </h3>
           {detail.isLoading ? (
             <p className="text-xs text-zinc-500 py-8 text-center">Loading…</p>
-          ) : (d?.productions || []).length === 0 ? (
+          ) : productions.length === 0 ? (
             <p className="text-xs text-zinc-500 py-8 text-center rounded-xl border border-zinc-200 bg-white">
-              No production rows for this period.
+              No production recorded for this period.
             </p>
           ) : (
             <>
               <div className="md:hidden space-y-2">
-                {(d?.productions || []).map((row) => (
+                {productions.map((row) => (
                   <article
                     key={row.id}
                     className="rounded-xl border border-zinc-200 bg-white p-3 shadow-xs space-y-1.5"
@@ -312,7 +243,7 @@ export function MachineProductionPage() {
                 ))}
               </div>
               <div className="hidden md:block">
-                <CustomTable1 data={d?.productions || []} columns={columns} />
+                <CustomTable1 data={productions} columns={columns} />
               </div>
             </>
           )}

@@ -1,6 +1,7 @@
 import { Link, useSearchParams } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Cpu, Eye, Factory, Lock } from 'lucide-react'
+import { Cpu, Eye, Lock, Play } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -11,6 +12,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { fmtDozenPcs } from '@/lib/units'
 
 const RANGE_OPTIONS = [
@@ -35,6 +43,9 @@ type MachineRow = {
   pcs: number
   runs: number
   activeRuns: number
+  activeProductName?: string | null
+  activeMaterialKg?: number
+  activeQtyGood?: number
   topProducts: Array<{ name: string; qty: number }>
 }
 
@@ -45,6 +56,7 @@ function fmt(n: number) {
 export function ProductionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const rangePreset = searchParams.get('rangePreset') || 'this_month'
+  const [activeOpen, setActiveOpen] = useState(false)
 
   const setRangePreset = (preset: string) => {
     const next = new URLSearchParams(searchParams)
@@ -67,25 +79,48 @@ export function ProductionPage() {
   })
 
   const rows = overview.data?.data || []
-  const rangeLabel = overview.data?.range?.label || RANGE_OPTIONS.find((o) => o.id === rangePreset)?.label
+  const rangeLabel =
+    overview.data?.range?.label || RANGE_OPTIONS.find((o) => o.id === rangePreset)?.label
+
+  const active = useMemo(() => rows.filter((r) => r.activeRuns > 0), [rows])
 
   return (
     <PageLayout
       title="Production"
       description="Machines and what they produced for the selected period."
       actions={
-        <Select value={rangePreset} onValueChange={setRangePreset}>
-          <SelectTrigger className="h-8 w-[160px] text-xs bg-white">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGE_OPTIONS.map((o) => (
-              <SelectItem key={o.id} value={o.id}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            className={`h-8 px-2.5 text-xs gap-1.5 ${
+              active.length > 0
+                ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+            }`}
+            onClick={() => setActiveOpen(true)}
+          >
+            <Play className="size-3.5" />
+            Active
+            {active.length > 0 ? (
+              <span className="rounded-full bg-white/25 px-1.5 py-0 text-[10px] font-bold tabular-nums">
+                {active.length}
+              </span>
+            ) : null}
+          </Button>
+          <Select value={rangePreset} onValueChange={setRangePreset}>
+            <SelectTrigger className="h-8 w-[140px] sm:w-[160px] text-xs bg-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RANGE_OPTIONS.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       }
     >
       <div className="space-y-4">
@@ -109,13 +144,7 @@ export function ProductionPage() {
                     <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700">
                       <Cpu className="size-4" />
                     </div>
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-bold text-zinc-900 truncate">{row.machineName}</h3>
-                      <p className="text-[11px] text-zinc-500 truncate">
-                        {row.machineCode || '—'}
-                        {row.machineType ? ` · ${row.machineType}` : ''}
-                      </p>
-                    </div>
+                    <h3 className="text-sm font-bold text-zinc-900 truncate">{row.machineName}</h3>
                   </div>
                   {row.activeRuns > 0 ? (
                     <span className="shrink-0 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-bold text-amber-800 uppercase">
@@ -162,7 +191,9 @@ export function ProductionPage() {
                 )}
 
                 <div className="flex items-center justify-between pt-1 border-t border-zinc-100 gap-2">
-                  <span className="text-[10px] text-zinc-400">{row.runs} run{row.runs === 1 ? '' : 's'}</span>
+                  <span className="text-[10px] text-zinc-400">
+                    {row.runs} run{row.runs === 1 ? '' : 's'}
+                  </span>
                   <div className="flex items-center gap-1.5">
                     <Button asChild size="sm" variant="outline" className="h-8 px-2.5 text-xs gap-1.5">
                       <Link to={`/production/machines/${row.machineId}?rangePreset=${rangePreset}`}>
@@ -182,16 +213,57 @@ export function ProductionPage() {
             ))}
           </div>
         )}
-
-        <div className="flex justify-end">
-          <Button asChild variant="outline" size="sm" className="h-8 text-xs gap-1.5">
-            <Link to="/production/store">
-              <Factory className="size-3.5" />
-              Material store
-            </Link>
-          </Button>
-        </div>
       </div>
+
+      <Dialog open={activeOpen} onOpenChange={setActiveOpen}>
+        <DialogContent className="max-h-[92vh] w-[min(90vw,28rem)] max-w-[min(90vw,28rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <DialogHeader className="mb-0 pb-3 border-b border-zinc-100">
+            <DialogTitle className="text-base font-bold tracking-tight">
+              Active machines
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {active.length > 0
+                ? `${active.length} with open runs — tap to record`
+                : 'No open runs right now'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 pt-1">
+            {active.length === 0 ? (
+              <p className="text-xs text-zinc-500 text-center py-10">
+                Issue material from Material Store to start a run.
+              </p>
+            ) : (
+              active.map((row) => (
+                <Link
+                  key={row.machineId}
+                  to={`/production/machines/${row.machineId}/work`}
+                  onClick={() => setActiveOpen(false)}
+                  className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3.5 hover:bg-amber-50 transition-colors"
+                >
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-800">
+                    <Cpu className="size-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-zinc-900 truncate">{row.machineName}</p>
+                    <p className="text-[11px] text-zinc-600 truncate">
+                      {row.activeProductName || 'Open run'}
+                      {' · '}
+                      {fmt(row.activeMaterialKg || 0)} kg
+                      {' · '}
+                      {fmtDozenPcs(row.activeQtyGood || 0)} so far
+                    </p>
+                  </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold px-2.5 py-1.5">
+                    <Play className="size-3 fill-current" />
+                    Record
+                  </span>
+                </Link>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   )
 }

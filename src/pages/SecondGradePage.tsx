@@ -112,7 +112,7 @@ export function SecondGradePage() {
   return (
     <PageLayout
       title="Second grade"
-      description="Washed material taken out of the first-grade flow, with the value removed from remaining cost"
+      description="Second-grade material taken out during washing"
     >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-2">
