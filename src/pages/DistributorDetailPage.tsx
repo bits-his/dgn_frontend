@@ -314,18 +314,32 @@ export function DistributorDetailPage() {
       backTo="/distributors"
       backLabel="All"
       actions={
-        isOutletScoped(user) ? (
-          <Button size="sm" className="h-8 gap-1 text-xs font-semibold" asChild>
-            <Link to="/shop/sales/new">
-              <Plus className="size-3.5" />
-              Record
-            </Link>
-          </Button>
-        ) : canSell ? (
-          <Button size="sm" className="h-8 text-xs font-semibold" asChild>
-            <Link to={`/sales/new?customer=${d.id}`}>{isShop ? 'Issue stock' : 'New sale'}</Link>
-          </Button>
-        ) : null
+        <div className="flex items-center gap-1.5">
+          {canEdit && !isOutletScoped(user) ? (
+            <Button
+              size="sm"
+              className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
+              onClick={() => {
+                setError('')
+                setAdvanceOpen(true)
+              }}
+            >
+              Record advance
+            </Button>
+          ) : null}
+          {isOutletScoped(user) ? (
+            <Button size="sm" className="h-8 gap-1 text-xs font-semibold" asChild>
+              <Link to="/shop/sales/new">
+                <Plus className="size-3.5" />
+                Record
+              </Link>
+            </Button>
+          ) : canSell ? (
+            <Button size="sm" className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap" asChild>
+              <Link to={`/sales/new?customer=${d.id}`}>{isShop ? 'Issue stock' : 'New sale'}</Link>
+            </Button>
+          ) : null}
+        </div>
       }
     >
       <div className="space-y-2.5">
@@ -450,20 +464,8 @@ export function DistributorDetailPage() {
                   <div className="mt-2">
                     <CreditBar percent={c.utilizationPercent} atLimit={creditClosed} />
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500">
-                    <span>Advance {money(advanceBalance)}</span>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        className="font-semibold text-amber-800"
-                        onClick={() => {
-                          setError('')
-                          setAdvanceOpen(true)
-                        }}
-                      >
-                        Record advance
-                      </button>
-                    )}
+                  <div className="mt-2 text-[11px] text-zinc-500">
+                    Advance {money(advanceBalance)}
                   </div>
                 </BookPanel>
                 {unpaid.length > 0 && (
