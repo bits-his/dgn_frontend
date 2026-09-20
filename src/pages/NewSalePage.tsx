@@ -26,6 +26,7 @@ type SellableBatch = {
   locationId: number | null
   locationName: string | null
   unitCost: number | null
+  sellingPrice?: number | null
   standardPrice?: number | null
 }
 
@@ -216,10 +217,16 @@ export function NewSalePage() {
     setBatchInputs((prev) => {
       const next = { ...prev }
       for (const b of sellable.data) {
+        const price = Number(b.standardPrice ?? b.sellingPrice)
+        const defaultPrice = Number.isFinite(price) && price > 0 ? String(price) : ''
         if (!next[b.batchNumber]) {
-          const defaultPrice = b.standardPrice != null ? String(b.standardPrice) : ''
           next[b.batchNumber] = {
             qty: '',
+            unitPrice: defaultPrice,
+          }
+        } else if (!next[b.batchNumber].unitPrice && defaultPrice) {
+          next[b.batchNumber] = {
+            ...next[b.batchNumber],
             unitPrice: defaultPrice,
           }
         }
@@ -234,16 +241,6 @@ export function NewSalePage() {
       [batchNumber]: {
         ...(prev[batchNumber] || { unitPrice: '' }),
         qty: val,
-      },
-    }))
-  }
-
-  const handlePriceChange = (batchNumber: string, val: string) => {
-    setBatchInputs((prev) => ({
-      ...prev,
-      [batchNumber]: {
-        ...(prev[batchNumber] || { qty: '' }),
-        unitPrice: val,
       },
     }))
   }
@@ -621,15 +618,20 @@ export function NewSalePage() {
                         <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
                           Unit Price (₦)
                         </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="0.00"
-                          value={input.unitPrice}
-                          onChange={(e) => handlePriceChange(batch.batchNumber, e.target.value)}
-                          className="h-8 text-xs font-semibold tabular-nums"
-                        />
+                        <div
+                          className={`h-8 px-2.5 flex items-center rounded-md border text-xs font-semibold tabular-nums ${
+                            unitPriceNum > 0
+                              ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
+                              : 'border-amber-200 bg-amber-50 text-amber-800'
+                          }`}
+                        >
+                          {unitPriceNum > 0 ? money(unitPriceNum) : 'No price set'}
+                        </div>
+                        {unitPriceNum <= 0 && (
+                          <p className="text-[10px] text-amber-700 mt-0.5">
+                            Set this on Product pricing first
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -808,6 +810,9 @@ export function NewSalePage() {
                   onChange={(e) => setDiscount(e.target.value)}
                   className="h-8 text-xs tabular-nums"
                 />
+                <p className="mt-1 text-[10px] text-zinc-400">
+                  Use this to reduce the total — unit prices stay fixed
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-zinc-700 mb-1.5">

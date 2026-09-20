@@ -29,6 +29,7 @@ import {
   Warehouse,
   Play,
   RotateCcw,
+  Tag,
   Download,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
@@ -137,6 +138,7 @@ const mainNavRest: NavItem[] = [
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, menuKey: 'inventory', permission: 'inventory.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
+  { to: '/pricing', label: 'Product pricing', icon: Tag, menuKey: 'pricing', permission: 'sales.create' },
   { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'distributors', permission: 'sales.view' },
   { to: '/batches', label: 'Batches', icon: Search, menuKey: 'batches', permission: 'batch.view' },
   // { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },

@@ -15,6 +15,8 @@ type StockRow = {
   productName: string
   uom: string
   remaining: number
+  sellingPrice?: number | null
+  standardPrice?: number | null
 }
 
 type LineInput = {
@@ -63,7 +65,13 @@ export function RecordOutletSalePage() {
       const next = { ...prev }
       for (const row of stock) {
         const key = String(row.productId)
-        if (!next[key]) next[key] = { qty: '', unitPrice: '' }
+        const price = Number(row.standardPrice ?? row.sellingPrice)
+        const defaultPrice = Number.isFinite(price) && price > 0 ? String(price) : ''
+        if (!next[key]) {
+          next[key] = { qty: '', unitPrice: defaultPrice }
+        } else if (!next[key].unitPrice && defaultPrice) {
+          next[key] = { ...next[key], unitPrice: defaultPrice }
+        }
       }
       return next
     })

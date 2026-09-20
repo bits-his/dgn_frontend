@@ -31,6 +31,7 @@ import {
   Factory,
   Recycle,
   RefreshCw,
+  Tag,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -255,6 +256,15 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     tone: 'bg-indigo-600 text-white',
     menuKey: 'sales',
     permission: 'sales.view',
+  },
+  {
+    to: '/pricing',
+    title: 'Product pricing',
+    desc: 'Set & update selling prices for sales',
+    icon: Tag,
+    tone: 'bg-teal-700 text-white',
+    menuKey: 'pricing',
+    permission: 'sales.create',
   },
   {
     to: '/distributors',

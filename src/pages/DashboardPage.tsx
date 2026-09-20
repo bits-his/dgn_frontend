@@ -134,10 +134,12 @@ type Dashboard = {
     boughtKg?: number
     availableKg?: number
     wasteKg?: number
+    secondGradeKg?: number
     wipKg: number
     fgUnits: number
     fgDozen?: number
     fgPcs?: number
+    fgValue?: number
     lowStockCount: number
   }
   trend: Array<{
@@ -156,6 +158,7 @@ type Dashboard = {
   materialFlow: {
     receivedKg: number
     wasteKg?: number
+    secondGradeKg?: number
     availableKg?: number
     sortedKg: number
     crushedKg: number
@@ -199,6 +202,25 @@ type Dashboard = {
     dozen: number
     pcs: number
   }>
+  productionByProduct?: Array<{
+    productId: number | null
+    productName: string
+    qtyGood: number
+    qtyProduced: number
+    dozen: number
+    pcs: number
+  }>
+  finishedGoodsStock?: Array<{
+    productId: number
+    productName: string
+    productCode?: string
+    qtyOnHand: number
+    sellingPrice: number
+    stockValue: number
+    dozen: number
+    pcs: number
+  }>
+  finishedGoodsValue?: number
 }
 
 type DrillPayload = {
@@ -459,120 +481,141 @@ export function DashboardPage() {
             <div className="space-y-4">
              
 
-              {/* Compact KPI scorecards */}
-              <div className="grid grid-cols-2 gap-1.5 sm:gap-2 lg:grid-cols-4">
-                {/* Card 1: Raw Material */}
+              {/* Operational KPI scorecards */}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {/* Card 1: Raw Material — scrap bought / second grade / waste */}
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('raw_material')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('raw_material')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-emerald-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-emerald-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
                       Raw Material
                     </span>
                     <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
                       <Recycle className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
-                    {fmt(d.materialFlow.receivedKg || 0)}{' '}
-                    <span className="text-[10px] font-normal text-muted-foreground">kg</span>
-                  </p>
-                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
+                  <p className="mt-1 text-[10px] text-muted-foreground">{d.range.label}</p>
+                  <div className="mt-2 space-y-1.5 text-[11px]">
                     <div className="flex items-center justify-between gap-2">
-                      <span>Available</span>
-                      <span className="font-semibold tabular-nums text-emerald-600">
-                        {fmt(
-                          d.materialFlow.availableKg != null
-                            ? d.materialFlow.availableKg
-                            : d.inventory.rawKg || 0,
-                        )}{' '}
-                        kg
+                      <span className="text-muted-foreground">Scrap bought</span>
+                      <span className="font-bold tabular-nums text-foreground">
+                        {fmt(d.materialFlow.receivedKg || 0)} kg
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">Second grade</span>
+                      <span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                        {fmt(d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0)} kg
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">Waste</span>
+                      <span className="font-semibold tabular-nums text-rose-600">
+                        {fmt(d.materialFlow.wasteKg || 0)} kg
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Card 2: Production */}
+                {/* Card 2: Production — by product */}
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('production')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('production')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-indigo-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-indigo-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
                       Production
                     </span>
                     <div className="flex size-5 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
                       <Factory className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
-                    {fmtDozenPcs(d.production.unitsProduced)}
+                  <p className="mt-1 text-sm font-bold tabular-nums text-foreground">
+                    {fmtDozenPcs(d.production.unitsGood)}
+                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">good</span>
                   </p>
-                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Good</span>
-                      <span className="font-semibold tabular-nums text-emerald-600">
-                        {fmtDozenPcs(d.production.unitsGood)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Reject</span>
-                      <span
-                        className={cn(
-                          'font-semibold tabular-nums',
-                          d.production.rejectPercent > 5 ? 'text-red-600' : 'text-foreground',
-                        )}
-                      >
-                        {d.production.rejectPercent}%
-                      </span>
-                    </div>
+                  <div className="mt-2 space-y-1">
+                    {(d.productionByProduct || []).length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground">No production in this period</p>
+                    ) : (
+                      (d.productionByProduct || []).slice(0, 4).map((row) => (
+                        <div
+                          key={row.productId ?? row.productName}
+                          className="flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <span className="truncate text-muted-foreground">{row.productName}</span>
+                          <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                            {fmtDozenPcs(row.qtyGood)}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                    {(d.productionByProduct || []).length > 4 ? (
+                      <p className="text-[10px] text-indigo-600 font-medium">
+                        +{(d.productionByProduct || []).length - 4} more
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Card 3: Finished Goods */}
+                {/* Card 3: Finished Goods — stock × list price */}
                 <div
                   role="button"
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('finished_goods')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('finished_goods')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-teal-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-teal-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors truncate">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors">
                       Finished Goods
                     </span>
                     <div className="flex size-5 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
                       <PackageCheck className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                  <p className="mt-1 text-sm font-bold tabular-nums text-foreground">
                     {fmtDozenPcs(d.inventory.fgUnits)}
                   </p>
-                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Pass rate</span>
-                      <span className="font-semibold tabular-nums text-teal-600">
-                        {d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Low stock</span>
-                      <span
-                        className={cn(
-                          'font-semibold tabular-nums',
-                          d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground',
-                        )}
-                      >
-                        {d.inventory.lowStockCount}
-                      </span>
-                    </div>
+                  <p className="text-[10px] text-muted-foreground tabular-nums">
+                    {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)} available
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {(d.finishedGoodsStock || []).length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground">No finished goods in store</p>
+                    ) : (
+                      (d.finishedGoodsStock || []).slice(0, 4).map((row) => (
+                        <div
+                          key={row.productId}
+                          className="flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            {row.productName}
+                          </span>
+                          <span className="shrink-0 text-right tabular-nums">
+                            <span className="font-semibold text-foreground">
+                              {fmtDozenPcs(row.qtyOnHand)}
+                            </span>
+                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                              {money(row.stockValue)}
+                            </span>
+                          </span>
+                        </div>
+                      ))
+                    )}
+                    {(d.finishedGoodsStock || []).length > 4 ? (
+                      <p className="text-[10px] text-teal-600 font-medium">
+                        +{(d.finishedGoodsStock || []).length - 4} more
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -582,7 +625,7 @@ export function DashboardPage() {
                   tabIndex={0}
                   onClick={() => setActiveKpiModal('sales')}
                   onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('sales')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-2 sm:p-2.5 shadow-xs transition-all hover:border-amber-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-amber-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors truncate">
@@ -592,10 +635,10 @@ export function DashboardPage() {
                       <DollarSign className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-0.5 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                  <p className="mt-1 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
                     ₦{fmt(d.sales.revenue, 0)}
                   </p>
-                  <div className="mt-1 space-y-0.5 text-[10px] text-muted-foreground">
+                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Orders</span>
                       <span className="font-semibold tabular-nums text-foreground">
@@ -984,7 +1027,7 @@ export function DashboardPage() {
                         Raw Material
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Quantity bought, waste, and qty still available for {d.periodLabel}
+                        Scrap bought, second grade, and waste for {d.range.label}
                       </DialogDescription>
                     </div>
                   </div>
@@ -992,32 +1035,28 @@ export function DashboardPage() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Quantity</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Scrap bought</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.receivedKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Initial quantity from scrap buying</span>
+                    <span className="text-[10px] text-muted-foreground">Net weight from scrap buying</span>
                   </div>
-                  <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Qty available</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                      {fmt(
-                        d.materialFlow.availableKg != null
-                          ? d.materialFlow.availableKg
-                          : d.inventory.rawKg || 0,
-                      )}{' '}
+                  <div className="rounded-lg border border-amber-200/80 bg-amber-50/60 p-2.5 dark:border-amber-900 dark:bg-amber-950/40">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Second grade</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-800 dark:text-amber-300">
+                      {fmt(d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Quantity minus waste</span>
+                    <span className="text-[10px] text-muted-foreground">Recovered as second grade</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-600">
                       {fmt(d.materialFlow.wasteKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Lost in crushing, washing, drying</span>
+                    <span className="text-[10px] text-muted-foreground">Lost in processing</span>
                   </div>
                 </div>
 
@@ -1161,9 +1200,9 @@ export function DashboardPage() {
 
                 <div className="space-y-1.5">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Products made · {d.range.label}
+                    By product · {d.range.label}
                   </h4>
-                  {(d.productionOutput || []).length === 0 ? (
+                  {(d.productionByProduct || []).length === 0 ? (
                     <p className="rounded-lg border border-zinc-200 px-3 py-4 text-xs text-muted-foreground dark:border-zinc-800">
                       No production in this period.
                     </p>
@@ -1173,24 +1212,22 @@ export function DashboardPage() {
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
                             <th className="py-2.5 px-3">Product</th>
+                            <th className="py-2.5 px-3 text-right">Quantity</th>
                             <th className="py-2.5 px-3 text-right">Dozen</th>
                             <th className="py-2.5 px-3 text-right">Pcs</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {(d.productionOutput || []).map((row) => (
-                            <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3">
-                                <Link
-                                  to={`/production/${row.id}`}
-                                  onClick={() => setActiveKpiModal(null)}
-                                  className="block min-h-11 font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
-                                >
-                                  {row.productName}
-                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                                    {row.batchNumber || `Run ${row.id}`}
-                                  </span>
-                                </Link>
+                          {(d.productionByProduct || []).map((row) => (
+                            <tr
+                              key={row.productId ?? row.productName}
+                              className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60"
+                            >
+                              <td className="py-2.5 px-3 font-semibold text-foreground">
+                                {row.productName}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-semibold">
+                                {fmtDozenPcs(row.qtyGood)}
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
                                 {row.dozen}
@@ -1229,148 +1266,133 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <DialogTitle className="text-base font-bold tracking-tight text-foreground">
-                        Finished Goods &amp; Quality
+                        Finished Goods
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Finished stock in store, inspection pass rates, and open QC holds for {d.periodLabel}
+                        Products in store with list price and available stock value
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">FG In Stock</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Stock qty</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-600">
                       {fmtDozenPcs(d.inventory.fgUnits)}
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Warehouse inventory</span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)} available
+                    </span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">QC Pass Rate</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Products</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'}
+                      {(d.finishedGoodsStock || []).length}
                     </p>
-                    <span className="text-[10px] text-emerald-600 font-medium">Batch quality score</span>
+                    <span className="text-[10px] text-muted-foreground">With stock on hand</span>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Open Holds</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {d.quality.openHolds || 0}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">Pending inspection</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Low Stock SKUs</span>
-                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground')}>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Low stock</span>
+                    <p
+                      className={cn(
+                        'mt-0.5 text-lg font-bold tabular-nums',
+                        d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground',
+                      )}
+                    >
                       {d.inventory.lowStockCount || 0}
                     </p>
                     <span className="text-[10px] text-muted-foreground">Below reorder point</span>
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">QC checks</span>
-                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
-                        {fmt(d.quality.checksInRange || 0, 0)}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">Good units</span>
-                      <p className="text-base font-bold text-emerald-600 mt-0.5 tabular-nums">
-                        {fmtDozenPcs(d.production.unitsGood)}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">Rejects</span>
-                      <p className={cn('text-base font-bold mt-0.5 tabular-nums', d.production.unitsReject > 0 ? 'text-red-600' : 'text-foreground')}>
-                        {fmtDozenPcs(d.production.unitsReject)}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-muted-foreground">WIP stock</span>
-                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
-                        {fmt(d.inventory.wipKg || 0)} kg
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {d.priceVsCost && d.priceVsCost.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Unit margins by finished product
-                    </h4>
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Available goods by product
+                  </h4>
+                  {(d.finishedGoodsStock || []).length === 0 ? (
+                    <p className="rounded-lg border border-zinc-200 px-3 py-4 text-xs text-muted-foreground dark:border-zinc-800">
+                      No finished goods in store.
+                    </p>
+                  ) : (
                     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
                             <th className="py-2.5 px-3">Product</th>
-                            <th className="py-2.5 px-3 text-right">Margin / unit</th>
+                            <th className="py-2.5 px-3 text-right">Qty</th>
+                            <th className="py-2.5 px-3 text-right">Unit price</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.priceVsCost.map((p, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground">{p.productName}</td>
-                              <td className={cn(
-                                'py-2.5 px-3 text-right font-mono font-bold tabular-nums',
-                                p.marginPerUnit != null && p.marginPerUnit < 0 ? 'text-red-600' : 'text-emerald-600',
-                              )}>
-                                {p.marginPerUnit != null ? `₦${fmt(p.marginPerUnit, 2)}` : '—'}
+                          {(d.finishedGoodsStock || []).map((row) => (
+                            <tr key={row.productId} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
+                              <td className="py-2.5 px-3">
+                                <p className="font-semibold text-foreground">{row.productName}</p>
+                                {row.productCode ? (
+                                  <span className="text-[10px] font-mono text-muted-foreground">
+                                    {row.productCode}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
+                                <span className="font-semibold text-foreground">
+                                  {fmtDozenPcs(row.qtyOnHand)}
+                                </span>
+                                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                                  {row.stockValue > 0 ? money(row.stockValue) : '—'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top text-muted-foreground">
+                                {row.sellingPrice > 0 ? money(row.sellingPrice) : '—'}
                               </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
-                {d.costTruth?.marginRestatement && (
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Margin restatement
-                    </h4>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div>
-                        <span className="text-[11px] text-muted-foreground">Recorded</span>
-                        <p className="text-base font-bold tabular-nums text-foreground">
-                          {d.costTruth.marginRestatement.recordedMarginPercent}%
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-[11px] text-muted-foreground">Restated</span>
-                        <p className="text-base font-bold tabular-nums text-teal-600">
-                          {d.costTruth.marginRestatement.restatedMarginPercent}%
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-[11px] text-muted-foreground">Restated ₦</span>
-                        <p className="text-base font-bold tabular-nums text-foreground">
-                          ₦{fmt(d.costTruth.marginRestatement.restatedMargin)}
-                        </p>
-                      </div>
+                <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/50 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                    <div>
+                      <span className="text-[10px] text-muted-foreground">QC pass rate</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
+                        {d.quality.passRatePercent != null ? `${d.quality.passRatePercent}%` : '—'}
+                      </p>
                     </div>
-                    {!d.costTruth.overheadAllocated && (
-                      <p className="text-[11px] text-amber-600">Overhead not fully allocated in this period.</p>
-                    )}
+                    <div>
+                      <span className="text-[10px] text-muted-foreground">Open holds</span>
+                      <p className="text-base font-bold text-foreground mt-0.5 tabular-nums">
+                        {d.quality.openHolds || 0}
+                      </p>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <span className="text-[10px] text-muted-foreground">Low stock SKUs</span>
+                      <p
+                        className={cn(
+                          'text-base font-bold mt-0.5 tabular-nums',
+                          d.inventory.lowStockCount > 0 ? 'text-amber-600' : 'text-foreground',
+                        )}
+                      >
+                        {d.inventory.lowStockCount || 0}
+                      </p>
+                    </div>
                   </div>
-                )}
+                </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <span className="text-[11px] text-muted-foreground">Quick actions:</span>
                   <div className="flex flex-wrap gap-1.5">
                     <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                      <Link to="/pricing" onClick={() => setActiveKpiModal(null)}>Product pricing →</Link>
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/production-store?tab=finished_goods" onClick={() => setActiveKpiModal(null)}>FG Store →</Link>
                     </Button>
                     <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/qc" onClick={() => setActiveKpiModal(null)}>Quality Control →</Link>
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/inventory" onClick={() => setActiveKpiModal(null)}>Inventory →</Link>
                     </Button>
                   </div>
                 </div>

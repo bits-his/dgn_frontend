@@ -19,6 +19,8 @@ import { ProcessStageListPage } from '@/pages/ProcessStageListPage'
 import { ProcessStagePage } from '@/pages/ProcessStagePage'
 import { CostIntelligencePage } from '@/pages/CostIntelligencePage'
 import { ProductionPage } from '@/pages/ProductionPage'
+import { MachineProductionPage } from '@/pages/MachineProductionPage'
+import { MachineWorkLogPage } from '@/pages/MachineWorkLogPage'
 import { ProductionStorePage } from '@/pages/ProductionStorePage'
 import { RecordProductionPage } from '@/pages/RecordProductionPage'
 import { CompleteProductionPage } from '@/pages/CompleteProductionPage'
@@ -36,6 +38,7 @@ import { DistributorsPage } from '@/pages/DistributorsPage'
 import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
 import { RecordOutletSalePage } from '@/pages/RecordOutletSalePage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
+import { ProductPricingPage } from '@/pages/ProductPricingPage'
 import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LabourPage } from '@/pages/LabourPage'
@@ -116,6 +119,8 @@ function App() {
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
+                <Route path="/production/machines/:machineId/work" element={<MachineWorkLogPage />} />
+                <Route path="/production/machines/:machineId" element={<MachineProductionPage />} />
                 <Route path="/production/new" element={<RecordProductionPage />} />
                 <Route path="/production/:id/work" element={<RecordProductionPage />} />
                 <Route path="/production/:id" element={<ProductionRunRedirect />} />
@@ -130,6 +135,7 @@ function App() {
                 <Route path="/sales/new" element={<NewSalePage />} />
                 <Route path="/sales/margins" element={<SalesMarginPage />} />
                 <Route path="/sales/:saleNumber" element={<SaleDetailPage />} />
+                <Route path="/pricing" element={<ProductPricingPage />} />
                 <Route path="/distributors" element={<DistributorsPage />} />
                 <Route path="/distributors/:code" element={<DistributorDetailPage />} />
                 <Route path="/shop/sales/new" element={<RecordOutletSalePage />} />

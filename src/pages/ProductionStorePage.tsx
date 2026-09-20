@@ -345,12 +345,14 @@ export function ProductionStorePage() {
   // MODAL STATE: ISSUE MATERIAL TO MACHINE
   // -------------------------------------------------------------
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
-  const [issueSelectedLineKey, setIssueSelectedLineKey] = useState('')
   const [issueMachineId, setIssueMachineId] = useState('')
   const [issueProductId, setIssueProductId] = useState('')
 
-  // Material to issue (amount only, no pricing)
-  const [issueMaterialQtyKg, setIssueMaterialQtyKg] = useState('0')
+  // Multiple material lots (e.g. white + blue) in one issue
+  type IssueMaterialLine = { id: string; lineKey: string; qty: string }
+  const [issueMaterialLines, setIssueMaterialLines] = useState<IssueMaterialLine[]>([
+    { id: '1', lineKey: '', qty: '0' },
+  ])
 
   // Master Batch additive (amount & price)
   const [issueMasterBatchKg, setIssueMasterBatchKg] = useState('0')
@@ -364,22 +366,16 @@ export function ProductionStorePage() {
   const [isIssueSubmitting, setIsIssueSubmitting] = useState(false)
   const [issueModalError, setIssueModalError] = useState('')
 
-  // Currently selected line in modal
-  const selectedLineForIssue = useMemo(() => {
-    return rawMaterialLines.find((l) => l.key === issueSelectedLineKey) || null
-  }, [rawMaterialLines, issueSelectedLineKey])
+  const lineByKey = useMemo(() => {
+    const map = new Map<string, StoreMaterialLine>()
+    for (const line of rawMaterialLines) map.set(line.key, line)
+    return map
+  }, [rawMaterialLines])
 
   const handleOpenIssueModal = (preselected?: StoreMaterialLine) => {
     setIssueModalError('')
-    if (preselected) {
-      setIssueSelectedLineKey(preselected.key)
-    } else if (rawMaterialLines.length > 0) {
-      const first = rawMaterialLines[0]
-      setIssueSelectedLineKey(first.key)
-    } else {
-      setIssueSelectedLineKey('')
-    }
-    setIssueMaterialQtyKg('0')
+    const firstKey = preselected?.key || rawMaterialLines[0]?.key || ''
+    setIssueMaterialLines([{ id: String(Date.now()), lineKey: firstKey, qty: '0' }])
     setIssueMasterBatchKg('0')
     setIssueMasterBatchPricePerKg('0')
     setIssueBatchingKg('0')
@@ -396,10 +392,6 @@ export function ProductionStorePage() {
     setErrorBanner('')
     setSuccessBanner('')
 
-    if (!selectedLineForIssue) {
-      setIssueModalError('Please select a material batch lot from the store.')
-      return
-    }
     if (!issueMachineId) {
       setIssueModalError('Please select a target production machine.')
       return
@@ -408,14 +400,41 @@ export function ProductionStorePage() {
       setIssueModalError('Please select the product to manufacture.')
       return
     }
-    const materialQty = Number(issueMaterialQtyKg)
-    if (!(materialQty > 0)) {
-      setIssueModalError('Please enter a valid material amount (kg) to issue (must be greater than zero).')
-      return
+
+    const materials: Array<{
+      inputBatchNumber: string
+      colorItemId?: number
+      inputColor?: string
+      materialConsumed: number
+    }> = []
+
+    for (const row of issueMaterialLines) {
+      const line = lineByKey.get(row.lineKey)
+      const qty = Number(row.qty)
+      if (!line) {
+        setIssueModalError('Select a material lot for every row.')
+        return
+      }
+      if (!(qty > 0)) {
+        setIssueModalError(`Enter quantity for ${colorName(line.color)} (${line.batchNumber}).`)
+        return
+      }
+      if (qty > line.qtyRemaining + 0.001) {
+        setIssueModalError(
+          `Cannot issue ${qty} kg of ${colorName(line.color)}. Only ${line.qtyRemaining} kg available.`,
+        )
+        return
+      }
+      materials.push({
+        inputBatchNumber: line.batchNumber,
+        colorItemId: line.colorItemId || undefined,
+        inputColor: line.color || undefined,
+        materialConsumed: qty,
+      })
     }
-    const available = selectedLineForIssue.qtyRemaining
-    if (materialQty > available + 0.001) {
-      setIssueModalError(`Cannot issue ${materialQty} kg. Only ${available} kg available for this batch lot.`)
+
+    if (!materials.length) {
+      setIssueModalError('Add at least one material lot to issue.')
       return
     }
 
@@ -425,14 +444,13 @@ export function ProductionStorePage() {
       const mbPrice = Number(issueMasterBatchPricePerKg || 0)
       const batchingKg = Number(issueBatchingKg || 0)
       const batchingPrice = Number(issueBatchingPricePerKg || 0)
+      const totalKg = materials.reduce((sum, m) => sum + m.materialConsumed, 0)
 
       const payload: Record<string, unknown> = {
-        inputBatchNumber: selectedLineForIssue.batchNumber,
-        colorItemId: selectedLineForIssue.colorItemId || undefined,
-        inputColor: selectedLineForIssue.color || undefined,
+        materials,
         machineId: Number(issueMachineId),
         productId: Number(issueProductId),
-        materialConsumed: materialQty,
+        materialConsumed: totalKg,
         masterbatchKg: mbKg > 0 ? mbKg : undefined,
         masterbatchPricePerKg: mbPrice > 0 ? mbPrice : undefined,
         batchingKg: batchingKg > 0 ? batchingKg : undefined,
@@ -444,13 +462,17 @@ export function ProductionStorePage() {
       await api.post('/production/runs/start', payload)
 
       const targetMachine = productionMachines.find((m) => m.id === Number(issueMachineId))
-      const additivesList = [
-        mbKg > 0 ? `${mbKg} kg Master Batch` : '',
-        batchingKg > 0 ? `${batchingKg} kg Batching` : '',
-      ].filter(Boolean).join(', ')
+      const materialSummary = materials
+        .map((m) => {
+          const line = rawMaterialLines.find(
+            (l) => l.batchNumber === m.inputBatchNumber && (l.colorItemId || null) === (m.colorItemId || null),
+          )
+          return `${m.materialConsumed} kg ${colorName(line?.color || m.inputColor)}`
+        })
+        .join(' + ')
 
       setSuccessBanner(
-        `Successfully issued ${materialQty} kg of ${colorName(selectedLineForIssue.color)} from ${selectedLineForIssue.batchNumber}${additivesList ? ` with ${additivesList}` : ''} to Machine ${targetMachine?.name || issueMachineId}!`
+        `Successfully issued ${materialSummary} to Machine ${targetMachine?.name || issueMachineId}!`,
       )
 
       await Promise.all([
@@ -1205,99 +1227,129 @@ export function ProductionStorePage() {
                   </div>
                 </div>
 
-                {/* 2. Material to Issue (Lot selection and Amount in kg - no pricing) */}
+                {/* 2. Materials to Issue — multiple lots (e.g. white + blue) */}
                 <div className="rounded-xl border border-zinc-200 p-3 bg-zinc-50/70 space-y-2.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <Layers className="size-3.5 text-violet-600" />
-                      <span className="text-xs font-bold text-zinc-800">Material to Issue</span>
+                      <span className="text-xs font-bold text-zinc-800">Materials to Issue</span>
                     </div>
-                    {selectedLineForIssue && (
-                      <span className="text-[11px] font-mono text-emerald-700 font-semibold">
-                        Available: {fmt(selectedLineForIssue.qtyRemaining, 1)} {selectedLineForIssue.uom}
-                      </span>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                      Select Material Lot <span className="text-red-500">*</span>
-                    </label>
-                    <SearchableSelect
+                    <Button
+                      type="button"
+                      variant="outline"
                       size="sm"
-                      value={issueSelectedLineKey}
-                      onChange={(val) => {
-                        setIssueSelectedLineKey(val)
-                      }}
-                      options={materialLineOptions}
-                      placeholder="Choose material lot & color…"
-                      searchPlaceholder="Search batch lot number, material, or color…"
-                    />
-
-                    {selectedLineForIssue && (
-                      <div className="mt-1.5 rounded-lg border border-zinc-200 bg-white p-2 text-xs flex flex-wrap items-center justify-between gap-1.5">
-                        <span className="font-mono font-bold text-zinc-900">
-                          Lot: {selectedLineForIssue.batchNumber}
-                        </span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200 text-[11px]">
-                          <span className="size-1.5 rounded-full bg-violet-600" />
-                          {colorName(selectedLineForIssue.color)}
-                        </span>
-                      </div>
-                    )}
+                      className="h-7 px-2 text-[11px] font-semibold"
+                      onClick={() =>
+                        setIssueMaterialLines((prev) => [
+                          ...prev,
+                          { id: String(Date.now()), lineKey: '', qty: '0' },
+                        ])
+                      }
+                    >
+                      + Add material
+                    </Button>
                   </div>
+                  <p className="text-[10px] text-zinc-500">
+                    Issue more than one colour/lot together (e.g. white and blue) to the same machine run.
+                  </p>
 
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[11px] font-semibold text-zinc-700">
-                        Amount to Issue (kg) <span className="text-red-500">*</span>
-                      </label>
-                      {selectedLineForIssue && (
-                        <div className="flex items-center gap-1.5 text-[10px]">
-                          <button
-                            type="button"
-                            className="font-bold text-violet-700 hover:underline cursor-pointer"
-                            onClick={() => setIssueMaterialQtyKg(String(selectedLineForIssue.qtyRemaining || ''))}
-                          >
-                            Max ({fmt(selectedLineForIssue.qtyRemaining, 1)} kg)
-                          </button>
-                          <span className="text-zinc-300">·</span>
-                          <button
-                            type="button"
-                            className="font-bold text-violet-700 hover:underline cursor-pointer"
-                            onClick={() => {
-                              const half = selectedLineForIssue.qtyRemaining / 2
-                              setIssueMaterialQtyKg(String(half > 0 ? half.toFixed(1) : ''))
-                            }}
-                          >
-                            50%
-                          </button>
-                          <span className="text-zinc-300">·</span>
-                          <button
-                            type="button"
-                            className="font-bold text-zinc-500 hover:underline cursor-pointer"
-                            onClick={() => setIssueMaterialQtyKg('0')}
-                          >
-                            Reset (0)
-                          </button>
+                  {issueMaterialLines.map((row, index) => {
+                    const selected = lineByKey.get(row.lineKey) || null
+                    return (
+                      <div
+                        key={row.id}
+                        className="rounded-lg border border-zinc-200 bg-white p-2.5 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-zinc-700">
+                            Material {index + 1}
+                          </span>
+                          {issueMaterialLines.length > 1 ? (
+                            <button
+                              type="button"
+                              className="text-[10px] font-semibold text-red-600 hover:underline"
+                              onClick={() =>
+                                setIssueMaterialLines((prev) => prev.filter((l) => l.id !== row.id))
+                              }
+                            >
+                              Remove
+                            </button>
+                          ) : null}
                         </div>
-                      )}
-                    </div>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0.1}
-                      max={Number(selectedLineForIssue?.qtyRemaining || 999999)}
-                      required
-                      className="dgn-input font-bold text-xs"
-                      placeholder="0"
-                      value={issueMaterialQtyKg}
-                      onChange={(e) => setIssueMaterialQtyKg(e.target.value)}
-                      onFocus={(e) => {
-                        if (e.target.value === '0') setIssueMaterialQtyKg('')
-                      }}
-                    />
-                  </div>
+                        <SearchableSelect
+                          size="sm"
+                          value={row.lineKey}
+                          onChange={(val) =>
+                            setIssueMaterialLines((prev) =>
+                              prev.map((l) => (l.id === row.id ? { ...l, lineKey: val } : l)),
+                            )
+                          }
+                          options={materialLineOptions}
+                          placeholder="Choose material lot & color…"
+                          searchPlaceholder="Search batch, material, or color…"
+                        />
+                        {selected ? (
+                          <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
+                            <span className="font-mono font-semibold text-zinc-800">
+                              {selected.batchNumber}
+                            </span>
+                            <span className="inline-flex items-center gap-1 font-semibold text-violet-800 bg-violet-50 px-2 py-0.5 rounded border border-violet-200">
+                              {colorName(selected.color)}
+                            </span>
+                            <span className="tabular-nums text-emerald-700 font-semibold">
+                              Avail {fmt(selected.qtyRemaining, 1)} kg
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <label className="block text-[10px] font-semibold text-zinc-600 mb-1">
+                              Amount (kg)
+                            </label>
+                            <input
+                              type="number"
+                              step="any"
+                              min={0}
+                              className="dgn-input font-bold text-xs"
+                              placeholder="0"
+                              value={row.qty}
+                              onChange={(e) =>
+                                setIssueMaterialLines((prev) =>
+                                  prev.map((l) =>
+                                    l.id === row.id ? { ...l, qty: e.target.value } : l,
+                                  ),
+                                )
+                              }
+                              onFocus={(e) => {
+                                if (e.target.value === '0') {
+                                  setIssueMaterialLines((prev) =>
+                                    prev.map((l) => (l.id === row.id ? { ...l, qty: '' } : l)),
+                                  )
+                                }
+                              }}
+                            />
+                          </div>
+                          {selected ? (
+                            <button
+                              type="button"
+                              className="h-8 px-2 text-[10px] font-bold text-violet-700 hover:underline"
+                              onClick={() =>
+                                setIssueMaterialLines((prev) =>
+                                  prev.map((l) =>
+                                    l.id === row.id
+                                      ? { ...l, qty: String(selected.qtyRemaining || '') }
+                                      : l,
+                                  ),
+                                )
+                              }
+                            >
+                              Max
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
 
                 {/* 3. Additives Section: Master Batch & Batching (Amount in kg and Price for both) */}
@@ -1403,13 +1455,15 @@ export function ProductionStorePage() {
                   </div>
 
                   {/* Summary Callout for Feed & Total Additives Cost */}
-                  {(Number(issueMaterialQtyKg) > 0 || Number(issueMasterBatchKg) > 0 || Number(issueBatchingKg) > 0) && (
+                  {(issueMaterialLines.some((l) => Number(l.qty) > 0) ||
+                    Number(issueMasterBatchKg) > 0 ||
+                    Number(issueBatchingKg) > 0) && (
                     <div className="rounded-lg bg-violet-50/80 border border-violet-200/70 p-2 text-xs space-y-1 text-violet-950">
                       <div className="flex items-center justify-between font-semibold">
                         <span className="text-zinc-600">Total Mix Weight:</span>
                         <span className="font-mono font-bold text-violet-900">
                           {(
-                            (Number(issueMaterialQtyKg) || 0) +
+                            issueMaterialLines.reduce((sum, l) => sum + (Number(l.qty) || 0), 0) +
                             (Number(issueMasterBatchKg) || 0) +
                             (Number(issueBatchingKg) || 0)
                           ).toFixed(2)}{' '}

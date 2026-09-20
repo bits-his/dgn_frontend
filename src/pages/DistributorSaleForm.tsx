@@ -25,6 +25,8 @@ type SellableBatch = {
   uom: string
   locationName: string | null
   unitCost: number | null
+  sellingPrice?: number | null
+  standardPrice?: number | null
 }
 
 type ProductOption = {
@@ -209,6 +211,7 @@ export function DistributorSaleForm({
               setProductKey(e.target.value)
               setBatchNumber('')
               setQty('')
+              setUnitPrice('')
             }}
           >
             <option value="">Select product</option>
@@ -225,8 +228,12 @@ export function DistributorSaleForm({
               className="dgn-input"
               value={batchNumber}
               onChange={(e) => {
-                setBatchNumber(e.target.value)
+                const nextBatch = e.target.value
+                setBatchNumber(nextBatch)
                 setQty('')
+                const batch = batchesForProduct.find((b) => b.batchNumber === nextBatch)
+                const price = Number(batch?.standardPrice ?? batch?.sellingPrice)
+                setUnitPrice(Number.isFinite(price) && price > 0 ? String(price) : '')
               }}
             >
               <option value="">Select batch with stock</option>

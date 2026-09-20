@@ -599,6 +599,86 @@ export function RecordProductionPage() {
     }
   }
 
+  // Simple record form: qty produced + damage (pcs) + waste — no shift assignment
+  const [recordGoodDozen, setRecordGoodDozen] = useState('')
+  const [recordGoodPcs, setRecordGoodPcs] = useState('')
+  const [recordDamagePcs, setRecordDamagePcs] = useState('')
+  const [recordWasteKg, setRecordWasteKg] = useState('')
+  const [recordMachineId, setRecordMachineId] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordError, setRecordError] = useState('')
+  const [recordSuccess, setRecordSuccess] = useState('')
+
+  const machinesQuery = useQuery({
+    queryKey: ['machines-list'],
+    queryFn: async () => {
+      const { data } = await api.get('/machines')
+      return (data.data || []) as Array<{ id: number; name: string; code?: string; isActive?: boolean }>
+    },
+  })
+
+  useEffect(() => {
+    if (runDetail?.machineId) setRecordMachineId(String(runDetail.machineId))
+  }, [runDetail?.machineId, selectedRunId])
+
+  const handleRecordOutput = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!selectedRunId || !runDetail || !isRunActive) return
+
+    const good =
+      (Number(recordGoodDozen) || 0) * 12 + (Number(recordGoodPcs) || 0)
+    const damage = Number(recordDamagePcs) || 0
+    const waste = Number(recordWasteKg) || 0
+    if (!(good > 0) && !(damage > 0)) {
+      setRecordError('Enter quantity produced and/or damage pieces.')
+      return
+    }
+
+    setIsRecording(true)
+    setRecordError('')
+    setRecordSuccess('')
+    try {
+      if (recordMachineId && Number(recordMachineId) !== Number(runDetail.machineId)) {
+        await api.patch(`/production/runs/${selectedRunId}/machine`, {
+          machineId: Number(recordMachineId),
+        })
+      }
+
+      const produced = good + damage
+      await api.post(`/production/runs/${selectedRunId}/complete`, {
+        qtyProduced: produced > 0 ? produced : 1,
+        qtyGood: good,
+        qtyReject: damage,
+        qtyWaste: waste,
+        runtimeMinutes: Number(runDetail.runtimeMinutes || 0),
+        downtimeMinutes: Number(runDetail.downtimeMinutes || 0),
+        autoRelease: true,
+        confirmUnusualRun: true,
+      })
+
+      setRecordSuccess('Production saved. Goods added to finished store.')
+      setRecordGoodDozen('')
+      setRecordGoodPcs('')
+      setRecordDamagePcs('')
+      setRecordWasteKg('')
+      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
+      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
+      navigate('/production')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { err?: string; message?: string; errors?: Record<string, string> } } }
+      setRecordError(
+        axiosErr.response?.data?.message ||
+          axiosErr.response?.data?.err ||
+          (axiosErr.response?.data?.errors
+            ? Object.values(axiosErr.response.data.errors).join(', ')
+            : null) ||
+          'Could not save production',
+      )
+    } finally {
+      setIsRecording(false)
+    }
+  }
+
   return (
     <PageLayout
       title={
@@ -637,17 +717,6 @@ export function RecordProductionPage() {
               </Select>
             </div>
           )}
-
-          {isRunActive && (
-            <Button
-              type="button"
-              onClick={() => setIsFinalizeModalOpen(true)}
-              className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
-            >
-              <CheckCircle2 className="size-3.5" />
-              <span>Finalize Run</span>
-            </Button>
-          )}
         </div>
       }
     >
@@ -685,7 +754,7 @@ export function RecordProductionPage() {
                     )}
                   </div>
                   <p className="text-[11px] text-zinc-600">
-                    <strong>Product:</strong> {runDetail.product?.name || '—'} · <strong>Machine:</strong> {runDetail.machine?.name || '—'} ({runDetail.machine?.code || '—'})
+                    <strong>Product:</strong> {runDetail.product?.name || '—'}
                   </p>
                 </div>
               </div>
@@ -743,10 +812,10 @@ export function RecordProductionPage() {
               </div>
               <div className="bg-red-50/50 rounded-lg p-2 border border-red-200/70">
                 <span className="text-[9px] font-bold uppercase tracking-wider text-red-700 block">
-                  Defect Scrap / Waste
+                  Damage
                 </span>
                 <span className="text-sm font-bold text-red-700 tabular-nums">
-                  {fmt(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0, 2)} kg
+                  {fmt(scorecardQuery.data?.totals?.totalReject || runDetail.qtyReject || 0)} pcs
                 </span>
               </div>
               <div className="bg-amber-50/60 rounded-lg p-2 border border-amber-200/70">
@@ -790,323 +859,135 @@ export function RecordProductionPage() {
         {/* ========================================================================= */}
         {runDetail && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-            {/* LEFT COLUMN: ACTIVE SHIFT & OUTPUT LOGGING (7 Cols) */}
+            {/* LEFT COLUMN: RECORD OUTPUT */}
             <div className="lg:col-span-7 space-y-3">
-              {/* 1. OPERATOR SHIFT CARD */}
               <div className="rounded-xl border border-zinc-200 bg-white p-3.5 sm:p-4 shadow-2xs">
-                <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                      <UserCheck className="size-4" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-bold text-zinc-900">
-                        Operator Shift Assignment
-                      </h3>
-                      <p className="text-[11px] text-zinc-500">
-                        Assign operators to machines by shift to track hours, outputs, and downtime attribution.
-                      </p>
-                    </div>
+                <div className="flex items-center gap-2 pb-2.5 border-b border-zinc-100">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <Check className="size-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-zinc-900">Record production</h3>
+                    <p className="text-[11px] text-zinc-500">
+                      Enter quantity produced, damage pieces, and waste. Change machine if needed.
+                    </p>
                   </div>
                 </div>
 
-                {/* If an operator is currently active */}
-                {activeShift ? (
-                  <div className="mt-3 rounded-lg bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent border border-emerald-300 p-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="relative flex size-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full size-2 bg-emerald-500" />
-                          </span>
-                          <span className="text-[10px] font-black text-emerald-900 uppercase tracking-wide">
-                            Current Active Operator
-                          </span>
-                        </div>
-                        <h4 className="text-sm font-bold text-zinc-900">
-                          {activeShift.operatorName}
-                        </h4>
-                        <p className="text-[11px] text-zinc-600">
-                          {activeShift.shift?.name || 'On Shift'} · In at{' '}
-                          <strong>
-                            {new Date(activeShift.clockInAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </strong>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2.5 self-start sm:self-auto sm:border-l sm:border-emerald-200/80 sm:pl-3">
-                        <div>
-                          <span className="text-[9px] uppercase font-bold text-zinc-400 block">
-                            Downtime
-                          </span>
-                          <span className="text-xs font-bold text-amber-900 tabular-nums">
-                            {activeShift.downtimeMinutes || 0}m
-                          </span>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsFaultModalOpen(true)}
-                          className="h-7 px-2 text-[11px] font-semibold border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 gap-1 shadow-2xs"
-                        >
-                          <AlertTriangle className="size-3 text-amber-700" />
-                          <span>Log Fault</span>
-                        </Button>
-                      </div>
-                    </div>
+                {recordSuccess && (
+                  <div className="mt-2.5 rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
+                    <span>{recordSuccess}</span>
                   </div>
-                ) : isRunActive ? (
-                  <div className="mt-3 space-y-2.5">
-                    <div className="rounded-lg bg-amber-50/70 border border-amber-200 p-2.5 flex items-center gap-2 text-xs text-amber-900 font-medium">
-                      <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />
-                      <span>No operator clocked in. Clock in an operator below to begin recording shift output.</span>
-                    </div>
-
-                    {clockInSuccess && (
-                      <div className="rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
-                        <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
-                        <span>{clockInSuccess}</span>
-                      </div>
-                    )}
-
-                    {clockInError && (
-                      <div className="rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
-                        {clockInError}
-                      </div>
-                    )}
-
-                    <form onSubmit={handleClockInSubmit} className="space-y-2.5 pt-1">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <Label className="text-xs font-bold text-zinc-800 mb-0.5 block">
-                            Operator *
-                          </Label>
-                          <SearchableSelect
-                            value={clockInEmployeeId}
-                            onChange={setClockInEmployeeId}
-                            options={operatorOptions}
-                            placeholder="Select operator…"
-                            searchPlaceholder="Search operator name…"
-                            emptyMessage="No operators found. Add them on the Operators page."
-                            allowClear={false}
-                            triggerClassName="h-8 px-2.5 py-1 text-xs bg-white"
-                            onOpenChange={(open) => {
-                              if (open) void operatorsQuery.refetch()
-                            }}
-                          />
-                        </div>
-
-                        <div>
-                          <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
-                            Shift *
-                          </Label>
-                          <Select
-                            value={clockInShiftId}
-                            onValueChange={(val) => {
-                              setClockInShiftId(val)
-                              applyShiftClockTimes(val)
-                            }}
-                          >
-                            <SelectTrigger className="w-full text-xs h-8 bg-white">
-                              <SelectValue placeholder="Select shift…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {shiftsQuery.data?.map((s) => (
-                                <SelectItem key={s.id} value={String(s.id)}>
-                                  {s.name} {s.startTime && s.endTime ? `(${s.startTime} - ${s.endTime})` : ''}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2.5">
-                        <div className="flex-1">
-                          <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
-                            Clock-In Time
-                          </Label>
-                          <Input
-                            type="time"
-                            className="h-8 text-xs bg-white"
-                            value={clockInTime}
-                            onChange={(e) => setClockInTime(e.target.value)}
-                            required
-                          />
-                        </div>
-                        <div className="self-end">
-                          <Button
-                            type="submit"
-                            disabled={isClockingIn}
-                            className="h-8 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white gap-1 shadow-xs"
-                          >
-                            <LogIn className="size-3.5" />
-                            {isClockingIn ? 'Starting…' : 'Clock In Shift'}
-                          </Button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                ) : (
-                  <p className="text-xs text-zinc-400 mt-1">This run is completed. Shift logins are closed.</p>
                 )}
-              </div>
-
-              {/* 2. RECORD SHIFT OUTPUT & CLOCK OUT - ONLY WHEN OPERATOR IS ACTIVE */}
-              {isRunActive && activeShift && (
-                <div className="rounded-xl border border-zinc-200 bg-white p-3.5 sm:p-4 shadow-2xs">
-                  <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
-                    <div className="flex items-center gap-2">
-                      <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
-                        <LogOut className="size-4" />
-                      </div>
-                      <div>
-                        <h3 className="text-xs font-bold text-zinc-900">
-                          Record Shift Output & Clock Out
-                        </h3>
-                        <p className="text-[11px] text-zinc-500">
-                          Save output for <strong>{activeShift.operatorName}</strong>. Added to FG Store inventory.
-                        </p>
-                      </div>
-                    </div>
+                {recordError && (
+                  <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
+                    {recordError}
                   </div>
+                )}
 
-                  {outputSuccess && (
-                    <div className="mt-2.5 rounded-lg bg-emerald-50 p-2 text-xs font-semibold text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
-                      <CheckCircle2 className="size-3.5 text-emerald-600 shrink-0" />
-                      <span>{outputSuccess}</span>
+                {isRunActive ? (
+                  <form onSubmit={handleRecordOutput} className="space-y-3 pt-3">
+                    <div>
+                      <Label className="text-xs font-bold text-zinc-800 mb-1 block">Machine</Label>
+                      <Select value={recordMachineId} onValueChange={setRecordMachineId}>
+                        <SelectTrigger className="h-8 text-xs bg-white">
+                          <SelectValue placeholder="Select machine…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(machinesQuery.data || [])
+                            .filter((m) => m.isActive !== false)
+                            .map((m) => (
+                              <SelectItem key={m.id} value={String(m.id)}>
+                                {m.name}{m.code ? ` (${m.code})` : ''}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  )}
 
-                  {outputError && (
-                    <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs font-medium text-red-700 border border-red-200">
-                      {outputError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleOutputSubmit} className="space-y-3 pt-2.5">
-                    {/* Good output (Dozens & Pieces inputs) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2.5 space-y-1.5">
-                        <Label className="block text-xs font-bold text-emerald-900">
-                          Good Output ({runDetail?.uom || 'pcs'}) *
-                        </Label>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <span className="text-[9px] uppercase font-bold text-emerald-800 block mb-0.5">Dozens</span>
-                            <Input
-                              type="number"
-                              min="0"
-                              className="h-8 text-xs font-bold text-emerald-900 bg-white"
-                              placeholder="dz"
-                              value={outputGoodDozen}
-                              onChange={(e) => setOutputGoodDozen(e.target.value)}
-                            />
-                          </div>
-                          <div>
-                            <span className="text-[9px] uppercase font-bold text-emerald-800 block mb-0.5">Pieces</span>
-                            <Input
-                              type="number"
-                              min="0"
-                              className="h-8 text-xs font-bold text-emerald-900 bg-white"
-                              placeholder="pcs"
-                              value={outputGoodPcs}
-                              onChange={(e) => setOutputGoodPcs(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <p className="text-[11px] font-semibold text-emerald-700">
-                          Total Good: {Number(outputGoodDozen || 0) * 12 + Number(outputGoodPcs || 0)} pcs
-                        </p>
-                      </div>
-
-                      <div className="rounded-lg border border-red-200 bg-red-50/40 p-2.5 space-y-1.5">
-                        <Label className="block text-xs font-bold text-red-900">
-                          Defects / Rejects / Scrap (kg)
-                        </Label>
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-2.5 space-y-1.5">
+                      <Label className="block text-xs font-bold text-emerald-900">
+                        Quantity produced ({runDetail?.uom || 'pcs'})
+                      </Label>
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <span className="text-[9px] uppercase font-bold text-red-800 block mb-0.5">
-                            Weighed scrap
-                          </span>
+                          <span className="text-[10px] text-emerald-800 font-semibold">Dozen</span>
                           <Input
                             type="number"
-                            min="0"
-                            step="any"
-                            inputMode="decimal"
-                            className="h-8 text-xs font-bold text-red-700 bg-white"
-                            placeholder="0.00"
-                            value={outputRejectKg}
-                            onChange={(e) => setOutputRejectKg(e.target.value)}
+                            min={0}
+                            inputMode="numeric"
+                            className="h-8 text-xs bg-white mt-0.5"
+                            value={recordGoodDozen}
+                            onChange={(e) => setRecordGoodDozen(e.target.value)}
+                            placeholder="0"
                           />
                         </div>
-                        <p className="text-[11px] text-red-800/80">Enter the scale weight of damaged scrap.</p>
-                      </div>
-                    </div>
-
-                    {/* Clock out time & Calculated Runtime Badge */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
-                          Clock Out Time *
-                        </Label>
-                        <Input
-                          type="time"
-                          className="h-8 text-xs bg-white"
-                          value={outputClockOutTime}
-                          onChange={(e) => setOutputClockOutTime(e.target.value)}
-                          required
-                        />
-                      </div>
-                      <div className="flex flex-col justify-end">
-                        <div className="rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-1 flex items-center justify-between text-xs h-8">
-                          <span className="text-zinc-500 font-medium text-[11px]">Operating Runtime:</span>
-                          <span className="font-bold text-zinc-900 tabular-nums">
-                            {calculatedShiftMinutes} mins
-                            {calculatedShiftMinutes >= 60 && (
-                              <span className="text-[11px] text-zinc-500 font-normal ml-1">
-                                ({(calculatedShiftMinutes / 60).toFixed(1)}h)
-                              </span>
-                            )}
-                          </span>
+                        <div>
+                          <span className="text-[10px] text-emerald-800 font-semibold">Pieces</span>
+                          <Input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            className="h-8 text-xs bg-white mt-0.5"
+                            value={recordGoodPcs}
+                            onChange={(e) => setRecordGoodPcs(e.target.value)}
+                            placeholder="0"
+                          />
                         </div>
                       </div>
                     </div>
 
-                    {/* Handover notes */}
-                    <div>
-                      <Label className="block text-xs font-bold text-zinc-800 mb-0.5">
-                        Shift Handover Notes (Optional)
-                      </Label>
-                      <textarea
-                        rows={2}
-                        className="w-full rounded-lg border border-zinc-200 bg-white p-2 text-xs text-zinc-800 outline-none focus:ring-2 focus:ring-emerald-500/20"
-                        placeholder="e.g. Cleared nozzle at 02:00 PM; barrel heating stable; handed over to next operator..."
-                        value={outputNotes}
-                        onChange={(e) => setOutputNotes(e.target.value)}
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="rounded-lg border border-red-200 bg-red-50/40 p-2.5">
+                        <Label className="block text-xs font-bold text-red-900 mb-1">
+                          Damage (pieces)
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          className="h-8 text-xs bg-white"
+                          value={recordDamagePcs}
+                          onChange={(e) => setRecordDamagePcs(e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/40 p-2.5">
+                        <Label className="block text-xs font-bold text-amber-900 mb-1">
+                          Waste (kg)
+                        </Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="any"
+                          inputMode="decimal"
+                          className="h-8 text-xs bg-white"
+                          value={recordWasteKg}
+                          onChange={(e) => setRecordWasteKg(e.target.value)}
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-[10px] text-zinc-400">
-                        * Finished goods are automatically added to FG inventory.
+                        Saves output and closes this run into finished goods.
                       </span>
                       <Button
                         type="submit"
-                        disabled={isSavingOutput || !activeShift}
-                        className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shadow-xs"
+                        disabled={isRecording}
+                        className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
                       >
                         <Check className="size-3.5" />
-                        {isSavingOutput ? 'Saving Output…' : 'Clock Out & Save Output'}
+                        {isRecording ? 'Saving…' : 'Save production'}
                       </Button>
                     </div>
                   </form>
-                </div>
-              )}
+                ) : (
+                  <p className="text-xs text-zinc-400 mt-3">This run is completed. Recording is closed.</p>
+                )}
+              </div>
             </div>
 
             {/* RIGHT COLUMN: OPERATOR SCORECARD & CHRONOLOGICAL SESSIONS (5 Cols) */}

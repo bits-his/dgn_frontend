@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, Tag } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -42,11 +43,10 @@ type MasterItem = {
   isActive?: boolean
 }
 
-type TabKey = 'materials' | 'products' | 'shifts'
+type TabKey = 'materials' | 'shifts'
 
 const TABS: Array<{ key: TabKey; label: string; singular: string; path: string; extraLabel: string }> = [
   { key: 'materials', label: 'Materials', singular: 'Material', path: '/masters/materials', extraLabel: 'Category' },
-  { key: 'products', label: 'Products', singular: 'Product', path: '/masters/products', extraLabel: 'Unit of measure' },
   { key: 'shifts', label: 'Shifts', singular: 'Shift', path: '/masters/shifts', extraLabel: 'Shift Timing' },
 ]
 
@@ -106,13 +106,6 @@ export function MastersPage() {
           reorderLevel: reorderLevel ? Number(reorderLevel) : 0,
           isActive: true,
         },
-        products: {
-          code,
-          name,
-          uom: extra || 'pcs',
-          reorderLevel: reorderLevel ? Number(reorderLevel) : 0,
-          isActive: true,
-        },
         shifts: {
           code: code.trim().toUpperCase(),
           name: name.trim(),
@@ -150,9 +143,6 @@ export function MastersPage() {
     if (tab === 'materials') {
       setExtra('SCRAP')
       setUom('kg')
-    } else if (tab === 'products') {
-      setExtra('pcs')
-      setUom('pcs')
     } else if (tab === 'shifts') {
       setStartTime('07:00')
       setEndTime('15:00')
@@ -197,9 +187,6 @@ export function MastersPage() {
             {tab === 'materials' && row.original.category && (
               <p className="text-[10px] text-zinc-400 capitalize">Category: {row.original.category.toLowerCase()}</p>
             )}
-            {tab === 'products' && row.original.uom && (
-              <p className="text-[10px] text-zinc-400">UOM: {row.original.uom}</p>
-            )}
             {tab === 'shifts' && (
               <p className="text-[10px] text-zinc-400">Working shift</p>
             )}
@@ -236,7 +223,7 @@ export function MastersPage() {
   return (
     <PageLayout
       title="Masters"
-      description="Configuration · Manage materials, products, and shifts"
+      description="Configuration · Manage materials and shifts"
       actions={
         <Button
           size="sm"
@@ -257,6 +244,20 @@ export function MastersPage() {
       }
     >
       <div className="space-y-4">
+        <Link
+          to="/pricing"
+          className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3.5 py-3 shadow-xs hover:border-zinc-300 transition-colors"
+        >
+          <span className="flex size-9 items-center justify-center rounded-lg bg-zinc-100 text-zinc-700">
+            <Tag className="size-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-zinc-900">Products & pricing</span>
+            <span className="block text-[11px] text-zinc-500">
+              Create products, edit details, and set selling prices on the Product pricing page.
+            </span>
+          </span>
+        </Link>
         {/* Status messages */}
         {(message || error) && (
           <div
@@ -280,7 +281,7 @@ export function MastersPage() {
           }}
           className="w-full space-y-4"
         >
-          <TabsList className="w-full grid grid-cols-3 sm:grid-cols-3 h-auto p-1 bg-zinc-100/90 rounded-xl gap-1">
+          <TabsList className="w-full grid grid-cols-2 h-auto p-1 bg-zinc-100/90 rounded-xl gap-1">
             {TABS.map((t) => (
               <TabsTrigger
                 key={t.key}
@@ -398,45 +399,32 @@ export function MastersPage() {
                   <Label htmlFor="master-extra" className="text-xs font-semibold">
                     {active.extraLabel}
                   </Label>
-                  {tab === 'materials' ? (
-                    <Select value={extra} onValueChange={setExtra}>
-                      <SelectTrigger id="master-extra" className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MATERIAL_CATEGORIES.map((cat) => (
-                          <SelectItem key={cat.value} value={cat.value}>
-                            {cat.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id="master-extra"
-                      value={extra}
-                      onChange={(e) => setExtra(e.target.value)}
-                      placeholder="e.g. pcs, kg, rolls"
-                      required
-                      className="h-8 text-xs"
-                    />
-                  )}
+                  <Select value={extra} onValueChange={setExtra}>
+                    <SelectTrigger id="master-extra" className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MATERIAL_CATEGORIES.map((cat) => (
+                        <SelectItem key={cat.value} value={cat.value}>
+                          {cat.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                {tab === 'materials' && (
-                  <div className="space-y-1">
-                    <Label htmlFor="master-uom" className="text-xs font-semibold">
-                      Unit of Measure (UOM)
-                    </Label>
-                    <Input
-                      id="master-uom"
-                      value={uom}
-                      onChange={(e) => setUom(e.target.value)}
-                      placeholder="kg"
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <Label htmlFor="master-uom" className="text-xs font-semibold">
+                    Unit of Measure (UOM)
+                  </Label>
+                  <Input
+                    id="master-uom"
+                    value={uom}
+                    onChange={(e) => setUom(e.target.value)}
+                    placeholder="kg"
+                    className="h-8 text-xs"
+                  />
+                </div>
 
                 <div className="space-y-1">
                   <Label htmlFor="master-reorder" className="text-xs font-semibold">
@@ -521,12 +509,9 @@ function EditMasterDialog({
   const [code, setCode] = useState(item.code || '')
   const [name, setName] = useState(item.name || '')
   const [category, setCategory] = useState(item.category || 'SCRAP')
-  const [uom, setUom] = useState(item.uom || (tab === 'materials' ? 'kg' : 'pcs'))
+  const [uom, setUom] = useState(item.uom || 'kg')
   const [reorderLevel, setReorderLevel] = useState(
     item.reorderLevel != null ? String(item.reorderLevel) : ''
-  )
-  const [standardMaterialPerUnit, setStandardMaterialPerUnit] = useState(
-    item.standardMaterialPerUnit != null ? String(item.standardMaterialPerUnit) : ''
   )
   const [shiftStartTime, setShiftStartTime] = useState(item.startTime || '07:00')
   const [shiftEndTime, setShiftEndTime] = useState(item.endTime || '15:00')
@@ -542,12 +527,6 @@ function EditMasterDialog({
         payload.category = category
         payload.uom = uom || 'kg'
         if (reorderLevel !== '') payload.reorderLevel = Number(reorderLevel)
-      } else if (tab === 'products') {
-        payload.uom = uom || 'pcs'
-        if (reorderLevel !== '') payload.reorderLevel = Number(reorderLevel)
-        if (standardMaterialPerUnit !== '') {
-          payload.standardMaterialPerUnit = Number(standardMaterialPerUnit)
-        }
       } else if (tab === 'shifts') {
         payload.startTime = shiftStartTime
         payload.endTime = shiftEndTime
@@ -637,43 +616,6 @@ function EditMasterDialog({
 
               <div className="space-y-1">
                 <Label className="text-xs font-semibold">Reorder Level (kg)</Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={reorderLevel}
-                  onChange={(e) => setReorderLevel(e.target.value)}
-                  className="h-8 text-xs"
-                />
-              </div>
-            </>
-          )}
-
-          {tab === 'products' && (
-            <>
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">Unit of Measure (UOM)</Label>
-                <Input
-                  value={uom}
-                  onChange={(e) => setUom(e.target.value)}
-                  className="h-8 text-xs"
-                  placeholder="pcs, rolls, kg"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">Standard Material Per Unit (kg)</Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={standardMaterialPerUnit}
-                  onChange={(e) => setStandardMaterialPerUnit(e.target.value)}
-                  className="h-8 text-xs"
-                  placeholder="e.g. 0.05"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">Reorder Level</Label>
                 <Input
                   type="number"
                   inputMode="decimal"
@@ -846,7 +788,7 @@ function EditableMasterCell({
   }
 
   const editableField =
-    tab === 'materials' || tab === 'products'
+    tab === 'materials'
       ? { key: 'reorderLevel', label: 'Reorder level', current: row.reorderLevel }
       : null
 
