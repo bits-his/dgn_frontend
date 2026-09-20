@@ -5,13 +5,7 @@ import { Cpu, Eye, Lock, Play } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { DateRangePreset } from '@/components/DateRangePreset'
 import {
   Dialog,
   DialogContent,
@@ -19,18 +13,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  dateRangeApiParams,
+  dateRangeLabel,
+  type DateRangeState,
+} from '@/lib/dateRange'
 import { fmtDozenPcs } from '@/lib/units'
-
-const RANGE_OPTIONS = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'this_week', label: 'This week' },
-  { id: 'last_week', label: 'Last week' },
-  { id: 'this_month', label: 'This month' },
-  { id: 'last_month', label: 'Last month' },
-  { id: 'this_quarter', label: 'This quarter' },
-  { id: 'this_year', label: 'Year to date' },
-]
 
 type MachineRow = {
   machineId: number
@@ -39,6 +27,7 @@ type MachineRow = {
   machineType: string | null
   qtyGood: number
   qtyDamage: number
+  materialKg?: number
   dozen: number
   pcs: number
   runs: number
@@ -53,22 +42,48 @@ function fmt(n: number) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })
 }
 
+function applyRangeToParams(current: URLSearchParams, next: DateRangeState) {
+  const params = new URLSearchParams(current)
+  params.set('rangePreset', next.rangePreset)
+  if (next.rangePreset === 'custom' && next.from && next.to) {
+    params.set('from', next.from)
+    params.set('to', next.to)
+  } else {
+    params.delete('from')
+    params.delete('to')
+  }
+  return params
+}
+
+function rangeQueryString(state: DateRangeState) {
+  const params = new URLSearchParams()
+  params.set('rangePreset', state.rangePreset)
+  if (state.rangePreset === 'custom' && state.from && state.to) {
+    params.set('from', state.from)
+    params.set('to', state.to)
+  }
+  return params.toString()
+}
+
 export function ProductionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const rangePreset = searchParams.get('rangePreset') || 'this_month'
+  const rangeState: DateRangeState = {
+    rangePreset: searchParams.get('rangePreset') || 'today',
+    from: searchParams.get('from') || undefined,
+    to: searchParams.get('to') || undefined,
+  }
+  const apiParams = dateRangeApiParams(rangeState)
   const [activeOpen, setActiveOpen] = useState(false)
 
-  const setRangePreset = (preset: string) => {
-    const next = new URLSearchParams(searchParams)
-    next.set('rangePreset', preset)
-    setSearchParams(next, { replace: true })
+  const setRange = (next: DateRangeState) => {
+    setSearchParams(applyRangeToParams(searchParams, next), { replace: true })
   }
 
   const overview = useQuery({
-    queryKey: ['production-machines-overview', rangePreset],
+    queryKey: ['production-machines-overview', apiParams],
     queryFn: async () => {
       const { data } = await api.get('/production/machines-overview', {
-        params: { rangePreset },
+        params: apiParams,
       })
       return data as {
         data: MachineRow[]
@@ -79,8 +94,8 @@ export function ProductionPage() {
   })
 
   const rows = overview.data?.data || []
-  const rangeLabel =
-    overview.data?.range?.label || RANGE_OPTIONS.find((o) => o.id === rangePreset)?.label
+  const rangeLabelText = dateRangeLabel(rangeState, overview.data?.range?.label)
+  const rangeQs = rangeQueryString(rangeState)
 
   const active = useMemo(() => rows.filter((r) => r.activeRuns > 0), [rows])
 
@@ -89,7 +104,7 @@ export function ProductionPage() {
       title="Production"
       description="Machines and what they produced for the selected period."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Button
             type="button"
             size="sm"
@@ -108,24 +123,13 @@ export function ProductionPage() {
               </span>
             ) : null}
           </Button>
-          <Select value={rangePreset} onValueChange={setRangePreset}>
-            <SelectTrigger className="h-8 w-[140px] sm:w-[160px] text-xs bg-white">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <DateRangePreset value={rangeState} onChange={setRange} />
         </div>
       }
     >
       <div className="space-y-4">
         <p className="text-xs text-zinc-500">
-          Showing production for <span className="font-semibold text-zinc-800">{rangeLabel}</span>
+          Showing production for <span className="font-semibold text-zinc-800">{rangeLabelText}</span>
         </p>
 
         {overview.isLoading ? (
@@ -153,13 +157,21 @@ export function ProductionPage() {
                   ) : null}
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-lg bg-emerald-50/60 border border-emerald-100 px-2.5 py-2">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
                       Produced
                     </p>
                     <p className="text-sm font-bold tabular-nums text-emerald-900">
                       {fmtDozenPcs(row.qtyGood)}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-sky-50/60 border border-sky-100 px-2.5 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                      Material
+                    </p>
+                    <p className="text-sm font-bold tabular-nums text-sky-900">
+                      {fmt(row.materialKg || 0)} kg
                     </p>
                   </div>
                   <div className="rounded-lg bg-red-50/50 border border-red-100 px-2.5 py-2">
@@ -196,7 +208,7 @@ export function ProductionPage() {
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Button asChild size="sm" variant="outline" className="h-8 px-2.5 text-xs gap-1.5">
-                      <Link to={`/production/machines/${row.machineId}?rangePreset=${rangePreset}`}>
+                      <Link to={`/production/machines/${row.machineId}?${rangeQs}`}>
                         <Eye className="size-3.5" />
                         View
                       </Link>

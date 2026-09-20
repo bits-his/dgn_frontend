@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { HardHat, Layers, Factory } from 'lucide-react'
@@ -7,6 +7,12 @@ import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Card } from '@/components/ui/card'
 import CustomTable1 from '@/components/CustomTable1'
+import { DateRangePreset } from '@/components/DateRangePreset'
+import {
+  dateRangeApiParams,
+  dateRangeLabel,
+  type DateRangeState,
+} from '@/lib/dateRange'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { fmtDozenPcs } from '@/lib/units'
@@ -38,6 +44,12 @@ type OperatorWork = {
     name: string
     isActive: boolean
   }
+  range?: {
+    preset: string
+    from: string
+    to: string
+    label: string
+  }
   totals: {
     jobs: number
     productionJobs: number
@@ -54,9 +66,33 @@ function fmt(n: number | null | undefined, digits = 2) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
+function applyRangeToParams(current: URLSearchParams, next: DateRangeState) {
+  const params = new URLSearchParams(current)
+  params.set('rangePreset', next.rangePreset)
+  if (next.rangePreset === 'custom' && next.from && next.to) {
+    params.set('from', next.from)
+    params.set('to', next.to)
+  } else {
+    params.delete('from')
+    params.delete('to')
+  }
+  return params
+}
+
 export function OperatorWorkPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rangeState: DateRangeState = {
+    rangePreset: searchParams.get('rangePreset') || 'this_month',
+    from: searchParams.get('from') || undefined,
+    to: searchParams.get('to') || undefined,
+  }
+  const apiParams = dateRangeApiParams(rangeState)
+
+  const setRange = (next: DateRangeState) => {
+    setSearchParams(applyRangeToParams(searchParams, next), { replace: true })
+  }
 
   const goBack = () => {
     if (typeof window !== 'undefined' && window.history.length > 1) {
@@ -67,10 +103,12 @@ export function OperatorWorkPage() {
   }
 
   const query = useQuery({
-    queryKey: ['operator-work', id],
+    queryKey: ['operator-work', id, apiParams],
     enabled: Boolean(id),
     queryFn: async () => {
-      const { data } = await api.get(`/labour/employees/${id}/work`)
+      const { data } = await api.get(`/labour/employees/${id}/work`, {
+        params: apiParams,
+      })
       return data.data as OperatorWork
     },
   })
@@ -165,9 +203,17 @@ export function OperatorWorkPage() {
     [],
   )
 
+  const rangeControl = <DateRangePreset value={rangeState} onChange={setRange} />
+
   if (query.isLoading) {
     return (
-      <PageLayout back backLabel="Back" onBack={goBack} title="Operator work">
+      <PageLayout
+        back
+        backLabel="Back"
+        onBack={goBack}
+        title="Operator work"
+        actions={rangeControl}
+      >
         <Card className="p-6 text-xs text-zinc-500">Loading operator work…</Card>
       </PageLayout>
     )
@@ -181,7 +227,8 @@ export function OperatorWorkPage() {
     )
   }
 
-  const { employee, totals, work } = query.data
+  const { employee, totals, work, range } = query.data
+  const rangeLabelText = dateRangeLabel(rangeState, range?.label)
 
   return (
     <PageLayout
@@ -190,8 +237,13 @@ export function OperatorWorkPage() {
       onBack={goBack}
       title={employee.name}
       description={`${employee.employeeCode} · Operator · ${employee.isActive ? 'Active' : 'Inactive'}`}
+      actions={rangeControl}
     >
       <div className="space-y-4">
+        <p className="text-xs text-zinc-500">
+          Showing work for <span className="font-semibold text-zinc-800">{rangeLabelText}</span>
+        </p>
+
         <div className="grid grid-cols-2 gap-1.5">
           <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
             <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
@@ -215,10 +267,9 @@ export function OperatorWorkPage() {
         {work.length === 0 ? (
           <Card className="p-10 text-center space-y-2 border border-dashed">
             <HardHat className="size-8 text-zinc-300 mx-auto" />
-            <p className="text-sm font-semibold text-zinc-800">No work recorded yet</p>
+            <p className="text-sm font-semibold text-zinc-800">No work in this period</p>
             <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-              Production clock-ins and crushing / washing / drying / re-crush jobs for this operator will
-              show here.
+              Try another date range, or check back after this operator clocks in or runs a process job.
             </p>
           </Card>
         ) : (

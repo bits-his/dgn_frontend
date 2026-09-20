@@ -22,13 +22,7 @@ import { api } from '@/lib/api'
 import { Card } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { DateRangePreset } from '@/components/DateRangePreset'
 import {
   Dialog,
   DialogContent,
@@ -42,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { StaffDashboard } from '@/components/dashboard/StaffDashboard'
 import { OutletDashboard } from '@/components/dashboard/OutletDashboard'
 import { isOutletScoped } from '@/lib/outlet'
+import { dateRangeApiParams, type DateRangeState } from '@/lib/dateRange'
 import { fmtDozenPcs } from '@/lib/units'
 
 type AlertTop = {
@@ -235,17 +230,6 @@ type DrillPayload = {
   message?: string
 }
 
-const RANGE_OPTIONS = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'this_week', label: 'This week' },
-  { id: 'last_week', label: 'Last week' },
-  { id: 'this_month', label: 'This month' },
-  { id: 'last_month', label: 'Last month' },
-  { id: 'this_quarter', label: 'This quarter' },
-  { id: 'this_year', label: 'Year to date' },
-]
-
 const CHART = {
   teal: '#0f766e',
 }
@@ -275,7 +259,8 @@ export function DashboardPage() {
   const canExpense = hasPermission(user, 'expense.view')
   const canCosts = hasPermission(user, 'costs.view')
 
-  const [rangePreset, setRangePreset] = useState('this_month')
+  const [rangeState, setRangeState] = useState<DateRangeState>({ rangePreset: 'this_month' })
+  const apiParams = dateRangeApiParams(rangeState)
   const compare = false
   const [viewMode, setViewMode] = useState<'executive' | 'staff'>('executive')
   const [drillKpi, setDrillKpi] = useState<string | null>(null)
@@ -284,10 +269,10 @@ export function DashboardPage() {
   >(null)
 
   const dash = useQuery({
-    queryKey: ['executive-dashboard', rangePreset, compare],
+    queryKey: ['executive-dashboard', apiParams, compare],
     queryFn: async () => {
       const { data } = await api.get('/dashboard/executive', {
-        params: { rangePreset, compare: compare ? '1' : undefined },
+        params: { ...apiParams, compare: compare ? '1' : undefined },
       })
       return data.data as Dashboard
     },
@@ -296,10 +281,10 @@ export function DashboardPage() {
   })
 
   const drill = useQuery({
-    queryKey: ['dashboard-drill', drillKpi, rangePreset],
+    queryKey: ['dashboard-drill', drillKpi, apiParams],
     queryFn: async () => {
       const { data } = await api.get('/dashboard/drill', {
-        params: { kpi: drillKpi, rangePreset },
+        params: { kpi: drillKpi, ...apiParams },
       })
       return data.data as DrillPayload
     },
@@ -379,18 +364,11 @@ export function DashboardPage() {
       actions={
         <div className="flex items-center gap-1.5 sm:gap-2 flex-nowrap shrink-0">
      
-          <Select value={rangePreset} onValueChange={(val) => setRangePreset(val)}>
-            <SelectTrigger className="h-8 w-28 sm:w-36 text-xs bg-white dark:bg-zinc-900 shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id} className="text-xs">
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <DateRangePreset
+            value={rangeState}
+            onChange={setRangeState}
+            triggerClassName="w-28 sm:w-36 shrink-0"
+          />
 
           <Button variant="outline" size="icon" className="h-8 w-8 relative shrink-0" asChild>
             <Link to="/alerts">
@@ -592,12 +570,14 @@ export function DashboardPage() {
                       <PackageCheck className="size-3" />
                     </div>
                   </div>
-                  <p className="mt-1 text-sm font-bold tabular-nums text-foreground">
-                    {fmtDozenPcs(d.inventory.fgUnits)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                    {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)} available
-                  </p>
+                  <div className="mt-1 flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-bold tabular-nums text-foreground">
+                      {fmtDozenPcs(d.inventory.fgUnits)}
+                    </span>
+                    <span className="text-sm font-bold tabular-nums text-foreground text-right">
+                      {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
+                    </span>
+                  </div>
                   <div className="mt-2 space-y-1">
                     {(d.finishedGoodsStock || []).length === 0 ? (
                       <p className="text-[10px] text-muted-foreground">No finished goods in store</p>
@@ -610,11 +590,11 @@ export function DashboardPage() {
                           <span className="min-w-0 truncate text-muted-foreground">
                             {row.productName}
                           </span>
-                          <span className="shrink-0 text-right tabular-nums">
+                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right">
                             <span className="font-semibold text-foreground">
                               {fmtDozenPcs(row.qtyOnHand)}
                             </span>
-                            <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">
+                            <span className="font-bold text-foreground">
                               {money(row.stockValue)}
                             </span>
                           </span>
@@ -765,7 +745,7 @@ export function DashboardPage() {
                     Machine Performance
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    OEE, output, reject rate, and downtime · {d.range.label}
+                    Output and reject rate · {d.range.label}
                   </p>
                 </div>
                 <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
@@ -773,24 +753,11 @@ export function DashboardPage() {
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Avg OEE</p>
-                  <p className="mt-0.5 text-lg font-bold tabular-nums text-indigo-600">
-                    {d.production.avgOeePercent != null ? `${d.production.avgOeePercent}%` : '—'}
-                  </p>
-                </div>
+              <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Output / hr</p>
                   <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                     {d.production.outputPerHour != null ? fmt(d.production.outputPerHour, 0) : '—'}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Downtime</p>
-                  <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
-                    {fmt(d.production.downtimeMinutes || 0, 0)}{' '}
-                    <span className="text-xs font-normal text-muted-foreground">min</span>
                   </p>
                 </div>
                 <div className="rounded-xl border border-zinc-200/80 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
@@ -816,8 +783,6 @@ export function DashboardPage() {
                           <th className="py-2.5 px-3 text-right">Produced</th>
                           <th className="py-2.5 px-3 text-right">Good</th>
                           <th className="py-2.5 px-3 text-right">Reject %</th>
-                          <th className="py-2.5 px-3 text-right">Downtime</th>
-                          <th className="py-2.5 px-3 text-right">OEE</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -842,12 +807,6 @@ export function DashboardPage() {
                               )}
                             >
                               {m.rejectPercent}%
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono tabular-nums text-muted-foreground">
-                              {fmt(m.downtimeMinutes || 0, 0)} min
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-indigo-600">
-                              {m.oeePercent != null ? `${m.oeePercent}%` : '—'}
                             </td>
                           </tr>
                         ))}
@@ -1288,12 +1247,14 @@ export function DashboardPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Stock qty</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-600">
-                      {fmtDozenPcs(d.inventory.fgUnits)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground tabular-nums">
-                      {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)} available
-                    </span>
+                    <div className="mt-0.5 flex items-baseline justify-between gap-2">
+                      <span className="text-lg font-bold tabular-nums text-teal-600">
+                        {fmtDozenPcs(d.inventory.fgUnits)}
+                      </span>
+                      <span className="text-lg font-bold tabular-nums text-teal-600 text-right">
+                        {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
+                      </span>
+                    </div>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Products</span>
@@ -1352,7 +1313,7 @@ export function DashboardPage() {
                               <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top text-muted-foreground">
                                 {row.sellingPrice > 0 ? money(row.sellingPrice) : '—'}
                               </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-semibold text-foreground">
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-bold text-foreground">
                                 {row.stockValue > 0 ? money(row.stockValue) : '—'}
                               </td>
                             </tr>

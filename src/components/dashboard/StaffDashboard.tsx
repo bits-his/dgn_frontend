@@ -36,35 +36,23 @@ import {
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { DateRangePreset } from '@/components/DateRangePreset'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { canAccessNavItem } from '@/components/AppShell'
 import { cn } from '@/lib/utils'
 import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 import { useHideMoney } from '@/hooks/useHideMoney'
+import {
+  dateRangeApiParams,
+  dateRangeLabel,
+  type DateRangeState,
+} from '@/lib/dateRange'
 import { fmtDozenPcs } from '@/lib/units'
 
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
-
-const RANGE_OPTIONS = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'this_week', label: 'This week' },
-  { id: 'last_week', label: 'Last week' },
-  { id: 'this_month', label: 'This month' },
-  { id: 'last_month', label: 'Last month' },
-  { id: 'this_quarter', label: 'This quarter' },
-  { id: 'this_year', label: 'Year to date' },
-]
 
 type QuickActionItem = {
   to: string
@@ -438,7 +426,8 @@ function stageCards(
 export function StaffDashboard() {
   const user = useAuthStore((s) => s.user)
   const { hidden: hideMoney, toggle: toggleHideMoney, maskMoney } = useHideMoney()
-  const [rangePreset, setRangePreset] = useState('this_month')
+  const [rangeState, setRangeState] = useState<DateRangeState>({ rangePreset: 'this_month' })
+  const apiParams = dateRangeApiParams(rangeState)
 
   const canSeeQc = canAccessNavItem(user, {
     to: '/qc',
@@ -450,10 +439,10 @@ export function StaffDashboard() {
   const canQcInspect = hasPermission(user, 'qc.inspect')
 
   const opsQuery = useQuery({
-    queryKey: ['staff-ops-dashboard', rangePreset],
+    queryKey: ['staff-ops-dashboard', apiParams],
     queryFn: async () => {
       const { data } = await api.get('/dashboard/staff', {
-        params: { rangePreset },
+        params: apiParams,
       })
       return data.data as {
         businessDate: string
@@ -504,14 +493,11 @@ export function StaffDashboard() {
   const hasWallet = Boolean(walletQuery.data?.hasWallet)
   const wallet = walletQuery.data?.data
   const sections = opsQuery.data?.sections || {}
-  const rangeLabel =
-    opsQuery.data?.range?.label ||
-    RANGE_OPTIONS.find((o) => o.id === rangePreset)?.label ||
-    'This month'
+  const rangeLabel = dateRangeLabel(rangeState, opsQuery.data?.range?.label)
   const shortLabel =
-    rangePreset === 'today'
+    rangeState.rangePreset === 'today'
       ? 'Today'
-      : rangePreset === 'yesterday'
+      : rangeState.rangePreset === 'yesterday'
         ? 'Yesterday'
         : rangeLabel
 
@@ -746,19 +732,8 @@ export function StaffDashboard() {
         <p className="text-xs text-muted-foreground">
           Showing <span className="font-semibold text-foreground">{rangeLabel}</span>
         </p>
-        <div className="flex items-center gap-1.5">
-          <Select value={rangePreset} onValueChange={setRangePreset}>
-            <SelectTrigger className="h-8 w-32 sm:w-40 text-xs bg-white dark:bg-zinc-900">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {RANGE_OPTIONS.map((o) => (
-                <SelectItem key={o.id} value={o.id} className="text-xs">
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <DateRangePreset value={rangeState} onChange={setRangeState} />
           <Button
             type="button"
             variant="outline"

@@ -27,6 +27,7 @@ type ProductRow = {
   code: string
   name: string
   uom: string
+  unitsPerDozen?: number | string | null
   sellingPrice?: number | string | null
   reorderLevel?: number | string | null
   standardMaterialPerUnit?: number | string | null
@@ -41,7 +42,7 @@ type ProductFormState = {
   uom: string
   reorderLevel: string
   standardMaterialPerUnit: string
-  sellingPrice: string
+  pricePerDozen: string
 }
 
 const emptyForm = (): ProductFormState => ({
@@ -50,7 +51,7 @@ const emptyForm = (): ProductFormState => ({
   uom: 'pcs',
   reorderLevel: '',
   standardMaterialPerUnit: '',
-  sellingPrice: '',
+  pricePerDozen: '',
 })
 
 function money(n: number) {
@@ -61,6 +62,21 @@ function priceToInput(value: number | string | null | undefined) {
   const n = Number(value)
   if (!Number.isFinite(n) || n <= 0) return ''
   return String(n)
+}
+
+function perDozenOf(row: { unitsPerDozen?: number | string | null } | null | undefined) {
+  const n = Number(row?.unitsPerDozen)
+  return Number.isFinite(n) && n > 0 ? n : 12
+}
+
+function unitPriceFromDozen(pricePerDozen: number, perDozen: number) {
+  if (!(pricePerDozen > 0) || !(perDozen > 0)) return 0
+  return +(pricePerDozen / perDozen).toFixed(2)
+}
+
+function dozenPriceFromUnit(unitPrice: number, perDozen: number) {
+  if (!(unitPrice > 0) || !(perDozen > 0)) return 0
+  return +(unitPrice * perDozen).toFixed(2)
 }
 
 function qtyLabel(row: ProductRow) {
@@ -142,8 +158,11 @@ export function ProductPricingPage() {
       if (form.standardMaterialPerUnit !== '') {
         payload.standardMaterialPerUnit = Number(form.standardMaterialPerUnit)
       }
-      const price = Number(form.sellingPrice)
-      if (Number.isFinite(price) && price > 0) payload.sellingPrice = price
+      const pricePerDozen = Number(form.pricePerDozen)
+      if (Number.isFinite(pricePerDozen) && pricePerDozen > 0) {
+        const per = editing ? perDozenOf(editing) : 12
+        payload.sellingPrice = unitPriceFromDozen(pricePerDozen, per)
+      }
 
       if (editing) {
         const { data } = await api.patch(`/masters/products/${editing.id}`, payload)
@@ -187,6 +206,8 @@ export function ProductPricingPage() {
 
   const openEdit = (row: ProductRow) => {
     setEditing(row)
+    const per = perDozenOf(row)
+    const unit = Number(row.sellingPrice) || 0
     setForm({
       code: row.code || '',
       name: row.name || '',
@@ -196,7 +217,7 @@ export function ProductPricingPage() {
         row.standardMaterialPerUnit != null && row.standardMaterialPerUnit !== ''
           ? String(row.standardMaterialPerUnit)
           : '',
-      sellingPrice: priceToInput(row.sellingPrice),
+      pricePerDozen: priceToInput(dozenPriceFromUnit(unit, per)),
     })
     setError('')
     setFormOpen(true)
@@ -204,7 +225,9 @@ export function ProductPricingPage() {
 
   const openPrice = (row: ProductRow) => {
     setPriceTarget(row)
-    setPriceDraft(priceToInput(row.sellingPrice))
+    const per = perDozenOf(row)
+    const unit = Number(row.sellingPrice) || 0
+    setPriceDraft(priceToInput(dozenPriceFromUnit(unit, per)))
     setError('')
   }
 
@@ -231,13 +254,19 @@ export function ProductPricingPage() {
       },
       {
         id: 'price',
-        header: 'Unit price',
+        header: 'Price',
         cell: ({ row }) => {
-          const n = Number(row.original.sellingPrice)
+          const unit = Number(row.original.sellingPrice)
+          if (!Number.isFinite(unit) || unit <= 0) {
+            return <span className="text-xs text-zinc-400">—</span>
+          }
+          const per = perDozenOf(row.original)
+          const dozen = dozenPriceFromUnit(unit, per)
           return (
-            <span className="text-xs tabular-nums font-medium text-zinc-800">
-              {Number.isFinite(n) && n > 0 ? money(n) : '—'}
-            </span>
+            <div className="space-y-0.5">
+              <p className="text-xs tabular-nums font-semibold text-zinc-900">{money(dozen)}/dz</p>
+              <p className="text-[11px] tabular-nums text-zinc-500">{money(unit)}/pc</p>
+            </div>
           )
         },
       },
@@ -292,7 +321,7 @@ export function ProductPricingPage() {
   return (
     <PageLayout
       title="Product pricing"
-      description="Create products, edit details, and set the selling price used on sales."
+      description="Create products and set price per dozen — unit price is calculated for sales."
       actions={
         canManage ? (
           <Button
@@ -357,9 +386,11 @@ export function ProductPricingPage() {
             </p>
           ) : (
             filtered.map((row) => {
-              const price = Number(row.sellingPrice) || 0
+              const unit = Number(row.sellingPrice) || 0
+              const per = perDozenOf(row)
+              const dozen = unit > 0 ? dozenPriceFromUnit(unit, per) : 0
               const qty = Number(row.qtyOnHand) || 0
-              const value = Number(row.stockValue) || qty * price
+              const value = Number(row.stockValue) || qty * unit
               return (
                 <article
                   key={row.id}
@@ -378,14 +409,20 @@ export function ProductPricingPage() {
                   <div className="grid grid-cols-3 gap-2">
                     <Metric label="Stock" value={qtyLabel(row)} />
                     <Metric
-                      label="Price"
-                      value={price > 0 ? money(price) : '—'}
+                      label="Per dozen"
+                      value={dozen > 0 ? money(dozen) : '—'}
                     />
                     <Metric
-                      label="Value"
-                      value={value > 0 ? money(value) : '—'}
+                      label="Unit"
+                      value={unit > 0 ? money(unit) : '—'}
                     />
                   </div>
+                  {value > 0 ? (
+                    <p className="text-[11px] text-zinc-500">
+                      Stock value{' '}
+                      <span className="font-semibold tabular-nums text-zinc-800">{money(value)}</span>
+                    </p>
+                  ) : null}
 
                   {canManage && (
                     <div className="flex gap-2 pt-0.5">
@@ -519,12 +556,26 @@ export function ProductPricingPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs font-semibold">Selling price</Label>
+              <Label className="text-xs font-semibold">Price per dozen</Label>
               <NairaAmountInput
-                value={form.sellingPrice}
-                onChange={(v) => setForm((f) => ({ ...f, sellingPrice: v }))}
+                value={form.pricePerDozen}
+                onChange={(v) => setForm((f) => ({ ...f, pricePerDozen: v }))}
                 placeholder="0"
               />
+              {Number(form.pricePerDozen) > 0 ? (
+                <p className="text-[11px] text-zinc-500">
+                  Unit price{' '}
+                  <span className="font-semibold tabular-nums text-zinc-800">
+                    {money(
+                      unitPriceFromDozen(
+                        Number(form.pricePerDozen),
+                        editing ? perDozenOf(editing) : 12,
+                      ),
+                    )}
+                  </span>
+                  {' '}/ pc
+                </p>
+              ) : null}
             </div>
 
             {error && formOpen ? (
@@ -574,7 +625,7 @@ export function ProductPricingPage() {
             <DialogTitle>Update price</DialogTitle>
             <DialogDescription>
               {priceTarget
-                ? `Set the selling price for ${priceTarget.name}. Sales will use this by default.`
+                ? `Enter price per dozen for ${priceTarget.name}. Unit price is calculated automatically.`
                 : null}
             </DialogDescription>
           </DialogHeader>
@@ -583,7 +634,12 @@ export function ProductPricingPage() {
             onSubmit={(e) => {
               e.preventDefault()
               if (!priceTarget) return
-              const sellingPrice = Number(priceDraft)
+              const pricePerDozen = Number(priceDraft)
+              if (!(pricePerDozen > 0)) {
+                setError('Price must be greater than zero')
+                return
+              }
+              const sellingPrice = unitPriceFromDozen(pricePerDozen, perDozenOf(priceTarget))
               if (!(sellingPrice > 0)) {
                 setError('Price must be greater than zero')
                 return
@@ -600,14 +656,14 @@ export function ProductPricingPage() {
                 <p className="text-zinc-500">
                   Stock {qtyLabel(priceTarget)}
                   {Number(priceTarget.sellingPrice) > 0
-                    ? ` · Current ${money(Number(priceTarget.sellingPrice))}`
+                    ? ` · Current ${money(dozenPriceFromUnit(Number(priceTarget.sellingPrice), perDozenOf(priceTarget)))}/dz · ${money(Number(priceTarget.sellingPrice))}/pc`
                     : ''}
                 </p>
               </div>
             ) : null}
 
             <div className="space-y-1">
-              <Label className="text-xs font-semibold">New unit price</Label>
+              <Label className="text-xs font-semibold">Price per dozen</Label>
               <NairaAmountInput
                 value={priceDraft}
                 onChange={setPriceDraft}
@@ -617,12 +673,24 @@ export function ProductPricingPage() {
             </div>
 
             {priceTarget && Number(priceDraft) > 0 ? (
-              <p className="text-[11px] text-zinc-500">
-                Est. stock value:{' '}
-                <span className="font-semibold text-zinc-800 tabular-nums">
-                  {money((Number(priceTarget.qtyOnHand) || 0) * Number(priceDraft))}
-                </span>
-              </p>
+              <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[11px] space-y-1">
+                <p className="text-zinc-500">
+                  Unit price{' '}
+                  <span className="font-semibold tabular-nums text-zinc-900">
+                    {money(unitPriceFromDozen(Number(priceDraft), perDozenOf(priceTarget)))}
+                  </span>
+                  {' '}/ pc
+                </p>
+                <p className="text-zinc-500">
+                  Est. stock value{' '}
+                  <span className="font-semibold tabular-nums text-zinc-800">
+                    {money(
+                      (Number(priceTarget.qtyOnHand) || 0) *
+                        unitPriceFromDozen(Number(priceDraft), perDozenOf(priceTarget)),
+                    )}
+                  </span>
+                </p>
+              </div>
             ) : null}
 
             {error && priceTarget ? (

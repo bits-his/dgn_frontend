@@ -142,7 +142,13 @@ export function MachineWorkLogPage() {
     queryKey: ['machines-list'],
     queryFn: async () => {
       const { data } = await api.get('/machines')
-      return (data.data || []) as Array<{ id: number; name: string; code?: string; isActive?: boolean }>
+      return (data.data || []) as Array<{
+        id: number
+        name: string
+        code?: string
+        isActive?: boolean
+        machineType?: string
+      }>
     },
   })
 
@@ -166,7 +172,19 @@ export function MachineWorkLogPage() {
   const machineOptions = useMemo(
     () =>
       (machinesQuery.data || [])
-        .filter((m) => m.isActive !== false && String(m.id) !== String(machineId))
+        .filter((m) => {
+          if (m.isActive === false) return false
+          if (String(m.id) === String(machineId)) return false
+          const t = String(m.machineType || 'PRODUCTION').toUpperCase()
+          return (
+            t === 'PRODUCTION' ||
+            t.includes('PROD') ||
+            t.includes('INJECT') ||
+            t.includes('BLOW') ||
+            t.includes('MOULD') ||
+            t.includes('MOLD')
+          )
+        })
         .map((m) => ({
           value: String(m.id),
           label: m.name,

@@ -5,26 +5,13 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
+import { DateRangePreset } from '@/components/DateRangePreset'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  dateRangeApiParams,
+  type DateRangeState,
+} from '@/lib/dateRange'
 import { fmtDozenPcs } from '@/lib/units'
 import { formatBusinessDate } from '@/lib/dates'
-
-const RANGE_OPTIONS = [
-  { id: 'today', label: 'Today' },
-  { id: 'yesterday', label: 'Yesterday' },
-  { id: 'this_week', label: 'This week' },
-  { id: 'last_week', label: 'Last week' },
-  { id: 'this_month', label: 'This month' },
-  { id: 'last_month', label: 'Last month' },
-  { id: 'this_quarter', label: 'This quarter' },
-  { id: 'this_year', label: 'Year to date' },
-]
 
 type ProductionRow = {
   id: string
@@ -58,23 +45,49 @@ function fmt(n: number) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })
 }
 
+function applyRangeToParams(current: URLSearchParams, next: DateRangeState) {
+  const params = new URLSearchParams(current)
+  params.set('rangePreset', next.rangePreset)
+  if (next.rangePreset === 'custom' && next.from && next.to) {
+    params.set('from', next.from)
+    params.set('to', next.to)
+  } else {
+    params.delete('from')
+    params.delete('to')
+  }
+  return params
+}
+
+function rangeQueryString(state: DateRangeState) {
+  const params = new URLSearchParams()
+  params.set('rangePreset', state.rangePreset)
+  if (state.rangePreset === 'custom' && state.from && state.to) {
+    params.set('from', state.from)
+    params.set('to', state.to)
+  }
+  return params.toString()
+}
+
 export function MachineProductionPage() {
   const { machineId } = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
-  const rangePreset = searchParams.get('rangePreset') || 'this_month'
+  const rangeState: DateRangeState = {
+    rangePreset: searchParams.get('rangePreset') || 'this_month',
+    from: searchParams.get('from') || undefined,
+    to: searchParams.get('to') || undefined,
+  }
+  const apiParams = dateRangeApiParams(rangeState)
 
-  const setRange = (preset: string) => {
-    const next = new URLSearchParams(searchParams)
-    next.set('rangePreset', preset)
-    setSearchParams(next, { replace: true })
+  const setRange = (next: DateRangeState) => {
+    setSearchParams(applyRangeToParams(searchParams, next), { replace: true })
   }
 
   const detail = useQuery({
-    queryKey: ['production-machine-detail', machineId, rangePreset],
+    queryKey: ['production-machine-detail', machineId, apiParams],
     enabled: Boolean(machineId),
     queryFn: async () => {
       const { data } = await api.get(`/production/machines/${machineId}`, {
-        params: { rangePreset },
+        params: apiParams,
       })
       return data.data as DetailPayload
     },
@@ -160,23 +173,10 @@ export function MachineProductionPage() {
       title={machine?.name || 'Machine'}
       description={d?.range.label ? `History · ${d.range.label}` : undefined}
       back
-      backTo={`/production?rangePreset=${rangePreset}`}
+      backTo={`/production?${rangeQueryString(rangeState)}`}
       backLabel="Back to production"
       headerClassName="[&_h3]:!text-sm sm:[&_h3]:!text-base md:[&_h3]:!text-lg [&_h3]:leading-snug"
-      actions={
-        <Select value={rangePreset} onValueChange={setRange}>
-          <SelectTrigger className="h-8 w-[140px] sm:w-[160px] text-xs bg-white shrink-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RANGE_OPTIONS.map((o) => (
-              <SelectItem key={o.id} value={o.id}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      }
+      actions={<DateRangePreset value={rangeState} onChange={setRange} />}
     >
       <div className="space-y-4">
         {machine ? (
