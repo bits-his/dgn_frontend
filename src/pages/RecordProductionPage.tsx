@@ -5,10 +5,7 @@ import {
   CheckCircle2,
   Clock,
   Eye,
-  LogIn,
-  LogOut,
   AlertTriangle,
-  UserCheck,
   History,
   Check,
   Factory,
@@ -263,69 +260,6 @@ export function RecordProductionPage() {
   const isRunActive = runDetail?.batch?.status === 'IN_PROGRESS'
   const activeShift = scorecardQuery.data?.shiftLogs?.find((s: ShiftLogItem) => s.status === 'ACTIVE')
 
-  // Clock In State
-  const [clockInEmployeeId, setClockInEmployeeId] = useState<string>('')
-  const [clockInShiftId, setClockInShiftId] = useState<string>('')
-  const [clockInTime, setClockInTime] = useState<string>(getCurrentTimeString())
-  const [isClockingIn, setIsClockingIn] = useState(false)
-  const [clockInError, setClockInError] = useState('')
-  const [clockInSuccess, setClockInSuccess] = useState('')
-
-  const applyShiftClockTimes = (shiftId: string) => {
-    const shift = shiftsQuery.data?.find((s) => String(s.id) === String(shiftId))
-    if (!shift) return
-    const start = toHhMm(shift.startTime)
-    const end = toHhMm(shift.endTime)
-    if (start) setClockInTime(start)
-    if (end) setOutputClockOutTime(end)
-  }
-
-  useEffect(() => {
-    if (shiftsQuery.data && shiftsQuery.data.length > 0 && !clockInShiftId) {
-      const first = String(shiftsQuery.data[0].id)
-      setClockInShiftId(first)
-      applyShiftClockTimes(first)
-    }
-  }, [shiftsQuery.data, clockInShiftId])
-
-  // Shift Output State
-  const [outputGoodDozen, setOutputGoodDozen] = useState('')
-  const [outputGoodPcs, setOutputGoodPcs] = useState('')
-  const [outputRejectKg, setOutputRejectKg] = useState('0')
-  const [outputMaterialKg, setOutputMaterialKg] = useState('')
-  const [outputNotes, setOutputNotes] = useState('')
-  const [outputClockOutTime, setOutputClockOutTime] = useState<string>(getCurrentTimeString())
-  const [isSavingOutput, setIsSavingOutput] = useState(false)
-  const [outputError, setOutputError] = useState('')
-  const [outputSuccess, setOutputSuccess] = useState('')
-
-  useEffect(() => {
-    if (!activeShift) return
-    const shift =
-      shiftsQuery.data?.find((s) => s.id === activeShift.shiftId) ||
-      shiftsQuery.data?.find((s) => s.id === Number(clockInShiftId))
-    const end = toHhMm(shift?.endTime)
-    setOutputClockOutTime(end || getCurrentTimeString())
-  }, [activeShift, activeShift?.shiftId, shiftsQuery.data, clockInShiftId])
-
-  // Automatically calculate net operating runtime from clock-in to clock-out minus shift downtime
-  const calculatedShiftMinutes = useMemo(() => {
-    if (!activeShift?.clockInAt || !outputClockOutTime) return 0
-    const clockInDate = new Date(activeShift.clockInAt)
-    const [oh, om] = outputClockOutTime.split(':').map(Number)
-    if (Number.isNaN(oh) || Number.isNaN(om)) return 0
-
-    const clockOutDate = new Date(clockInDate)
-    clockOutDate.setHours(oh, om, 0, 0)
-    if (clockOutDate.getTime() < clockInDate.getTime()) {
-      clockOutDate.setDate(clockOutDate.getDate() + 1)
-    }
-
-    const elapsedMinutes = Math.max(0, Math.round((clockOutDate.getTime() - clockInDate.getTime()) / 60000))
-    const dt = Number(activeShift.downtimeMinutes || 0)
-    return Math.max(0, elapsedMinutes - dt)
-  }, [activeShift?.clockInAt, activeShift?.downtimeMinutes, outputClockOutTime])
-
   // Machine Fault Modal State
   const [isFaultModalOpen, setIsFaultModalOpen] = useState(false)
   const [faultCategory, setFaultCategory] = useState<string>('ELECTRICAL')
@@ -376,102 +310,6 @@ export function RecordProductionPage() {
         const sm = String(totalMins % 60).padStart(2, '0')
         setFaultFrom(`${sh}:${sm}`)
       }
-    }
-  }
-
-  // 1. Submit Shift Clock In
-  const handleClockInSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedRunId) return
-
-    const emp = operatorsQuery.data?.find((e) => String(e.id) === clockInEmployeeId)
-    if (!emp) {
-      setClockInError('Select an operator from the list')
-      return
-    }
-    const finalName = `${emp.firstname} ${emp.lastname || ''}`.trim()
-    const empId = emp.id
-
-    setIsClockingIn(true)
-    setClockInError('')
-    try {
-      const now = new Date()
-      const [ch, cm] = clockInTime.split(':').map(Number)
-      if (!Number.isNaN(ch) && !Number.isNaN(cm)) {
-        now.setHours(ch, cm, 0, 0)
-      }
-
-      await api.post(`/production/runs/${selectedRunId}/shift-login`, {
-        operatorName: finalName,
-        operatorId: empId,
-        shiftId: clockInShiftId ? Number(clockInShiftId) : undefined,
-        clockInAt: now.toISOString(),
-      })
-
-      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
-      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
-      setClockInSuccess(`${finalName} clocked in successfully!`)
-      setClockInEmployeeId('')
-      setTimeout(() => setClockInSuccess(''), 3000)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
-      setClockInError(axiosErr.response?.data?.errors?.operatorName || axiosErr.response?.data?.err || 'Failed to clock into shift')
-    } finally {
-      setIsClockingIn(false)
-    }
-  }
-
-  // 2. Submit Shift Output & Clock Out
-  const handleOutputSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedRunId || !activeShift) return
-
-    const dozen = Number(outputGoodDozen || 0)
-    const pieces = Number(outputGoodPcs || 0)
-    const totalGood = dozen * 12 + pieces
-    const rejectKg = Number(outputRejectKg || 0)
-    const runtime = calculatedShiftMinutes
-
-    if (totalGood < 0) {
-      setOutputError('Good output cannot be negative')
-      return
-    }
-
-    setIsSavingOutput(true)
-    setOutputError('')
-    try {
-      const now = new Date()
-      const [ch, cm] = outputClockOutTime.split(':').map(Number)
-      if (!Number.isNaN(ch) && !Number.isNaN(cm)) {
-        now.setHours(ch, cm, 0, 0)
-      }
-
-      await api.post(`/production/runs/${selectedRunId}/shift-logout`, {
-        shiftLogId: activeShift.id,
-        qtyGood: totalGood,
-        qtyReject: rejectKg,
-        runtimeMinutes: runtime,
-        materialConsumed: outputMaterialKg ? Number(outputMaterialKg) : undefined,
-        handoverNotes: outputNotes.trim() || undefined,
-        clockOutAt: now.toISOString(),
-      })
-
-      await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
-      await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
-      await queryClient.invalidateQueries({ queryKey: ['inventory-balance'] })
-
-      setOutputSuccess(`Shift output recorded! ${totalGood} pcs deposited into FG Store inventory.`)
-      setOutputGoodDozen('')
-      setOutputGoodPcs('')
-      setOutputRejectKg('0')
-      setOutputMaterialKg('')
-      setOutputNotes('')
-      setTimeout(() => setOutputSuccess(''), 4000)
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; errors?: Record<string, string> } } }
-      setOutputError(axiosErr.response?.data?.errors?.qtyGood || axiosErr.response?.data?.err || 'Failed to record shift output')
-    } finally {
-      setIsSavingOutput(false)
     }
   }
 
@@ -613,7 +451,13 @@ export function RecordProductionPage() {
     queryKey: ['machines-list'],
     queryFn: async () => {
       const { data } = await api.get('/machines')
-      return (data.data || []) as Array<{ id: number; name: string; code?: string; isActive?: boolean }>
+      return (data.data || []) as Array<{
+        id: number
+        name: string
+        code?: string
+        isActive?: boolean
+        machineType?: string
+      }>
     },
   })
 

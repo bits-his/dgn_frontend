@@ -968,7 +968,6 @@ export function ProductionStorePage() {
                   </div>
 
                   {issueMaterialLines.map((row) => {
-                    const selected = lineByKey.get(row.lineKey) || null
                     return (
                       <div key={row.id} className="flex items-center gap-1.5">
                         <div className="grid grid-cols-[1fr_5.5rem] gap-2 flex-1 min-w-0">

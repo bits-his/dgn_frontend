@@ -1332,6 +1332,7 @@ export function DashboardPage() {
                             <th className="py-2.5 px-3">Product</th>
                             <th className="py-2.5 px-3 text-right">Qty</th>
                             <th className="py-2.5 px-3 text-right">Unit price</th>
+                            <th className="py-2.5 px-3 text-right">Total</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1345,16 +1346,14 @@ export function DashboardPage() {
                                   </span>
                                 ) : null}
                               </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
-                                <span className="font-semibold text-foreground">
-                                  {fmtDozenPcs(row.qtyOnHand)}
-                                </span>
-                                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                                  {row.stockValue > 0 ? money(row.stockValue) : '—'}
-                                </span>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-semibold text-foreground">
+                                {fmtDozenPcs(row.qtyOnHand)}
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top text-muted-foreground">
                                 {row.sellingPrice > 0 ? money(row.sellingPrice) : '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-semibold text-foreground">
+                                {row.stockValue > 0 ? money(row.stockValue) : '—'}
                               </td>
                             </tr>
                           ))}

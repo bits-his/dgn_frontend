@@ -54,14 +54,6 @@ function fmt(n: number | null | undefined, digits = 2) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-function formatMinutes(mins: number) {
-  const m = Math.max(0, Math.round(Number(mins || 0)))
-  if (m < 60) return `${m} min`
-  const h = Math.floor(m / 60)
-  const rem = m % 60
-  return rem ? `${h}h ${rem}m` : `${h}h`
-}
-
 export function OperatorWorkPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -95,44 +87,13 @@ export function OperatorWorkPage() {
         ),
       },
       {
-        accessorKey: 'stage',
-        header: 'Work',
+        accessorKey: 'productName',
+        header: 'Product',
         cell: ({ row }) => (
-          <div className="space-y-0.5 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span
-                className={cn(
-                  'px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide shrink-0',
-                  row.original.kind === 'production'
-                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                    : 'bg-sky-50 text-sky-800 border border-sky-200',
-                )}
-              >
-                {row.original.kind === 'production' ? 'Prod' : 'Proc'}
-              </span>
-              <span className="text-xs font-semibold text-zinc-900 truncate">{row.original.stage}</span>
-            </div>
-            {row.original.productName && (
-              <p className="text-[11px] text-zinc-500 truncate">{row.original.productName}</p>
-            )}
-          </div>
+          <span className="text-xs font-semibold text-zinc-900 truncate">
+            {row.original.productName || '—'}
+          </span>
         ),
-      },
-      {
-        accessorKey: 'batchNumber',
-        header: 'Batch',
-        cell: ({ row }) => {
-          const batch = row.original.batchNumber
-          if (!batch) return <span className="text-xs text-zinc-400">—</span>
-          return (
-            <Link
-              to={`/batches/${encodeURIComponent(batch)}`}
-              className="text-xs font-semibold text-zinc-800 hover:underline"
-            >
-              {batch}
-            </Link>
-          )
-        },
       },
       {
         accessorKey: 'machineName',
@@ -170,19 +131,6 @@ export function OperatorWorkPage() {
         },
       },
       {
-        accessorKey: 'runtimeMinutes',
-        header: 'Time',
-        meta: { hideOnMobile: true },
-        cell: ({ row }) =>
-          row.original.runtimeMinutes ? (
-            <span className="text-xs tabular-nums text-zinc-700">
-              {formatMinutes(row.original.runtimeMinutes)}
-            </span>
-          ) : (
-            <span className="text-xs text-zinc-400">—</span>
-          ),
-      },
-      {
         accessorKey: 'status',
         header: 'Status',
         meta: { hideOnMobile: true },
@@ -209,7 +157,7 @@ export function OperatorWorkPage() {
               to={`/production/${row.original.productionRunId}/work`}
               className="text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
             >
-              Open run
+              View
             </Link>
           ) : null,
       },
@@ -244,7 +192,7 @@ export function OperatorWorkPage() {
       description={`${employee.employeeCode} · Operator · ${employee.isActive ? 'Active' : 'Inactive'}`}
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-2 gap-1.5">
           <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
             <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
               Jobs
@@ -261,27 +209,6 @@ export function OperatorWorkPage() {
               {fmtDozenPcs(totals.qtyGood)}
             </p>
             <p className="mt-0.5 text-[10px] text-zinc-500">{totals.productionJobs} shifts</p>
-          </div>
-          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
-            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Process
-            </span>
-            <div className="mt-0.5 flex items-baseline gap-1">
-              <span className="text-sm font-black tabular-nums text-zinc-900">{fmt(totals.kgProcessed)}</span>
-              <span className="text-[10px] text-zinc-500">kg</span>
-            </div>
-            <p className="mt-0.5 text-[10px] text-zinc-500">{totals.processJobs} runs</p>
-          </div>
-          <div className="rounded-lg border border-zinc-200 bg-white p-2.5 shadow-xs">
-            <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400 block">
-              Runtime
-            </span>
-            <p className="mt-0.5 text-sm font-black tabular-nums text-zinc-900">
-              {formatMinutes(totals.runtimeMinutes)}
-            </p>
-            {totals.qtyReject > 0 && (
-              <p className="mt-0.5 text-[10px] text-rose-600">{fmtDozenPcs(totals.qtyReject)} reject</p>
-            )}
           </div>
         </div>
 
