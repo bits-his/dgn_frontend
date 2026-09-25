@@ -68,7 +68,7 @@ function rangeQueryString(state: DateRangeState) {
 export function ProductionPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const rangeState: DateRangeState = {
-    rangePreset: searchParams.get('rangePreset') || 'today',
+    rangePreset: searchParams.get('rangePreset') || 'this_month',
     from: searchParams.get('from') || undefined,
     to: searchParams.get('to') || undefined,
   }
