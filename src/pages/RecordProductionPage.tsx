@@ -500,7 +500,11 @@ export function RecordProductionPage() {
         confirmUnusualRun: true,
       })
 
-      setRecordSuccess('Production saved. Goods added to finished store.')
+      setRecordSuccess(
+        damage > 0
+          ? 'Production saved. Good pieces went to finished goods. Damage is saved for re-crush.'
+          : 'Production saved. Goods added to finished store.',
+      )
       setRecordGoodDozen('')
       setRecordGoodPcs('')
       setRecordDamagePcs('')
@@ -718,7 +722,7 @@ export function RecordProductionPage() {
                   <div>
                     <h3 className="text-xs font-bold text-zinc-900">Record production</h3>
                     <p className="text-[11px] text-zinc-500">
-                      Enter quantity produced, damage pieces, and waste. Change machine if needed.
+                      Enter quantity produced, damage pieces, and waste. Damage is saved so it can be re-crushed later.
                     </p>
                   </div>
                 </div>

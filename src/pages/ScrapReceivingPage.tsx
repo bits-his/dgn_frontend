@@ -737,6 +737,7 @@ export function ScrapReceivingPage() {
             label="Photos (scale ticket, load, truck)"
             photos={photos}
             onChange={setPhotos}
+            variant="phone"
           />
 
           {/* Live Calculation Box - White & Collapsible by default */}

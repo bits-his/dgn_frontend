@@ -954,6 +954,19 @@ export function BatchDetailPage() {
               </li>
             </ul>
           </Card>
+
+          {receiptPhotos.length > 0 && (
+            <Card className="!p-3 sm:!p-4">
+              <h2 className="text-sm font-semibold sm:text-base">Photos</h2>
+              <p className="mt-0.5 text-[11px] text-[var(--ink-muted)] sm:text-xs">
+                Attached on scrap buying
+                {receipt?.supplier?.name ? ` · ${receipt.supplier.name}` : ''}
+              </p>
+              <div className="mt-3">
+                <PhotoGallery photos={receiptPhotos} size="lg" />
+              </div>
+            </Card>
+          )}
         </div>
       </PageLayout>
     )
@@ -1480,15 +1493,6 @@ export function BatchDetailPage() {
               )
             })}
           </div> */}
-
-          {receiptPhotos.length > 0 && (
-            <div className="mt-4 border-t border-[var(--line)] pt-3">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--ink-muted)]">
-                Scrap photos
-              </p>
-              <PhotoGallery photos={receiptPhotos} />
-            </div>
-          )}
 
           <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3">
             <Fact

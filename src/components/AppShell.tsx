@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
+  AlertTriangle,
   Boxes,
   Calculator,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
   Menu,
   Search,
   Gauge,
+  Shield,
   ShieldCheck,
   Truck,
   TrendingUp,
@@ -67,6 +69,11 @@ export function canAccessNavItem(
   if (item.to === '/') return true
   // Admin has full access to everything
   if (user.roleCode === 'ADMIN' || user.permissions?.includes('*')) return true
+
+  if (item.menuKey === 'security') {
+    if (user.roleCode === 'STOREKEEPER' || user.roleCode === 'FACTORY_MANAGER') return true
+    return Boolean(user.menuAccess?.includes('security'))
+  }
 
   // If user has specific menuAccess array assigned
   if (user.menuAccess && Array.isArray(user.menuAccess) && user.menuAccess.length > 0) {
@@ -132,11 +139,13 @@ const recyclingNav: NavItem[] = [
 const productionNav: NavItem[] = [
   { to: '/production/store', label: 'Material store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
   { to: '/production', label: 'Production', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
+  { to: '/production/damaged', label: 'Damaged', icon: AlertTriangle, menuKey: 'production', permission: 'batch.view' },
 ]
 
 const mainNavRest: NavItem[] = [
   { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
   { to: '/inventory', label: 'Inventory', icon: Boxes, menuKey: 'inventory', permission: 'inventory.view' },
+  { to: '/security', label: 'Security Post', icon: Shield, menuKey: 'security', permission: 'batch.view' },
   { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
   { to: '/pricing', label: 'Product pricing', icon: Tag, menuKey: 'pricing', permission: 'sales.create' },
   { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'distributors', permission: 'sales.view' },

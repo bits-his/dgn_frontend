@@ -22,6 +22,10 @@ import { ProductionPage } from '@/pages/ProductionPage'
 import { MachineProductionPage } from '@/pages/MachineProductionPage'
 import { MachineWorkLogPage } from '@/pages/MachineWorkLogPage'
 import { ProductionStorePage } from '@/pages/ProductionStorePage'
+import { DamagedPage } from '@/pages/DamagedPage'
+import { SecurityPage } from '@/pages/SecurityPage'
+import { SecurityFormPage } from '@/pages/SecurityFormPage'
+import { SecurityDetailPage } from '@/pages/SecurityDetailPage'
 import { RecordProductionPage } from '@/pages/RecordProductionPage'
 import { CompleteProductionPage } from '@/pages/CompleteProductionPage'
 import { MachinePerformancePage } from '@/pages/MachinePerformancePage'
@@ -119,6 +123,11 @@ function App() {
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
+                <Route path="/production/damaged" element={<DamagedPage />} />
+                <Route path="/production/damaged/new" element={<Navigate to="/production/damaged" replace />} />
+                <Route path="/security" element={<SecurityPage />} />
+                <Route path="/security/new" element={<SecurityFormPage />} />
+                <Route path="/security/:id" element={<SecurityDetailPage />} />
                 <Route path="/production/machines/:machineId/work" element={<MachineWorkLogPage />} />
                 <Route path="/production/machines/:machineId" element={<MachineProductionPage />} />
                 <Route path="/production/new" element={<RecordProductionPage />} />

@@ -43,12 +43,13 @@ import CustomTable1 from '@/components/CustomTable1'
 import { formatDateTime } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { fmtDozenPcs } from '@/lib/units'
-import { MaintenanceCostAndDowntime, MaintenancePhotoPicker } from '@/components/MaintenanceLogExtras'
+import { MaintenanceCostAndDowntime, MaintenancePhotoPicker, MaintenanceViewDialog } from '@/components/MaintenanceLogExtras'
 import {
   downtimeToMinutes,
   minutesToDowntime,
   minutesBetweenDateTimes,
   combineDateAndTime,
+  mediaUrl,
   parsePhotoUrls,
   toDateInputValue,
   toTimeInputValue,
@@ -268,6 +269,7 @@ export function MachinePerformancePage() {
   // Modals state
   const [isMaintModalOpen, setIsMaintModalOpen] = useState(false)
   const [editingMaint, setEditingMaint] = useState<MaintenanceRecord | null>(null)
+  const [viewingMaint, setViewingMaint] = useState<MaintenanceRecord | null>(null)
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false)
   const [editingMachine, setEditingMachine] = useState<MachineMaster | null>(null)
 
@@ -809,7 +811,6 @@ export function MachinePerformancePage() {
         id: 'title',
         header: 'Service Title & Type',
         cell: ({ row }) => {
-          const photos = parsePhotoUrls(row.original.photoUrls)
           return (
           <div className="space-y-1 text-xs">
             <div className="flex items-center gap-1.5">
@@ -818,11 +819,6 @@ export function MachinePerformancePage() {
               </span>
               <span className="font-bold text-zinc-800 dark:text-zinc-200">{row.original.title}</span>
             </div>
-            {photos.length > 0 && (
-              <p className="text-[11px] text-zinc-500">
-                {photos.length} photo{photos.length === 1 ? '' : 's'}
-              </p>
-            )}
             {row.original.partsReplaced && (
               <p className="text-[11px] text-zinc-500 truncate max-w-xs">
                 Parts: {row.original.partsReplaced}
@@ -873,10 +869,48 @@ export function MachinePerformancePage() {
         ),
       },
       {
+        id: 'photos',
+        header: 'Photos',
+        cell: ({ row }) => {
+          const photos = parsePhotoUrls(row.original.photoUrls)
+          if (!photos.length) {
+            return <span className="text-[11px] text-zinc-400">—</span>
+          }
+          return (
+            <button
+              type="button"
+              className="flex items-center gap-1"
+              onClick={() => setViewingMaint(row.original)}
+              title="View photos"
+            >
+              {photos.slice(0, 3).map((src, i) => (
+                <img
+                  key={`${src.slice(0, 20)}-${i}`}
+                  src={mediaUrl(src)}
+                  alt=""
+                  className="size-11 rounded-md border border-zinc-200 object-cover"
+                />
+              ))}
+              {photos.length > 3 && (
+                <span className="text-[10px] font-semibold text-zinc-500">+{photos.length - 3}</span>
+              )}
+            </button>
+          )
+        },
+      },
+      {
         id: 'actions',
         header: 'Actions',
         cell: ({ row }) => (
           <div className="flex flex-nowrap items-center justify-end gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs font-semibold"
+              onClick={() => setViewingMaint(row.original)}
+            >
+              View
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -898,7 +932,7 @@ export function MachinePerformancePage() {
         ),
       },
     ],
-    []
+    [deleteMaintenanceMutation.isPending]
   )
 
   const recent = (insightsData?.recentDowntime || []).slice(0, 15)
@@ -1510,6 +1544,15 @@ export function MachinePerformancePage() {
         {/* ==================================================================== */}
         {/* LOG / EDIT MAINTENANCE MODAL (Shadcn Select) */}
         {/* ==================================================================== */}
+        <MaintenanceViewDialog
+          record={viewingMaint}
+          open={Boolean(viewingMaint)}
+          onOpenChange={(open) => {
+            if (!open) setViewingMaint(null)
+          }}
+          onEdit={(rec) => openEditMaintenance(rec as MaintenanceRecord)}
+        />
+
         <Dialog open={isMaintModalOpen} onOpenChange={setIsMaintModalOpen}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
@@ -1676,7 +1719,12 @@ export function MachinePerformancePage() {
                 onDownValue={setMaintDownValue}
               />
 
-              <MaintenancePhotoPicker photos={maintPhotos} onChange={setMaintPhotos} />
+              <MaintenancePhotoPicker
+                photos={maintPhotos}
+                onChange={setMaintPhotos}
+                variant="phone"
+                label="Photos"
+              />
 
               <div>
                 <Label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">

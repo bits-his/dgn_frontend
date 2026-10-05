@@ -110,6 +110,7 @@ type StoreMaterialLine = {
   qtyRemaining: number
   uom: string
   receivedDate?: string
+  fromDamage?: boolean
   batchItem: BatchItem
 }
 
@@ -255,6 +256,7 @@ export function ProductionStorePage() {
               qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
               uom: b.uom || 'kg',
               receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+              fromDamage: String(b.notes || '').includes('production damage'),
               batchItem: b,
             })
           }
@@ -271,6 +273,7 @@ export function ProductionStorePage() {
         qtyRemaining: Number(b.qtyRemaining || 0),
         uom: b.uom || 'kg',
         receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+        fromDamage: String(b.notes || '').includes('production damage'),
         batchItem: b,
       })
     }
@@ -497,12 +500,17 @@ export function ProductionStorePage() {
         header: 'Lot',
         accessorKey: 'batchNumber',
         cell: ({ row }) => (
-          <Link
-            to={`/batches/${row.original.batchNumber}`}
-            className="font-semibold text-xs text-[var(--accent-strong)] hover:underline font-mono"
-          >
-            {row.original.batchNumber}
-          </Link>
+          <div>
+            <Link
+              to={`/batches/${row.original.batchNumber}`}
+              className="font-semibold text-xs text-[var(--accent-strong)] hover:underline font-mono"
+            >
+              {row.original.batchNumber}
+            </Link>
+            {row.original.fromDamage && (
+              <p className="text-[10px] font-semibold text-amber-800">From damaged goods</p>
+            )}
+          </div>
         ),
       },
       {

@@ -63,15 +63,27 @@ function snapTo(n: number, options: number[]) {
 
 export function parsePhotoUrls(raw: unknown): string[] {
   if (!raw) return []
-  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === 'string' && x.length > 0)
+  if (Array.isArray(raw)) {
+    return raw.flatMap((item) => parsePhotoUrls(item)).filter(Boolean)
+  }
   if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return []
     try {
-      const parsed = JSON.parse(raw)
-      if (Array.isArray(parsed)) {
-        return parsed.filter((x): x is string => typeof x === 'string' && x.length > 0)
+      const parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed) || typeof parsed === 'string') {
+        return parsePhotoUrls(parsed)
       }
     } catch {
-      if (raw.startsWith('data:') || raw.startsWith('/') || raw.startsWith('http')) return [raw]
+      if (
+        trimmed.startsWith('data:') ||
+        trimmed.startsWith('/uploads/') ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('blob:')
+      ) {
+        return [trimmed]
+      }
     }
   }
   return []
@@ -81,7 +93,12 @@ export function mediaUrl(src: string) {
   if (!src) return ''
   if (src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('http')) return src
   const base = String(api.defaults.baseURL || '').replace(/\/api\/v1\/?$/, '')
-  return `${base}${src.startsWith('/') ? src : `/${src}`}`
+  const path = src.startsWith('/') ? src : `/${src}`
+  // Avoid /dgn_backend/dgn_backend/... if the stored path already includes the mount.
+  if (base.endsWith('/dgn_backend') && path.startsWith('/dgn_backend/')) {
+    return `${base.replace(/\/dgn_backend$/, '')}${path}`
+  }
+  return `${base}${path}`
 }
 
 export function toDatetimeLocalValue(raw?: string | Date | null) {

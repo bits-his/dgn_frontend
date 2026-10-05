@@ -132,7 +132,6 @@ export function ScrapReceivingListPage() {
         cell: ({ row }) => {
           const r = row.original
           const batchNum = r.batch?.batchNumber || `REC-${r.id}`
-          const thumbs = parsePhotoUrls(r.photoUrls).slice(0, 3)
           return (
             <div>
               <Link
@@ -145,18 +144,6 @@ export function ScrapReceivingListPage() {
                 <p className="text-xs text-[var(--ink-faint)] truncate max-w-[160px]">
                   {r.supplier.name}
                 </p>
-              )}
-              {thumbs.length > 0 && (
-                <div className="mt-1 flex items-center gap-1">
-                  {thumbs.map((src, i) => (
-                    <img
-                      key={`${src.slice(0, 20)}-${i}`}
-                      src={mediaUrl(src)}
-                      alt=""
-                      className="size-7 rounded object-cover border border-zinc-200"
-                    />
-                  ))}
-                </div>
               )}
             </div>
           )
@@ -215,16 +202,6 @@ export function ScrapReceivingListPage() {
           )
         },
       },
-      // {
-      //   id: 'supplier',
-      //   header: 'Supplier',
-      //   accessorKey: 'supplier.name',
-      //   cell: ({ row }) => (
-      //     <span className="text-sm text-foreground">
-      //       {row.original.supplier?.name || '—'}
-      //     </span>
-      //   ),
-      // },
       {
         id: 'totalInboundCost',
         header: 'Total cost',
@@ -275,6 +252,35 @@ export function ScrapReceivingListPage() {
         },
       },
  
+      {
+        id: 'photos',
+        header: 'Photos',
+        cell: ({ row }) => {
+          const thumbs = parsePhotoUrls(row.original.photoUrls).slice(0, 3)
+          if (!thumbs.length) {
+            return <span className="text-[11px] text-zinc-400">—</span>
+          }
+          return (
+            <div className="flex items-center gap-1">
+              {thumbs.map((src, i) => (
+                <a
+                  key={`${src.slice(0, 20)}-${i}`}
+                  href={mediaUrl(src)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <img
+                    src={mediaUrl(src)}
+                    alt=""
+                    className="size-11 rounded-md object-cover border border-zinc-200"
+                  />
+                </a>
+              ))}
+            </div>
+          )
+        },
+      },
       {
         id: 'actions',
         header: 'Action',
