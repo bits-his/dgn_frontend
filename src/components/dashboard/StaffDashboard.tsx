@@ -32,6 +32,9 @@ import {
   Recycle,
   RefreshCw,
   Tag,
+  AlertTriangle,
+  Shield,
+  Sun,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -192,12 +195,39 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     permission: 'batch.create',
   },
   {
+    to: '/process/second-grade',
+    title: 'Second grade',
+    desc: 'Second-grade washed material on hand',
+    icon: Layers,
+    tone: 'bg-amber-700 text-white',
+    menuKey: 'second_grade',
+    permission: 'batch.view',
+  },
+  {
+    to: '/process/drying',
+    title: 'Drying Stage',
+    desc: 'Dry washed lots before re-crush',
+    icon: Sun,
+    tone: 'bg-orange-500 text-white',
+    menuKey: 'drying',
+    permission: 'batch.create',
+  },
+  {
     to: '/process/recrushing',
     title: 'Re-crushing',
     desc: 'Re-crush washed and dried lots',
     icon: RotateCcw,
     tone: 'bg-slate-700 text-white',
     menuKey: 'recrushing',
+    permission: 'batch.create',
+  },
+  {
+    to: '/process/recycling',
+    title: 'Recycling',
+    desc: 'Recycle remaining process lots',
+    icon: Recycle,
+    tone: 'bg-lime-700 text-white',
+    menuKey: 'recycling',
     permission: 'batch.create',
   },
   {
@@ -219,6 +249,15 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     permission: 'batch.view',
   },
   {
+    to: '/production/damaged',
+    title: 'Damaged',
+    desc: 'Weigh damaged goods and send kg to the material store',
+    icon: AlertTriangle,
+    tone: 'bg-amber-600 text-white',
+    menuKey: 'damaged',
+    permission: 'batch.view',
+  },
+  {
     to: '/qc',
     title: 'QC Inspection',
     desc: 'Inspect dried or production batches',
@@ -235,6 +274,15 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     tone: 'bg-sky-600 text-white',
     menuKey: 'inventory',
     permission: 'inventory.view',
+  },
+  {
+    to: '/security',
+    title: 'Security Post',
+    desc: 'Gate logs for inbound and outbound movement',
+    icon: Shield,
+    tone: 'bg-zinc-800 text-white',
+    menuKey: 'security',
+    permission: 'batch.view',
   },
   {
     to: '/sales/new',

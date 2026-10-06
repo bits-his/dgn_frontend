@@ -31,6 +31,7 @@ import {
   DEPARTMENT_OPTIONS,
   ROLE_OPTIONS,
   ROLE_DEFAULT_MENU_ACCESS,
+  userHasMenuKey,
   type MenuAccessItem,
 } from '@/lib/menuAccess'
 import { kindLabel } from '@/pages/DistributorsPage'
@@ -615,10 +616,6 @@ function Workforce({
         employmentTypes: data.employmentTypes as string[],
         roles: (data.roles || []) as RoleOption[],
         shifts: (data.shifts || []) as ShiftOption[],
-        menuAccess:
-          Array.isArray(data.menuAccess) && data.menuAccess.length
-            ? (data.menuAccess as MenuAccessItem[])
-            : SIDEBAR_MENU_ACCESS,
         outlets: (data.outlets || []) as OutletOption[],
       }
     },
@@ -929,11 +926,7 @@ function Workforce({
 
             <AccessPanelForm
               employee={accessFor}
-              menuItems={
-                employees.data?.menuAccess?.length
-                  ? employees.data.menuAccess
-                  : SIDEBAR_MENU_ACCESS
-              }
+              menuItems={SIDEBAR_MENU_ACCESS}
               outlets={employees.data?.outlets || []}
               onClose={() => setAccessFor(null)}
               onSaved={() => {
@@ -1102,7 +1095,10 @@ function AccessPanelForm({
   )
   const [selected, setSelected] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {}
-    for (const key of employee.access?.menuAccess || []) initial[key] = true
+    const keys = employee.access?.menuAccess || []
+    for (const item of menuItems) {
+      if (userHasMenuKey(keys, item.key)) initial[item.key] = true
+    }
     return initial
   })
   const [error, setError] = useState<string | null>(null)
@@ -1276,7 +1272,7 @@ function AccessPanelForm({
       {outletId === 'none' && (
       <div className="pt-2 border-t border-zinc-100">
         <p className="text-xs font-semibold text-zinc-900 mb-2">Permitted menu pages</p>
-        <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+        <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
           {groups.map((group) => {
             const items = menuItems.filter((i) => i.group === group)
             const allChecked = items.every((i) => selected[i.key])

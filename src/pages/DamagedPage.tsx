@@ -85,10 +85,6 @@ export function DamagedPage() {
     e.preventDefault()
     setErrors([])
     setSuccess('')
-    if (!hasDamaged) {
-      setErrors([{ label: 'Damaged', message: 'No damaged goods are waiting to re-crush.' }])
-      return
-    }
     if (!colorLines.length) {
       setErrors([{ label: 'Colours', message: 'Add at least one colour with kg.' }])
       return
@@ -150,14 +146,14 @@ export function DamagedPage() {
           </div>
         )}
 
-        {!query.isLoading && !hasDamaged ? (
-          <Card className="!p-5">
-            <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-lg border border-amber-200">
-              No damaged goods waiting. Record production damage first, then come back to re-crush.
-            </p>
-          </Card>
-        ) : (
-          <form className="space-y-4" onSubmit={submit}>
+        {hasDamaged && (
+          <p className="text-xs text-zinc-500">
+            {rows.length} production damage lot{rows.length === 1 ? '' : 's'} will close automatically when you
+            save.
+          </p>
+        )}
+
+        <form className="space-y-4" onSubmit={submit}>
             <ErrorBanner items={errors} />
 
             <Card className="!p-4 sm:!p-5">
@@ -186,7 +182,6 @@ export function DamagedPage() {
                     }}
                     exclude={colorLines.map((l) => l.color)}
                     placeholder="Pick a colour…"
-                    disabled={!hasDamaged}
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -204,14 +199,12 @@ export function DamagedPage() {
                       setColorError('')
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addColorLine())}
-                    disabled={!hasDamaged}
                   />
                 </div>
                 <div className="sm:shrink-0 sm:w-28">
                   <Button
                     type="button"
                     className="w-full h-11 font-semibold"
-                    disabled={!hasDamaged}
                     onClick={addColorLine}
                   >
                     + Add
@@ -262,7 +255,6 @@ export function DamagedPage() {
                     value={labourRate}
                     onChange={(e) => setLabourRate(e.target.value)}
                     placeholder="e.g. 15"
-                    disabled={!hasDamaged}
                   />
                 </Field>
                 <div className="sm:col-span-2">
@@ -272,7 +264,6 @@ export function DamagedPage() {
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
                       placeholder="Optional note"
-                      disabled={!hasDamaged}
                     />
                   </Field>
                 </div>
@@ -296,7 +287,7 @@ export function DamagedPage() {
               <Button
                 type="submit"
                 size="default"
-                disabled={saving || !hasDamaged || !colorLines.length || !(rateNum > 0)}
+                disabled={saving || !colorLines.length || !(rateNum > 0)}
                 className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-xs cursor-pointer"
               >
                 {saving ? (
@@ -313,7 +304,6 @@ export function DamagedPage() {
               </Button>
             </div>
           </form>
-        )}
       </div>
     </PageLayout>
   )

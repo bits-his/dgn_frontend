@@ -7,7 +7,6 @@ import {
   Calculator,
   ChevronDown,
   Factory,
-  GitBranch,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -33,6 +32,9 @@ import {
   RotateCcw,
   Tag,
   Download,
+  Recycle,
+  Sun,
+  GitBranch,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
@@ -42,6 +44,7 @@ import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
 import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { BrandMark } from '@/components/BrandMark'
+import { MENU_PAGES, userHasMenuKey, type MenuPage } from '@/lib/menuAccess'
 
 export type NavItem = {
   to: string
@@ -72,16 +75,12 @@ export function canAccessNavItem(
 
   if (item.menuKey === 'security') {
     if (user.roleCode === 'STOREKEEPER' || user.roleCode === 'FACTORY_MANAGER') return true
-    return Boolean(user.menuAccess?.includes('security'))
+    return userHasMenuKey(user.menuAccess, 'security')
   }
 
-  // If user has specific menuAccess array assigned
   if (user.menuAccess && Array.isArray(user.menuAccess) && user.menuAccess.length > 0) {
     if (item.menuKey) {
-      if (user.menuAccess.includes(item.menuKey)) return true
-      if (item.menuKey === 'recrushing' && user.menuAccess.includes('crushing')) return true
-      if (item.menuKey === 'operators' && user.menuAccess.includes('staff')) return true
-      if (item.menuKey === 'distributors' && user.menuAccess.includes('sales')) return true
+      if (userHasMenuKey(user.menuAccess, item.menuKey)) return true
       if (
         item.menuKey === 'processing_money' &&
         (hasPermission(user, 'float.give') || hasPermission(user, 'float.view') || hasPermission(user, 'float.spend'))
@@ -90,14 +89,12 @@ export function canAccessNavItem(
       }
       return false
     }
-    // Items without a menuKey
     if (item.permission) {
       return hasPermission(user, item.permission)
     }
     return true
   }
 
-  // Fallback to permission check if no explicit menuAccess is configured on user
   if (item.permission) {
     return hasPermission(user, item.permission)
   }
@@ -116,6 +113,49 @@ function resolveNavItem(
   }
 }
 
+const MENU_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  receiving: PackagePlus,
+  crushing: Hammer,
+  washing: Droplets,
+  second_grade: Layers,
+  drying: Sun,
+  recrushing: RotateCcw,
+  recycling: Recycle,
+  production_store: Warehouse,
+  production: Play,
+  damaged: AlertTriangle,
+  qc: ShieldCheck,
+  inventory: Boxes,
+  security: Shield,
+  sales: Truck,
+  pricing: Tag,
+  distributors: Store,
+  batches: Search,
+  masters: Boxes,
+  processing_money: Wallet,
+  expenses: Receipt,
+  staff: Users,
+  operators: HardHat,
+  payroll: Wallet,
+  dashboard: LayoutDashboard,
+  machines: Gauge,
+  sales_margins: TrendingUp,
+  costs: Calculator,
+  overhead: Layers,
+  alerts: Bell,
+}
+
+function navItemsFor(slot: MenuPage['nav']): NavItem[] {
+  return MENU_PAGES.filter((page) => page.nav === slot).map((page) => ({
+    to: page.to,
+    label: page.label,
+    icon: MENU_ICONS[page.key] || Boxes,
+    end: page.end,
+    permission: page.permission,
+    menuKey: page.key,
+  }))
+}
+
 const mainNavTop: NavItem[] = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
 ]
@@ -124,51 +164,14 @@ const recyclingGroup: NavGroup = {
   id: 'recycling',
   label: 'Processing',
   icon: Factory,
-  items: [
-    { to: '/receiving', label: 'Scrap buying', icon: PackagePlus, menuKey: 'receiving', permission: 'receiving.create' },
-    { to: '/process/crushing', label: 'Crushing', icon: Hammer, menuKey: 'crushing', permission: 'batch.create' },
-    { to: '/process/washing', label: 'Washing', icon: Droplets, menuKey: 'washing', permission: 'batch.create' },
-    { to: '/process/second-grade', label: 'Second grade', icon: Layers, menuKey: 'washing', permission: 'batch.view' },
-  ],
+  items: navItemsFor('processing'),
 }
 
-const recyclingNav: NavItem[] = [
-  { to: '/process/recrushing', label: 'Re-crushing', icon: RotateCcw, menuKey: 'recrushing', permission: 'batch.create' },
-]
-
-const productionNav: NavItem[] = [
-  { to: '/production/store', label: 'Material store', icon: Warehouse, menuKey: 'production_store', permission: 'batch.view' },
-  { to: '/production', label: 'Production', icon: Play, end: true, menuKey: 'production', permission: 'batch.view' },
-  { to: '/production/damaged', label: 'Damaged', icon: AlertTriangle, menuKey: 'production', permission: 'batch.view' },
-]
-
-const mainNavRest: NavItem[] = [
-  { to: '/qc', label: 'Quality control', icon: ShieldCheck, menuKey: 'qc', permission: 'batch.view' },
-  { to: '/inventory', label: 'Inventory', icon: Boxes, menuKey: 'inventory', permission: 'inventory.view' },
-  { to: '/security', label: 'Security Post', icon: Shield, menuKey: 'security', permission: 'batch.view' },
-  { to: '/sales', label: 'Sales & dispatch', icon: Truck, end: true, menuKey: 'sales', permission: 'sales.view' },
-  { to: '/pricing', label: 'Product pricing', icon: Tag, menuKey: 'pricing', permission: 'sales.create' },
-  { to: '/distributors', label: 'Distributors', icon: Store, menuKey: 'distributors', permission: 'sales.view' },
-  { to: '/batches', label: 'Batches', icon: Search, menuKey: 'batches', permission: 'batch.view' },
-  // { to: '/suppliers', label: 'Suppliers', icon: Truck, menuKey: 'suppliers', permission: 'batch.view' },
-  { to: '/masters', label: 'Masters', icon: Boxes, menuKey: 'masters', permission: 'masters.manage' },
-]
-
-const financeNav: NavItem[] = [
-  { to: '/wallet', label: 'Wallet', icon: Wallet, menuKey: 'processing_money', permission: 'float.spend' },
-  { to: '/expenses', label: 'Expenses', icon: Receipt, menuKey: 'expenses', permission: 'expense.view' },
-  { to: '/staff', label: 'Staff', icon: Users, menuKey: 'staff', permission: 'labour.view' },
-  { to: '/operators', label: 'Operators', icon: HardHat, menuKey: 'operators', permission: 'labour.view' },
-  { to: '/payroll', label: 'Payroll', icon: Wallet, menuKey: 'payroll', permission: 'labour.view' },
-]
-
-const intelligenceNav: NavItem[] = [
-  { to: '/dashboard', label: 'Command centre', icon: LayoutDashboard, menuKey: 'dashboard', permission: 'dashboard.executive' },
-  { to: '/machines', label: 'Machines & maintenance', icon: Gauge, menuKey: 'machines', permission: 'batch.view' },
-  { to: '/sales/margins', label: 'Sales margin', icon: TrendingUp, menuKey: 'sales_margins', permission: 'sales.view' },
-  { to: '/costs', label: 'Cost intelligence', icon: Calculator, end: true, menuKey: 'costs', permission: 'costs.view' },
-  { to: '/costs/overhead', label: 'Factory overhead', icon: Layers, menuKey: 'overhead', permission: 'costs.view' },
-]
+const recyclingNav = navItemsFor('processingMore')
+const productionNav = navItemsFor('production')
+const mainNavRest = navItemsFor('operations')
+const financeNav = navItemsFor('finance')
+const intelligenceNav = navItemsFor('intelligence')
 
 function NavList({
   items,
@@ -317,10 +320,9 @@ export function AppShell() {
   const openCount = alertSummary.data?.total ?? 0
   const criticalCount = alertSummary.data?.bySeverity.CRITICAL ?? 0
 
-  const intelligenceItems: NavItem[] = [
-    ...intelligenceNav,
-    { to: '/alerts', label: 'Alerts', icon: Bell, menuKey: 'alerts', permission: 'alert.view', badge: openCount },
-  ]
+  const intelligenceItems: NavItem[] = intelligenceNav.map((item) =>
+    item.menuKey === 'alerts' ? { ...item, badge: openCount } : item,
+  )
 
   const sidebar = (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-sidebar)] text-white">
