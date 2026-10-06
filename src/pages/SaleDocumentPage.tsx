@@ -4,6 +4,7 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { useEffect } from 'react'
 import { api } from '@/lib/api'
 import { BrandMark } from '@/components/BrandMark'
+import { dozenPriceFromUnit, isPieceUom, perDozenOf, qtyDozenLabel } from '@/lib/units'
 
 type DocLine = {
   id: number
@@ -13,6 +14,7 @@ type DocLine = {
   qtyReturned: number
   uom: string
   unitPrice: number
+  unitsPerDozen?: number | null
   lineTotal: number
 }
 
@@ -62,10 +64,6 @@ type DocSale = {
 
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-}
-
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
 }
 
 function formatBusinessDate(raw?: string | null) {
@@ -263,7 +261,7 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
                   <th className="py-2 pr-3">Goods</th>
                   <th className="py-2 pr-3">Batch</th>
                   <th className="py-2 pr-3 text-right">Qty</th>
-                  <th className="py-2 pr-3 text-right">Price</th>
+                  <th className="py-2 pr-3 text-right">Price / dz</th>
                   <th className="py-2 text-right">Amount</th>
                 </tr>
               </thead>
@@ -275,15 +273,19 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
                       {line.productName || '—'}
                       {line.qtyReturned > 0 && (
                         <span className="block text-xs text-zinc-600">
-                          {fmt(line.qtyReturned)} {line.uom} returned
+                          {qtyDozenLabel(line.qtyReturned, line.uom, line.unitsPerDozen)} returned
                         </span>
                       )}
                     </td>
                     <td className="py-2.5 pr-3 font-mono text-xs">{line.batchNumber || '—'}</td>
                     <td className="py-2.5 pr-3 text-right">
-                      {fmt(line.qty)} {line.uom}
+                      {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
                     </td>
-                    <td className="py-2.5 pr-3 text-right">{money(line.unitPrice)}</td>
+                    <td className="py-2.5 pr-3 text-right">
+                      {isPieceUom(line.uom)
+                        ? `${money(dozenPriceFromUnit(line.unitPrice, perDozenOf(line.unitsPerDozen)))}/dz`
+                        : money(line.unitPrice)}
+                    </td>
                     <td className="py-2.5 text-right font-semibold">{money(line.lineTotal)}</td>
                   </tr>
                 ))}

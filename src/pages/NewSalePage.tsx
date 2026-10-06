@@ -15,11 +15,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { CreditBar } from '@/pages/DistributorsPage'
+import {
+  dozenCount,
+  dozenPriceFromUnit,
+  isPieceUom,
+  pcsFromDozen,
+  perDozenOf,
+  qtyDozenLabel,
+} from '@/lib/units'
 
 type SellableBatch = {
   id: number
   batchNumber: string
   productId: number | null
+  productCode: string | null
   productName: string | null
   qtyAvailable: number
   uom: string
@@ -28,6 +37,26 @@ type SellableBatch = {
   unitCost: number | null
   sellingPrice?: number | null
   standardPrice?: number | null
+  unitsPerDozen?: number | null
+}
+
+type SellableProduct = {
+  key: string
+  productId: number | null
+  productCode: string | null
+  productName: string
+  qtyAvailable: number
+  uom: string
+  locationName: string | null
+  unitCost: number | null
+  sellingPrice: number | null
+  standardPrice: number | null
+  unitsPerDozen: number
+  batches: SellableBatch[]
+}
+
+type ProductSaleInput = {
+  dozen: string
 }
 
 type Customer = {
@@ -57,17 +86,71 @@ type DistributorCreditView = {
   paymentTermsDays?: number
 }
 
-type BatchSaleInput = {
-  qty: string
-  unitPrice: string
-}
-
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
 
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
+function round3(n: number) {
+  return +Number(n || 0).toFixed(3)
+}
+
+function productStockKey(batch: Pick<SellableBatch, 'productId' | 'productName' | 'uom'>) {
+  return `${batch.productId ?? 'none'}::${batch.productName || 'Finished Product'}::${batch.uom || 'pcs'}`
+}
+
+function accumulateSellableProducts(batches: SellableBatch[]): SellableProduct[] {
+  const map = new Map<string, SellableProduct>()
+  for (const batch of batches) {
+    const key = productStockKey(batch)
+    const existing = map.get(key)
+    if (!existing) {
+      map.set(key, {
+        key,
+        productId: batch.productId,
+        productCode: batch.productCode,
+        productName: batch.productName || 'Finished Product',
+        qtyAvailable: batch.qtyAvailable,
+        uom: batch.uom || 'pcs',
+        locationName: batch.locationName,
+        unitCost: batch.unitCost,
+        sellingPrice: batch.sellingPrice ?? null,
+        standardPrice: batch.standardPrice ?? null,
+        unitsPerDozen: perDozenOf(batch.unitsPerDozen),
+        batches: [batch],
+      })
+      continue
+    }
+    existing.qtyAvailable = round3(existing.qtyAvailable + batch.qtyAvailable)
+    existing.batches.push(batch)
+    if (!existing.productCode && batch.productCode) existing.productCode = batch.productCode
+    if (!existing.sellingPrice && batch.sellingPrice) existing.sellingPrice = batch.sellingPrice
+    if (!existing.standardPrice && batch.standardPrice) existing.standardPrice = batch.standardPrice
+    if (existing.locationName && batch.locationName && existing.locationName !== batch.locationName) {
+      existing.locationName = 'Several locations'
+    } else if (!existing.locationName && batch.locationName) {
+      existing.locationName = batch.locationName
+    }
+  }
+  for (const product of map.values()) {
+    const costed = product.batches.filter((b) => b.unitCost != null && Number.isFinite(Number(b.unitCost)))
+    const qty = costed.reduce((sum, b) => sum + b.qtyAvailable, 0)
+    const costSum = costed.reduce((sum, b) => sum + Number(b.unitCost) * b.qtyAvailable, 0)
+    product.unitCost = qty > 0 ? round3(costSum / qty) : null
+  }
+  return Array.from(map.values()).sort((a, b) => a.productName.localeCompare(b.productName))
+}
+
+function allocateQtyToBatches(product: SellableProduct, qty: number, unitPrice: number) {
+  let remaining = round3(qty)
+  const lines: { batchNumber: string; qty: number; unitPrice: number }[] = []
+  for (const batch of product.batches) {
+    if (remaining <= 0.0001) break
+    const take = round3(Math.min(batch.qtyAvailable, remaining))
+    if (!(take > 0)) continue
+    lines.push({ batchNumber: batch.batchNumber, qty: take, unitPrice })
+    remaining = round3(remaining - take)
+  }
+  return { lines, remaining }
 }
 
 export function NewSalePage() {
@@ -90,8 +173,8 @@ export function NewSalePage() {
   const [saving, setSaving] = useState(false)
   const customerPickerRef = useRef<HTMLDivElement>(null)
 
-  // Map of batchNumber -> { qty, unitPrice }
-  const [batchInputs, setBatchInputs] = useState<Record<string, BatchSaleInput>>({})
+  // Map of product key -> { qty, unitPrice }
+  const [productInputs, setProductInputs] = useState<Record<string, ProductSaleInput>>({})
 
   const customers = useQuery({
     queryKey: ['customers'],
@@ -211,68 +294,68 @@ export function NewSalePage() {
     return filtered
   }, [customers.data, customerSearch, customerId])
 
-  // Pre-fill default price when batches load
+  const products = useMemo(
+    () => accumulateSellableProducts(sellable.data || []),
+    [sellable.data],
+  )
+
   useEffect(() => {
-    if (!sellable.data?.length) return
-    setBatchInputs((prev) => {
+    if (!products.length) return
+    setProductInputs((prev) => {
       const next = { ...prev }
-      for (const b of sellable.data) {
-        const price = Number(b.standardPrice ?? b.sellingPrice)
-        const defaultPrice = Number.isFinite(price) && price > 0 ? String(price) : ''
-        if (!next[b.batchNumber]) {
-          next[b.batchNumber] = {
-            qty: '',
-            unitPrice: defaultPrice,
-          }
-        } else if (!next[b.batchNumber].unitPrice && defaultPrice) {
-          next[b.batchNumber] = {
-            ...next[b.batchNumber],
-            unitPrice: defaultPrice,
-          }
-        }
+      for (const product of products) {
+        if (!next[product.key]) next[product.key] = { dozen: '' }
       }
       return next
     })
-  }, [sellable.data])
+  }, [products])
 
-  const handleQtyChange = (batchNumber: string, val: string) => {
-    setBatchInputs((prev) => ({
+  const patchInput = (productKey: string, patch: Partial<ProductSaleInput>) => {
+    setProductInputs((prev) => ({
       ...prev,
-      [batchNumber]: {
-        ...(prev[batchNumber] || { unitPrice: '' }),
-        qty: val,
+      [productKey]: {
+        ...(prev[productKey] || { dozen: '' }),
+        ...patch,
       },
     }))
   }
 
-  const handleMaxQty = (batch: SellableBatch) => {
-    handleQtyChange(batch.batchNumber, String(batch.qtyAvailable))
+  const handleMaxQty = (product: SellableProduct) => {
+    if (!isPieceUom(product.uom)) {
+      patchInput(product.key, { dozen: String(product.qtyAvailable) })
+      return
+    }
+    const dz = dozenCount(product.qtyAvailable, product.unitsPerDozen)
+    patchInput(product.key, {
+      dozen: dz ? String(dz) : '',
+    })
   }
 
-  const handleClearQty = (batchNumber: string) => {
-    handleQtyChange(batchNumber, '')
+  const handleClearQty = (productKey: string) => {
+    patchInput(productKey, { dozen: '' })
   }
 
-  // Active items being sold (where qty > 0)
   const activeLines = useMemo(() => {
-    if (!sellable.data?.length) return []
+    if (!products.length) return []
     const list = []
-    for (const batch of sellable.data) {
-      const input = batchInputs[batch.batchNumber]
-      const qtyNum = Number(input?.qty) || 0
+    for (const product of products) {
+      const input = productInputs[product.key]
+      const qtyNum = isPieceUom(product.uom)
+        ? pcsFromDozen(input?.dozen || 0, product.unitsPerDozen)
+        : Number(input?.dozen) || 0
       if (qtyNum > 0) {
-        const unitPriceNum = Number(input?.unitPrice) || 0
+        const unitPriceNum = Number(product.standardPrice ?? product.sellingPrice) || 0
         list.push({
-          batch,
+          product,
           qty: qtyNum,
           unitPrice: unitPriceNum,
           lineTotal: qtyNum * unitPriceNum,
-          lineCost: qtyNum * (batch.unitCost || 0),
+          lineCost: qtyNum * (product.unitCost || 0),
         })
       }
     }
     return list
-  }, [sellable.data, batchInputs])
+  }, [products, productInputs])
 
   const computed = useMemo(() => {
     let subtotal = 0
@@ -304,17 +387,16 @@ export function NewSalePage() {
     }
   }, [activeLines, discount, amountPaid, advanceApplied])
 
-  const filteredSellable = useMemo(() => {
+  const filteredProducts = useMemo(() => {
     const q = itemSearch.trim().toLowerCase()
-    const all = sellable.data || []
-    if (!q) return all
-    return all.filter(
-      (b) =>
-        b.batchNumber.toLowerCase().includes(q) ||
-        (b.productName && b.productName.toLowerCase().includes(q)) ||
-        (b.locationName && b.locationName.toLowerCase().includes(q))
+    if (!q) return products
+    return products.filter(
+      (p) =>
+        p.productName.toLowerCase().includes(q) ||
+        (p.productCode && p.productCode.toLowerCase().includes(q)) ||
+        (p.locationName && p.locationName.toLowerCase().includes(q)),
     )
-  }, [sellable.data, itemSearch])
+  }, [products, itemSearch])
 
   const credit = distributorCredit.data
   const thisSaleDue = Math.max(0, computed.balance)
@@ -339,7 +421,7 @@ export function NewSalePage() {
     : activeLines.length === 0
       ? 'Enter a quantity on at least one product.'
       : belowMin
-        ? `This distributor’s minimum is ${fmt(minOrderQty)} units. You currently have ${fmt(computed.qty)}.`
+        ? `This distributor’s minimum is ${qtyDozenLabel(minOrderQty, 'pcs')}. You currently have ${qtyDozenLabel(computed.qty, 'pcs')}.`
         : creditBlocked
           ? 'This sale would exceed their credit limit. Collect more payment or reduce the order.'
           : saving
@@ -361,14 +443,23 @@ export function NewSalePage() {
             ? `NET_${termsDays}`
             : 'CREDIT'
 
+      const saleLines = []
+      for (const line of activeLines) {
+        const allocated = allocateQtyToBatches(line.product, line.qty, line.unitPrice)
+        if (allocated.remaining > 0.0001) {
+          setError(
+            `Only ${qtyDozenLabel(line.qty - allocated.remaining, line.product.uom, line.product.unitsPerDozen)} of ${line.product.productName} is available.`,
+          )
+          setSaving(false)
+          return
+        }
+        saleLines.push(...allocated.lines)
+      }
+
       const { data } = await api.post('/sales', {
         customerId: Number(customerId),
         saleType,
-        lines: activeLines.map((l) => ({
-          batchNumber: l.batch.batchNumber,
-          qty: l.qty,
-          unitPrice: l.unitPrice,
-        })),
+        lines: saleLines,
         discount: Number(discount) || 0,
         amountPaid: Number(amountPaid) || 0,
         advanceApplied: Number(advanceApplied) || 0,
@@ -456,7 +547,7 @@ export function NewSalePage() {
   return (
     <PageLayout
       title="New sale"
-      description="Select goods and enter quantity & price directly on each item"
+      description="Select products and enter quantity & price — stock is the total of that product, not each production lot"
       back={true}
       backLabel="Back to sales"
       onBack={() => navigate('/sales')}
@@ -470,19 +561,25 @@ export function NewSalePage() {
                 <h2 className="text-sm font-semibold text-zinc-900">Available Goods</h2>
                 {activeLines.length > 0 && (
                   <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 border border-emerald-200/60">
-                    {activeLines.length} item{activeLines.length === 1 ? '' : 's'} in sale ({fmt(computed.qty)} kg)
+                    {activeLines.length} product{activeLines.length === 1 ? '' : 's'} in sale (
+                    {qtyDozenLabel(
+                      computed.qty,
+                      activeLines.length === 1 ? activeLines[0].product.uom : 'pcs',
+                      activeLines.length === 1 ? activeLines[0].product.unitsPerDozen : 12,
+                    )}
+                    )
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-zinc-500">
-                QC-inspected finished stock batches ready for dispatch
+                QC-accepted finished goods, added together by product
               </p>
             </div>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
               <Input
                 type="text"
-                placeholder="Search batch or product..."
+                placeholder="Search product..."
                 value={itemSearch}
                 onChange={(e) => setItemSearch(e.target.value)}
                 className="pl-8 text-xs h-8"
@@ -492,19 +589,19 @@ export function NewSalePage() {
 
           {sellable.isLoading && (
             <div className="py-12 text-center text-xs text-zinc-400">
-              Loading sellable finished goods batches…
+              Loading sellable products…
             </div>
           )}
 
-          {!sellable.isLoading && filteredSellable.length === 0 && (
+          {!sellable.isLoading && filteredProducts.length === 0 && (
             <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-8 text-center">
               <p className="text-sm font-semibold text-zinc-800">
-                {sellable.data?.length === 0
+                {products.length === 0
                   ? 'No sellable inventory available'
                   : 'No matching items found'}
               </p>
               <p className="mt-1 text-xs text-zinc-500">
-                {sellable.data?.length === 0
+                {products.length === 0
                   ? 'Finished goods must be inspected and accepted by quality control before they can be sold.'
                   : 'Try searching with a different keyword.'}
               </p>
@@ -512,20 +609,36 @@ export function NewSalePage() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {filteredSellable.map((batch) => {
-              const input = batchInputs[batch.batchNumber] || { qty: '', unitPrice: '' }
-              const enteredQty = Number(input.qty) || 0
+            {filteredProducts.map((product) => {
+              const per = perDozenOf(product.unitsPerDozen)
+              const pieceUom = isPieceUom(product.uom)
+              const input = productInputs[product.key] || { dozen: '' }
+              const availableDozen = dozenCount(product.qtyAvailable, per)
+              const enteredDozen = Number(input.dozen) || 0
+              const enteredQty = pieceUom ? pcsFromDozen(enteredDozen, per) : enteredDozen
               const isSelected = enteredQty > 0
-              const unitPriceNum = Number(input.unitPrice) || 0
+              const unitPriceNum = Number(product.standardPrice ?? product.sellingPrice) || 0
+              const dozenPrice = dozenPriceFromUnit(unitPriceNum, per)
               const lineTotal = enteredQty * unitPriceNum
-              const costTotal = enteredQty * (batch.unitCost || 0)
+              const costTotal = enteredQty * (product.unitCost || 0)
               const lineMargin = lineTotal - costTotal
               const lineMarginPct = lineTotal > 0 ? (lineMargin / lineTotal) * 100 : 0
-              const isExceeded = enteredQty > batch.qtyAvailable
+              const isExceeded = pieceUom
+                ? enteredDozen > availableDozen
+                : enteredQty > product.qtyAvailable
+              const costPerDozen =
+                product.unitCost != null ? dozenPriceFromUnit(product.unitCost, per) : null
+              const inputClass = `h-8 text-xs font-semibold tabular-nums ${
+                isExceeded
+                  ? 'border-red-400 focus-visible:ring-red-400 bg-red-50/50'
+                  : isSelected
+                    ? 'border-emerald-400 focus-visible:ring-emerald-400 bg-white'
+                    : ''
+              }`
 
               return (
                 <div
-                  key={batch.id}
+                  key={product.key}
                   className={`rounded-xl border p-3.5 transition-all duration-150 flex flex-col justify-between ${
                     isSelected
                       ? 'border-emerald-500 bg-emerald-50/20 shadow-xs ring-1 ring-emerald-500/20'
@@ -535,7 +648,7 @@ export function NewSalePage() {
                   <div>
                     <div className="flex items-start justify-between gap-1.5 mb-1.5">
                       <span className="font-mono text-[11px] font-bold text-[var(--accent-strong)] bg-zinc-100 px-2 py-0.5 rounded">
-                        {batch.batchNumber}
+                        {product.productCode || 'Product'}
                       </span>
                       {isSelected ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-300 px-1.5 py-0.5 rounded-full">
@@ -543,97 +656,106 @@ export function NewSalePage() {
                         </span>
                       ) : (
                         <span className="text-[10px] font-medium text-zinc-400">
-                          {batch.locationName || 'Main Bay'}
+                          {product.locationName || 'Finished store'}
                         </span>
                       )}
                     </div>
 
                     <h3 className="font-semibold text-xs text-zinc-900 line-clamp-1">
-                      {batch.productName || 'Finished Product'}
+                      {product.productName}
                     </h3>
 
                     <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
                       <span>
-                        Available: <strong className="text-zinc-800">{fmt(batch.qtyAvailable)} {batch.uom}</strong>
+                        Available:{' '}
+                        <strong className="text-zinc-800">
+                          {qtyDozenLabel(product.qtyAvailable, product.uom, per)}
+                        </strong>
                       </span>
-                      {batch.unitCost != null && (
+                      {pieceUom && costPerDozen != null && costPerDozen > 0 && (
                         <span>
-                          Cost: <strong className="text-zinc-700">{money(batch.unitCost)}/{batch.uom}</strong>
+                          Cost: <strong className="text-zinc-700">{money(costPerDozen)}/dz</strong>
+                        </span>
+                      )}
+                      {!pieceUom && product.unitCost != null && (
+                        <span>
+                          Cost: <strong className="text-zinc-700">{money(product.unitCost)}/{product.uom}</strong>
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Quantity & Price Direct Inputs */}
                   <div className="mt-3 pt-2.5 border-t border-zinc-100">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                        {pieceUom ? 'Dozen & price' : 'Quantity & price'}
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleMaxQty(product)}
+                          className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                        >
+                          Max
+                        </button>
+                        {isSelected && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearQty(product.key)}
+                            className="text-[10px] text-zinc-400 hover:text-red-600 cursor-pointer ml-1"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <label className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                            Quantity ({batch.uom})
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleMaxQty(batch)}
-                              className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 cursor-pointer"
-                            >
-                              Max
-                            </button>
-                            {isSelected && (
-                              <button
-                                type="button"
-                                onClick={() => handleClearQty(batch.batchNumber)}
-                                className="text-[10px] text-zinc-400 hover:text-red-600 cursor-pointer ml-1"
-                              >
-                                ✕
-                              </button>
-                            )}
-                          </div>
-                        </div>
+                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">
+                          {pieceUom ? 'Dozen' : 'Qty'}
+                        </label>
                         <Input
                           type="number"
                           min="0"
-                          max={batch.qtyAvailable}
-                          step="any"
+                          max={pieceUom ? availableDozen : product.qtyAvailable}
+                          step={pieceUom ? '1' : 'any'}
                           placeholder="0"
-                          value={input.qty}
-                          onChange={(e) => handleQtyChange(batch.batchNumber, e.target.value)}
-                          className={`h-8 text-xs font-semibold tabular-nums ${
-                            isExceeded
-                              ? 'border-red-400 focus-visible:ring-red-400 bg-red-50/50'
-                              : isSelected
-                              ? 'border-emerald-400 focus-visible:ring-emerald-400 bg-white'
-                              : ''
-                          }`}
+                          value={input.dozen}
+                          onChange={(e) => patchInput(product.key, { dozen: e.target.value })}
+                          className={inputClass}
                         />
-                        {isExceeded && (
-                          <p className="text-[10px] text-red-600 mt-0.5">
-                            Exceeds stock ({fmt(batch.qtyAvailable)})
-                          </p>
-                        )}
                       </div>
-
                       <div>
-                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
-                          Unit Price (₦)
+                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">
+                          {pieceUom ? 'Price / dz' : 'Unit price'}
                         </label>
                         <div
                           className={`h-8 px-2.5 flex items-center rounded-md border text-xs font-semibold tabular-nums ${
-                            unitPriceNum > 0
+                            dozenPrice > 0 || unitPriceNum > 0
                               ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
                               : 'border-amber-200 bg-amber-50 text-amber-800'
                           }`}
                         >
-                          {unitPriceNum > 0 ? money(unitPriceNum) : 'No price set'}
+                          {pieceUom
+                            ? dozenPrice > 0
+                              ? money(dozenPrice)
+                              : 'No price'
+                            : unitPriceNum > 0
+                              ? money(unitPriceNum)
+                              : 'No price'}
                         </div>
-                        {unitPriceNum <= 0 && (
-                          <p className="text-[10px] text-amber-700 mt-0.5">
-                            Set this on Product pricing first
-                          </p>
-                        )}
                       </div>
                     </div>
+                    {isExceeded && (
+                      <p className="text-[10px] text-red-600 mt-0.5">
+                        Exceeds stock ({qtyDozenLabel(product.qtyAvailable, product.uom, per)})
+                      </p>
+                    )}
+                    {unitPriceNum <= 0 && (
+                      <p className="text-[10px] text-amber-700 mt-0.5">
+                        Set this on Product pricing first
+                      </p>
+                    )}
 
                     {/* Live Line Calculation */}
                     {isSelected && (
@@ -642,7 +764,7 @@ export function NewSalePage() {
                           {money(lineTotal)}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          {unitPriceNum > 0 && batch.unitCost != null && (
+                          {unitPriceNum > 0 && product.unitCost != null && (
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                                 lineMargin >= 0
@@ -789,7 +911,7 @@ export function NewSalePage() {
                 )}
                 {belowMin && (
                   <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 font-medium">
-                    Order volume ({fmt(computed.qty)} units) is below distributor minimum of {fmt(minOrderQty)} units
+                    Order volume ({qtyDozenLabel(computed.qty, 'pcs')}) is below distributor minimum of {qtyDozenLabel(minOrderQty, 'pcs')}
                   </p>
                 )}
               </div>
@@ -881,7 +1003,7 @@ export function NewSalePage() {
             {/* Financial Summary */}
             <div className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-3.5 space-y-2 text-xs">
               <div className="flex justify-between text-zinc-600">
-                <span>Gross value ({activeLines.length} items)</span>
+                <span>Gross value ({activeLines.length} products)</span>
                 <span className="tabular-nums font-medium">{money(computed.subtotal)}</span>
               </div>
               {Number(discount) > 0 && (

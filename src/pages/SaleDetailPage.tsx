@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { DistributorPaymentForm } from '@/pages/DistributorPaymentForm'
+import { dozenPriceFromUnit, isPieceUom, perDozenOf, qtyDozenLabel } from '@/lib/units'
 
 type SaleLine = {
   id: number
@@ -18,6 +19,7 @@ type SaleLine = {
   qtyReturned: number
   uom: string
   unitPrice: number
+  unitsPerDozen?: number | null
   lineTotal: number
   unitCost: number
   lineCost: number
@@ -102,10 +104,6 @@ const REASON_COPY: Record<string, string> = {
 
 function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-}
-
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
 }
 
 function formatBusinessDate(raw?: string | null) {
@@ -338,7 +336,7 @@ export function SaleDetailPage() {
                 <th className="py-2 pr-4">Product</th>
                 <th className="py-2 pr-4">Batch</th>
                 <th className="py-2 pr-4 text-right">Qty</th>
-                <th className="py-2 pr-4 text-right">Price</th>
+                <th className="py-2 pr-4 text-right">Price / dz</th>
                 <th className="py-2 pr-4 text-right">Value</th>
                 <th className="py-2 pr-4 text-right">Cost</th>
                 <th className="py-2 pr-4 text-right">Margin</th>
@@ -354,7 +352,7 @@ export function SaleDetailPage() {
                       <p className="font-medium">{line.productName || '—'}</p>
                       {line.qtyReturned > 0 && (
                         <p className="text-xs text-amber-800">
-                          {fmt(line.qtyReturned)} {line.uom} returned
+                          {qtyDozenLabel(line.qtyReturned, line.uom, line.unitsPerDozen)} returned
                         </p>
                       )}
                     </td>
@@ -371,9 +369,13 @@ export function SaleDetailPage() {
                       )}
                     </td>
                     <td className="py-3 pr-4 text-right">
-                      {fmt(line.qty)} {line.uom}
+                      {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
                     </td>
-                    <td className="py-3 pr-4 text-right">{money(line.unitPrice)}</td>
+                    <td className="py-3 pr-4 text-right">
+                      {isPieceUom(line.uom)
+                        ? `${money(dozenPriceFromUnit(line.unitPrice, perDozenOf(line.unitsPerDozen)))}/dz`
+                        : money(line.unitPrice)}
+                    </td>
                     <td className="py-3 pr-4 text-right font-semibold">{money(line.lineTotal)}</td>
                     <td className="py-3 pr-4 text-right">{money(line.lineCost)}</td>
                     <td className="py-3 pr-4 text-right">
@@ -443,7 +445,7 @@ export function SaleDetailPage() {
                       {ret.notes && <p className="text-xs text-zinc-500">{ret.notes}</p>}
                     </td>
                     <td className="py-3 pr-4 text-right">
-                      {fmt(ret.qty)} {ret.uom}
+                      {qtyDozenLabel(ret.qty, ret.uom)}
                     </td>
                     <td className="py-3 text-right font-semibold">{money(ret.refundAmount)}</td>
                   </tr>
@@ -615,11 +617,11 @@ function ReturnDialog({
   return (
     <Dialog title="Take goods back" onClose={onClose}>
       <p className="text-sm text-zinc-800">
-        {line.batchNumber} · {fmt(returnable)} {line.uom} still returnable out of {fmt(line.qty)} sold.
+        {line.batchNumber} · {qtyDozenLabel(returnable, line.uom, line.unitsPerDozen)} still returnable out of {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)} sold.
       </p>
 
       <div className="mt-4 grid gap-4">
-        <Field label={`Quantity coming back (${line.uom})`}>
+        <Field label={`Quantity coming back (${qtyDozenLabel(returnable, line.uom, line.unitsPerDozen)} max)`}>
           <input
             className="dgn-input"
             type="number"

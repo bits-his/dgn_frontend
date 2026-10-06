@@ -66,6 +66,7 @@ const STAGE_LABEL: Record<string, string> = {
   DRYING: 'Drying',
   RECRUSHING: 'Re-crushing',
   RECYCLING: 'Recycling',
+  PRODUCTION: 'Production',
 }
 
 type CostSummary = {
@@ -675,6 +676,8 @@ export function BatchDetailPage() {
       amount: number
       amountPrimary?: string
       amountSecondary?: string
+      dedupeKey?: string
+      skipTotal?: boolean
     }> = []
     const pricePerKg = Number(receipt?.pricePerKg || 0)
     const sortingPricePerKg = Number(receipt?.sortingPricePerKg || 0)
@@ -708,7 +711,10 @@ export function BatchDetailPage() {
             rowItem.amountPrimary = `${money(sortingPricePerKg)}/kg`
             rowItem.amountSecondary = amount > 0 ? money(amount) : undefined
           }
-          expenseRowsRaw.push(rowItem)
+          expenseRowsRaw.push({
+            ...rowItem,
+            dedupeKey: `${row.key}|${lineLabel}|${amount.toFixed(2)}`,
+          })
         })
       })
     } else {
@@ -738,15 +744,19 @@ export function BatchDetailPage() {
       amount: number
       amountPrimary?: string
       amountSecondary?: string
+      skipTotal?: boolean
     }> = []
     const seenExpense = new Set<string>()
     expenseRowsRaw.forEach((row) => {
-      const key = `${row.label.toLowerCase()}|${row.amount.toFixed(2)}`
+      const key = row.dedupeKey || `${row.label.toLowerCase()}|${row.amount.toFixed(2)}`
       if (seenExpense.has(key)) return
       seenExpense.add(key)
       expenseRows.push(row)
     })
-    const expensesTotal = +expenseRows.reduce((sum, row) => sum + row.amount, 0).toFixed(2)
+    const expensesTotal = +expenseRows
+      .filter((row) => !row.skipTotal)
+      .reduce((sum, row) => sum + row.amount, 0)
+      .toFixed(2)
     const isPurchaseLine = (label: string) => {
       const l = label.toLowerCase()
       return l.includes('scrap buy') || l.includes('buy scrap') || l.includes('material purchase')
@@ -855,10 +865,43 @@ export function BatchDetailPage() {
                 value={formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt) || '—'}
               />
               <Fact compact label="Material" value={batch.material?.name || '—'} />
-              <Fact compact label="Quantity purchased" value={kg(qtyKg)} />
+              <Fact
+                compact
+                label="Quantity purchased"
+                value={kg(Number(receipt?.netWeight || qtyKg))}
+              />
+              <Fact
+                compact
+                label="Buy price"
+                value={pricePerKg > 0 ? `${money(pricePerKg)}/kg` : '—'}
+              />
               <Fact compact label="Waste" value={kg(wasteKg)} />
               <Fact compact label="Other cost" value={money(Number(otherExpenses))} />
+              <Fact compact label="Total cost" value={money(displayTotal)} />
             </div>
+
+            {displayStageRows.length > 0 && (
+              <ul className="mt-3 divide-y divide-[var(--line)] border-t border-[var(--line)]">
+                {displayStageRows.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex items-center justify-between gap-3 py-2 first:pt-3"
+                  >
+                    <span className="min-w-0 text-sm font-medium text-[var(--ink)]">
+                      {row.label || STAGE_LABEL[row.stage] || row.stage}
+                    </span>
+                    <div className="shrink-0 text-right tabular-nums">
+                      <p className="text-sm font-semibold text-[var(--ink)]">{money(row.amount)}</p>
+                      {row.perKg != null && (
+                        <p className="text-[11px] font-medium text-[var(--ink-muted)]">
+                          {money(row.perKg)}/kg
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </Card>
 
           {washingRun && Number(washingRun.qtySecondGrade || 0) > 0 && (
@@ -1414,153 +1457,6 @@ export function BatchDetailPage() {
         siblingBatches={batch.batchType === 'CRUSH' ? [] : siblingBatches}
       />
 
-      {!isProd && (displayProcessRuns.length > 0 || displayStageRows.length > 0 || receipt) && (
-        <Card className="!p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3">
-            <div>
-              <h2 className="text-base font-semibold">Process stages</h2>
-              <p className="text-xs text-[var(--ink-muted)]">
-                Scrap buying through current stage — costs and measured kg
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {receipt?.id && receipt.editable !== false ? (
-                <Link
-                  to={`/receiving/${receipt.id}/edit`}
-                  className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
-                >
-                  Edit scrap costs
-                </Link>
-              ) : receipt?.id && receipt.editable === false ? (
-                <span
-                  className="text-xs text-[var(--ink-muted)]"
-                  title={receipt.lockReason || 'Already moved to crushing or later'}
-                >
-                  Scrap edit locked
-                </span>
-              ) : null}
-              {batch.originScrapReceipt && !batch.scrapReceipt && batch.inputs?.[0]?.fromBatch && (
-                <Link
-                  to={`/batches/${batch.inputs[0].fromBatch.batchNumber}`}
-                  className="text-xs font-medium text-[var(--accent-strong)] hover:underline"
-                >
-                  Origin: {batch.inputs[0].fromBatch.batchNumber} →
-                </Link>
-              )}
-              <span className="text-xs text-[var(--ink-muted)]">Current:</span>
-              <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
-                {typeLabel}
-              </span>
-            </div>
-          </div>
-
-          {/* Stage Progression Pipeline */}
-          {/* <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            {[
-              { key: 'BUY', label: '1. Scrap buying', match: ['SCRAP'] },
-              { key: 'CRUSHING', label: '2. Crushing', match: ['CRUSH'] },
-              { key: 'WASHING', label: '3. Washing', match: ['WASH'] },
-              { key: 'DRYING', label: '4. Drying', match: ['DRY'] },
-              { key: 'RECYCLING', label: '5. Recycling', match: ['RECYCLE', 'PROD'] },
-            ].map((step) => {
-              const hasRun = displayStageRows.some((r) => r.stage === step.key)
-              const isCurrent = step.match.includes(batch.batchType)
-
-              return (
-                <div
-                  key={step.key}
-                  className={`rounded-lg border p-2.5 text-xs transition-all ${
-                    isCurrent
-                      ? 'border-blue-500 bg-blue-50/80 font-medium text-blue-900 shadow-sm'
-                      : hasRun
-                      ? 'border-emerald-200 bg-emerald-50/40 text-emerald-800'
-                      : 'border-zinc-200 bg-zinc-50/40 text-zinc-400'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="font-medium">{step.label}</span>
-                    {hasRun && (
-                      <span className="text-emerald-600 font-bold">✓</span>
-                    )}
-                    {isCurrent && !hasRun && (
-                      <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-                    )}
-                  </div>
-                  <p className="mt-1 text-[11px] opacity-80">
-                    {isCurrent ? 'Current stage' : hasRun ? 'Completed' : 'Upcoming'}
-                  </p>
-                </div>
-              )
-            })}
-          </div> */}
-
-          <div className="mt-4 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-3">
-            <Fact
-              label="Expenses total"
-              value={money(displayStageRows.reduce((sum, row) => sum + Number(row.amount || 0), 0))}
-              strong
-            />
-            <Fact
-              label="Total waste"
-              value={kg(
-                displayStageRows.reduce((sum, row) => sum + Number(row.qtyReject || 0), 0) ||
-                  displayProcessRuns.reduce((sum, run) => sum + Number(run.qtyReject || 0), 0),
-              )}
-              strong
-            />
-          </div>
-          <div className="mt-4 space-y-3">
-            {displayStageRows.length > 0
-              ? displayStageRows.map((row) => {
-                  const run =
-                    row.stage === 'BUY'
-                      ? (processRuns.find((r) => r.stage === 'BUY') || sortingRun)
-                      : processRuns.find((r) => r.stage === row.stage)
-                  return <StageBlock key={row.key} run={run} cost={row} />
-                })
-              : (() => {
-                  let fallbackRunning = 0
-                  return displayProcessRuns.map((run) => {
-                    const lines = [
-                      Number(run.labourCost || 0) > 0 ? { label: 'Labour', amount: Number(run.labourCost) } : null,
-                      Number(run.energyCost || 0) > 0 ? { label: 'Energy', amount: Number(run.energyCost) } : null,
-                      Number(run.loadingCost || 0) > 0 ? { label: 'Loading', amount: Number(run.loadingCost) } : null,
-                      Number(run.transportCost || 0) > 0
-                        ? { label: 'Transport', amount: Number(run.transportCost) }
-                        : null,
-                      Number(run.otherCost || 0) > 0 ? { label: 'Other', amount: Number(run.otherCost) } : null,
-                      Number(run.chemicalCost || 0) > 0 ? { label: 'Chemical', amount: Number(run.chemicalCost) } : null,
-                      Number(run.detergentCost || 0) > 0 ? { label: 'Detergent', amount: Number(run.detergentCost) } : null,
-                      Number(run.waterQty || 0) > 0 ? { label: 'Water', amount: Number(run.waterQty) } : null,
-                    ].filter(Boolean) as Array<{ label: string; amount: number }>
-                    const naira = lines.reduce((sum, line) => sum + line.amount, 0)
-                    const qtyKg = Number(run.qtyUsable || run.qtyInput || 0)
-                    fallbackRunning += naira
-                    return (
-                      <StageBlock
-                        key={run.id}
-                        run={run}
-                        cost={{
-                          key: String(run.id),
-                          stage: run.stage,
-                          label: STAGE_LABEL[run.stage] || run.stage,
-                          qtyKg,
-                          qtyReject: Number(run.qtyReject || 0),
-                          amount: naira,
-                          perKg: qtyKg > 0 ? naira / qtyKg : null,
-                          runningTotal: fallbackRunning,
-                          runningPerKg: qtyKg > 0 ? fallbackRunning / qtyKg : null,
-                          lines,
-                          extras: [],
-                        }}
-                      />
-                    )
-                  })
-                })()}
-          </div>
-        </Card>
-      )}
-
       {batch.qcChecks && batch.qcChecks.length > 0 && (
         <Card className="!overflow-hidden !p-0">
           <div className="border-b border-[var(--line)] px-4 py-3">
@@ -1743,14 +1639,14 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Fact label="Kg" value={kg(cost.qtyKg)} compact />
         <Fact label="Waste" value={kg(cost.qtyReject || run?.qtyReject || 0)} compact />
-        <Fact label="Expenses" value={money(cost.amount)} compact />
+        <Fact label="Cost" value={money(cost.amount)} compact />
         <Fact
-          label="₦ / kg"
+          label="Price / kg"
           value={
-            cost.runningPerKg != null
-              ? `${money(cost.runningPerKg)}/kg`
-              : cost.perKg != null
-                ? `${money(cost.perKg)}/kg`
+            cost.perKg != null
+              ? `${money(cost.perKg)}/kg`
+              : cost.runningPerKg != null
+                ? `${money(cost.runningPerKg)}/kg`
                 : '—'
           }
           compact
@@ -1807,8 +1703,8 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
               : null
 
             return (
-              <li key={row.label} className="flex justify-between py-1.5 text-sm items-start">
-                <div>
+              <li key={row.label} className="flex justify-between py-1.5 text-sm items-start gap-3">
+                <div className="min-w-0">
                   <span className="text-[var(--ink-muted)] font-medium">{row.label}</span>
                   {isScrapBuy && buyPriceText && (
                     <p className="text-xs text-[var(--ink-faint)] font-normal mt-0.5">
@@ -1816,14 +1712,21 @@ function StageBlock({ run, cost }: { run?: ProcessRunRow; cost: StageCostRow }) 
                     </p>
                   )}
                 </div>
-                <span className="font-medium tabular-nums">{money(row.amount)}</span>
+                <div className="shrink-0 text-right tabular-nums">
+                  <p className="font-medium text-[var(--ink)]">{money(row.amount)}</p>
+                  {!isScrapBuy && cost.qtyKg > 0 && (
+                    <p className="text-[11px] text-[var(--ink-muted)]">
+                      {money(+(Number(row.amount) / cost.qtyKg).toFixed(2))}/kg
+                    </p>
+                  )}
+                </div>
               </li>
             )
           })}
         </ul>
       )}
       {(cost.extras || [])
-        .filter((ex) => ex.label !== 'Buy price')
+        .filter((ex) => !['Buy price', 'Labour price', 'Chemical price', 'Detergent price', 'Energy price'].includes(ex.label))
         .map((ex) => (
         <p key={ex.label} className="mt-1 text-xs text-[var(--ink-muted)]">
           {ex.label}: {ex.text}

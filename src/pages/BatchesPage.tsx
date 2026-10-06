@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Search, ExternalLink, Eye, RotateCcw } from 'lucide-react'
+import { Search, Eye, RotateCcw } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import CustomTable1 from '@/components/CustomTable1'
@@ -32,12 +32,16 @@ type BatchRow = {
   material?: { name: string }
   location?: { name: string }
   product?: { name: string }
+  buyKg?: number | null
+  buyCost?: number | null
+  buyPricePerKg?: number | null
+  supplierName?: string | null
 }
 
 const STAGE_FILTERS = [
-  { value: 'ALL', label: 'All stages' },
-  { value: 'SCRAP', label: 'Scrap (buy)' },
-  { value: 'SORT', label: 'Sorted' },
+  { value: 'BUYING', label: 'Scrap buying' },
+  { value: 'ALL', label: 'All lots' },
+  { value: 'SCRAP', label: 'Still raw' },
   { value: 'CRUSH', label: 'Crushed' },
   { value: 'WASH', label: 'Washed' },
   { value: 'DRY', label: 'Dried' },
@@ -49,7 +53,6 @@ function colorName(code?: string | null) {
   return SORT_COLORS.find((c) => c.code === code)?.name || code
 }
 
-/** businessDate is YYMMDD → e.g. 04 Sep 2026 */
 function formatBusinessDate(raw?: string | null) {
   if (!raw || raw.length !== 6) return null
   const yy = Number(raw.slice(0, 2))
@@ -82,14 +85,22 @@ function fmtQty(value: string | number | undefined, uom: string) {
   return `${Number(value).toLocaleString()} ${uom || 'kg'}`
 }
 
+function money(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(Number(n))) return '—'
+  return `₦${Number(n).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
 function getStageBadge(stage?: string) {
   const s = (stage || '').toUpperCase()
-  if (s === 'SCRAP') return 'bg-amber-50 text-amber-800 border-amber-200'
-  if (s === 'SORT') return 'bg-blue-50 text-blue-800 border-blue-200'
-  if (s === 'CRUSH') return 'bg-purple-50 text-purple-800 border-purple-200'
-  if (s === 'WASH') return 'bg-cyan-50 text-cyan-800 border-cyan-200'
-  if (s === 'DRY') return 'bg-orange-50 text-orange-800 border-orange-200'
-  if (s === 'PROD') return 'bg-emerald-50 text-emerald-800 border-emerald-200'
+  if (s.includes('SCRAP') || s === 'BUYING') return 'bg-amber-50 text-amber-800 border-amber-200'
+  if (s === 'SORT' || s.includes('SORTED')) return 'bg-blue-50 text-blue-800 border-blue-200'
+  if (s.includes('CRUSH')) return 'bg-purple-50 text-purple-800 border-purple-200'
+  if (s.includes('WASH')) return 'bg-cyan-50 text-cyan-800 border-cyan-200'
+  if (s.includes('DRY')) return 'bg-orange-50 text-orange-800 border-orange-200'
+  if (s.includes('PROD') || s.includes('FINISHED')) return 'bg-emerald-50 text-emerald-800 border-emerald-200'
   return 'bg-zinc-100 text-zinc-800 border-zinc-200'
 }
 
@@ -97,7 +108,8 @@ export function BatchesPage() {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
-  const [stage, setStage] = useState('ALL')
+  const [stage, setStage] = useState('BUYING')
+  const buying = stage === 'BUYING'
 
   const batches = useQuery({
     queryKey: ['batches', search, stage],
@@ -105,101 +117,29 @@ export function BatchesPage() {
       const { data } = await api.get('/batches', {
         params: {
           q: search || undefined,
-          batchType: stage === 'ALL' ? undefined : stage,
+          source: buying ? 'buying' : undefined,
+          batchType: !buying && stage !== 'ALL' ? stage : undefined,
         },
       })
       return data.data as BatchRow[]
     },
   })
 
+  const rows = batches.data || []
+
+  const summary = useMemo(() => {
+    const kg = rows.reduce((sum, row) => sum + Number(row.buyKg || 0), 0)
+    const cost = rows.reduce((sum, row) => sum + Number(row.buyCost || 0), 0)
+    return {
+      count: rows.length,
+      kg,
+      cost,
+      perKg: kg > 0 ? cost / kg : 0,
+    }
+  }, [rows])
+
   const columns: ColumnDef<BatchRow>[] = useMemo(
     () => [
-      {
-        id: 'batchNumber',
-        header: 'Batch #',
-        accessorKey: 'batchNumber',
-        cell: ({ row }) => {
-          const b = row.original
-          return (
-            <div>
-              <Link
-                to={`/batches/${b.batchNumber}`}
-                className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 font-mono"
-              >
-                {b.batchNumber}
-                <ExternalLink className="size-3 text-zinc-400" />
-              </Link>
-              {b.location?.name && (
-                <p className="text-[10px] text-zinc-400">{b.location.name}</p>
-              )}
-            </div>
-          )
-        },
-      },
-      {
-        id: 'stage',
-        header: 'Stage',
-        cell: ({ row }) => {
-          const s = row.original.stage || row.original.batchType
-          return (
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getStageBadge(
-                s
-              )}`}
-            >
-              {s}
-            </span>
-          )
-        },
-      },
-      {
-        id: 'sortColor',
-        header: 'Colour',
-        cell: ({ row }) => {
-          const c = colorName(row.original.sortColor)
-          return c !== '—' ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80">
-              {c}
-            </span>
-          ) : (
-            <span className="text-zinc-400">—</span>
-          )
-        },
-      },
-      {
-        id: 'material',
-        header: 'Material / Product',
-        cell: ({ row }) => (
-          <span className="font-medium text-xs text-zinc-800">
-            {row.original.product?.name || row.original.material?.name || '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'qtyIn',
-        header: 'Qty In',
-        cell: ({ row }) => (
-          <span className="tabular-nums text-xs text-zinc-600 font-medium">
-            {fmtQty(row.original.qtyIn, row.original.uom)}
-          </span>
-        ),
-      },
-      {
-        id: 'qtyRemaining',
-        header: 'Available',
-        cell: ({ row }) => {
-          const rem = Number(row.original.qtyRemaining || 0)
-          return (
-            <span
-              className={`tabular-nums font-semibold text-xs ${
-                rem > 0 ? 'text-emerald-700' : 'text-zinc-400'
-              }`}
-            >
-              {fmtQty(row.original.qtyRemaining, row.original.uom)}
-            </span>
-          )
-        },
-      },
       {
         id: 'date',
         header: 'Date',
@@ -208,6 +148,122 @@ export function BatchesPage() {
           return (
             <span className="text-xs text-zinc-500 tabular-nums">
               {biz || formatCreatedAt(row.original.createdAt)}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'batchNumber',
+        header: 'Batch',
+        accessorKey: 'batchNumber',
+        cell: ({ row }) => {
+          const b = row.original
+          return (
+            <div>
+              <Link
+                to={`/batches/${b.batchNumber}`}
+                className="font-semibold text-xs text-[var(--accent-strong)] hover:underline font-mono"
+              >
+                {b.batchNumber}
+              </Link>
+              {buying && b.supplierName && (
+                <p className="text-[10px] text-zinc-400 truncate max-w-[160px]">{b.supplierName}</p>
+              )}
+              {!buying && b.location?.name && (
+                <p className="text-[10px] text-zinc-400">{b.location.name}</p>
+              )}
+            </div>
+          )
+        },
+      },
+      {
+        id: 'material',
+        header: buying ? 'Bought' : 'Material / Product',
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium text-xs text-zinc-800">
+              {row.original.product?.name || row.original.material?.name || '—'}
+            </span>
+            {buying && Number(row.original.buyKg) > 0 && (
+              <p className="text-[11px] font-semibold text-emerald-700">
+                {Number(row.original.buyKg).toLocaleString()} kg
+              </p>
+            )}
+          </div>
+        ),
+      },
+      ...(buying
+        ? [
+            {
+              id: 'buyCost',
+              header: 'Buy cost',
+              cell: ({ row }) => (
+                <div>
+                  <span className="text-xs font-semibold tabular-nums text-zinc-900">
+                    {money(row.original.buyCost)}
+                  </span>
+                  {Number(row.original.buyPricePerKg) > 0 && (
+                    <p className="text-[10px] text-zinc-400">
+                      {money(row.original.buyPricePerKg)}/kg
+                    </p>
+                  )}
+                </div>
+              ),
+            } as ColumnDef<BatchRow>,
+          ]
+        : [
+            {
+              id: 'qtyIn',
+              header: 'Qty In',
+              cell: ({ row }) => (
+                <span className="tabular-nums text-xs text-zinc-600 font-medium">
+                  {fmtQty(row.original.qtyIn, row.original.uom)}
+                </span>
+              ),
+            } as ColumnDef<BatchRow>,
+            {
+              id: 'qtyRemaining',
+              header: 'Available',
+              cell: ({ row }) => {
+                const rem = Number(row.original.qtyRemaining || 0)
+                return (
+                  <span
+                    className={`tabular-nums font-semibold text-xs ${
+                      rem > 0 ? 'text-emerald-700' : 'text-zinc-400'
+                    }`}
+                  >
+                    {fmtQty(row.original.qtyRemaining, row.original.uom)}
+                  </span>
+                )
+              },
+            } as ColumnDef<BatchRow>,
+            {
+              id: 'sortColor',
+              header: 'Colour',
+              cell: ({ row }) => {
+                const c = colorName(row.original.sortColor)
+                return c !== '—' ? (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200/80">
+                    {c}
+                  </span>
+                ) : (
+                  <span className="text-zinc-400">—</span>
+                )
+              },
+            } as ColumnDef<BatchRow>,
+          ]),
+      {
+        id: 'stage',
+        header: 'Stage',
+        cell: ({ row }) => {
+          const s = row.original.stage || row.original.batchType
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${getStageBadge(
+                s,
+              )}`}
+            >
+              {s}
             </span>
           )
         },
@@ -230,7 +286,7 @@ export function BatchesPage() {
         ),
       },
     ],
-    [navigate]
+    [navigate, buying],
   )
 
   const handleSearch = (e: React.FormEvent) => {
@@ -241,22 +297,41 @@ export function BatchesPage() {
   const handleReset = () => {
     setQ('')
     setSearch('')
-    setStage('ALL')
+    setStage('BUYING')
   }
 
   return (
     <PageLayout
       title="Batches"
-      description="Complete trace and lifecycle of all lots from raw scrap to finished goods."
+      description={
+        buying
+          ? 'Scrap we bought — totals on this page, process cost when you open a batch'
+          : 'Lots by process stage. Scrap buying is the default view.'
+      }
     >
       <div className="space-y-3">
-        {/* Card Toolbar with Search and Filters */}
+        {buying && !batches.isLoading && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+            <SummaryTile label="Buys" value={String(summary.count)} hint="Scrap tickets" />
+            <SummaryTile
+              label="Bought"
+              value={`${summary.kg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`}
+              hint="Net weight"
+            />
+            <SummaryTile label="Spend" value={money(summary.cost)} hint="Total buy cost" />
+            <SummaryTile
+              label="Avg"
+              value={summary.perKg > 0 ? `${money(summary.perKg)}/kg` : '—'}
+              hint="Cost per kg"
+            />
+          </div>
+        )}
+
         <Card className="!p-0 overflow-hidden shadow-xs border border-zinc-200">
           <form
             onSubmit={handleSearch}
             className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-2.5 sm:p-3 border-b border-zinc-200/80 bg-zinc-50/70"
           >
-            {/* Search Input */}
             <div className="relative flex-1 sm:max-w-xs">
               <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400 pointer-events-none" />
               <Input
@@ -268,12 +343,11 @@ export function BatchesPage() {
               />
             </div>
 
-            {/* Stage filter and Action Buttons */}
             <div className="flex items-center gap-2">
               <Select value={stage} onValueChange={setStage}>
-                <SelectTrigger className="w-full sm:w-[150px] h-8 text-xs bg-white font-medium">
-                  <SelectValue placeholder="All stages">
-                    {STAGE_FILTERS.find((f) => f.value === stage)?.label || 'All stages'}
+                <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs bg-white font-medium">
+                  <SelectValue placeholder="Scrap buying">
+                    {STAGE_FILTERS.find((f) => f.value === stage)?.label || 'Scrap buying'}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -289,7 +363,7 @@ export function BatchesPage() {
                 Filter
               </Button>
 
-              {(q || stage !== 'ALL' || search) && (
+              {(q || stage !== 'BUYING' || search) && (
                 <Button
                   type="button"
                   variant="outline"
@@ -305,9 +379,8 @@ export function BatchesPage() {
             </div>
           </form>
 
-          {/* Custom Table with 50 rows default */}
           <CustomTable1
-            data={batches.data || []}
+            data={rows}
             columns={columns}
             loading={batches.isLoading}
             card={true}
@@ -317,4 +390,25 @@ export function BatchesPage() {
     </PageLayout>
   )
 }
+
+function SummaryTile({
+  label,
+  value,
+  hint,
+}: {
+  label: string
+  value: string
+  hint: string
+}) {
+  return (
+    <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 bg-white p-2.5 sm:p-3 shadow-xs">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{label}</p>
+      <p className="mt-1 text-base sm:text-lg font-black text-zinc-900 tabular-nums tracking-tight truncate">
+        {value}
+      </p>
+      <p className="mt-0.5 text-[10px] text-zinc-400">{hint}</p>
+    </div>
+  )
+}
+
 export default BatchesPage
