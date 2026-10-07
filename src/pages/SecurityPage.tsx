@@ -19,22 +19,13 @@ import { cn } from '@/lib/utils'
 type SecurityRow = {
   id: number
   direction: 'IN' | 'OUT'
-  kind: 'RAW' | 'FINISHED' | 'OTHER'
   description: string
-  qty: number
-  uom: string
   partyName: string
   vehicle: string | null
   notes: string | null
   photoUrls: string[]
   recordedAt: string
   recordedByName: string | null
-}
-
-const KIND_LABEL: Record<SecurityRow['kind'], string> = {
-  RAW: 'Raw material',
-  FINISHED: 'Finished goods',
-  OTHER: 'Other',
 }
 
 function applyRangeToParams(current: URLSearchParams, next: DateRangeState) {
@@ -119,11 +110,6 @@ export function SecurityPage() {
           return (
             <div>
               <p className="text-sm font-semibold text-zinc-900">{r.description}</p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">
-                {KIND_LABEL[r.kind] || r.kind}
-                {' · '}
-                {Number(r.qty || 0).toLocaleString()} {r.uom}
-              </p>
               {thumbs.length > 0 && (
                 <div className="mt-1.5 flex items-center gap-1">
                   {thumbs.map((src, i) => (
@@ -156,11 +142,6 @@ export function SecurityPage() {
             <p className="text-sm font-medium text-zinc-900">{row.original.partyName}</p>
             {row.original.vehicle ? (
               <p className="text-[11px] text-zinc-500">{row.original.vehicle}</p>
-            ) : null}
-            {row.original.notes ? (
-              <p className="mt-0.5 max-w-[180px] truncate text-[11px] text-zinc-500">
-                {row.original.notes}
-              </p>
             ) : null}
           </div>
         ),

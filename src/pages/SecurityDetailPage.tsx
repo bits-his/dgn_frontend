@@ -11,22 +11,13 @@ import { cn } from '@/lib/utils'
 type SecurityDetail = {
   id: number
   direction: 'IN' | 'OUT'
-  kind: 'RAW' | 'FINISHED' | 'OTHER'
   description: string
-  qty: number
-  uom: string
   partyName: string
   vehicle: string | null
   notes: string | null
   photoUrls: string[]
   recordedAt: string
   recordedByName: string | null
-}
-
-const KIND_LABEL: Record<SecurityDetail['kind'], string> = {
-  RAW: 'Raw material',
-  FINISHED: 'Finished goods',
-  OTHER: 'Other',
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -106,12 +97,7 @@ export function SecurityDetailPage() {
                 </span>
               }
             />
-            <DetailRow label="Type" value={KIND_LABEL[row.kind] || row.kind} />
             <DetailRow label="What" value={row.description} />
-            <DetailRow
-              label="Quantity"
-              value={`${Number(row.qty || 0).toLocaleString()} ${row.uom}`}
-            />
             <DetailRow
               label={inn ? 'Who brought it' : 'Who took it'}
               value={row.partyName}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Banknote, Boxes, CreditCard, Package, Plus } from 'lucide-react'
@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { isOutletScoped } from '@/lib/outlet'
+import { formatBusinessDate } from '@/lib/dates'
+import { cn } from '@/lib/utils'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
 import { BookPanel, CompactStat, DataRow, StatusChip } from '@/components/outlet/OutletBookUi'
@@ -117,6 +119,89 @@ type DistributorDetail = {
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
+}
+
+type LedgerEntry = {
+  id: string
+  dateLabel: string
+  title: string
+  meta?: string
+  debit: number
+  credit: number
+  balanceAfter: number
+  href?: string
+}
+
+function buildDistributorLedger(
+  sales: SaleRow[],
+  returns: DistributorDetail['returns'],
+): LedgerEntry[] {
+  type Raw = {
+    id: string
+    sortKey: string
+    dateLabel: string
+    title: string
+    meta?: string
+    debit: number
+    credit: number
+    href?: string
+  }
+  const raw: Raw[] = []
+
+  const salesAsc = [...sales].reverse()
+  for (const sale of salesAsc) {
+    const dateLabel = formatBusinessDate(sale.businessDate) || '—'
+    const sortKey = `${sale.businessDate || '000000'}-${sale.id}-1`
+    const linesMeta =
+      sale.lines
+        .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
+        .join(', ') || `${sale.lineCount} lines`
+    raw.push({
+      id: `sale-${sale.id}`,
+      sortKey,
+      dateLabel,
+      title: `Sale ${sale.saleNumber}`,
+      meta: linesMeta,
+      debit: Number(sale.totalAmount || 0),
+      credit: 0,
+      href: `/sales/${sale.saleNumber}`,
+    })
+    if (Number(sale.amountPaid || 0) > 0.001) {
+      raw.push({
+        id: `pay-${sale.id}`,
+        sortKey: `${sale.businessDate || '000000'}-${sale.id}-2`,
+        dateLabel,
+        title: `Payment · ${sale.saleNumber}`,
+        meta: sale.paymentStatus,
+        debit: 0,
+        credit: Number(sale.amountPaid || 0),
+        href: `/sales/${sale.saleNumber}`,
+      })
+    }
+  }
+
+  const returnsAsc = [...returns].reverse()
+  for (const ret of returnsAsc) {
+    if (!(Number(ret.refundAmount || 0) > 0.001)) continue
+    raw.push({
+      id: `ret-${ret.id}`,
+      sortKey: `${ret.businessDate || '000000'}-ret-${ret.id}`,
+      dateLabel: formatBusinessDate(ret.businessDate) || '—',
+      title: `Return ${ret.returnNumber}`,
+      meta: ret.saleNumber ? `on ${ret.saleNumber}` : undefined,
+      debit: 0,
+      credit: Number(ret.refundAmount || 0),
+      href: ret.saleNumber ? `/sales/${ret.saleNumber}` : undefined,
+    })
+  }
+
+  raw.sort((a, b) => a.sortKey.localeCompare(b.sortKey))
+  let balance = 0
+  const withBalance = raw.map((row) => {
+    balance = +(balance + row.debit - row.credit).toFixed(2)
+    return { ...row, balanceAfter: balance }
+  })
+  return withBalance.reverse()
 }
 
 function Dialog({
@@ -273,11 +358,19 @@ export function DistributorDetailPage() {
     },
   })
 
+  const d = detail.data
+  const isShop = String(d?.distributorKind || '').toUpperCase() === 'SHOP'
+  const ledger = useMemo(
+    () =>
+      !d || isShop ? [] : buildDistributorLedger(d.sales || [], d.returns || []),
+    [d, isShop],
+  )
+
   if (detail.isLoading) {
     return <p className="text-sm text-zinc-800">Loading distributor…</p>
   }
 
-  if (detail.isError || !detail.data) {
+  if (detail.isError || !d) {
     return (
       <Card>
         <p className="text-sm text-red-700">That distributor could not be found.</p>
@@ -288,9 +381,7 @@ export function DistributorDetailPage() {
     )
   }
 
-  const d = detail.data
   const c = d.credit
-  const isShop = String(d.distributorKind || '').toUpperCase() === 'SHOP'
   const creditClosed = !isShop && c.creditLimit > 0 && c.atLimit
   const unpaid = c.unpaid || []
   const advanceBalance = Number(
@@ -423,357 +514,531 @@ export function DistributorDetailPage() {
               </>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                  <CompactStat
-                    label="Owes"
-                    value={money(c.outstanding)}
-                    hint={unpaidSummary(c)}
-                    icon={CreditCard}
-                    tone={c.outstanding > 0.001 ? 'warn' : 'ok'}
-                  />
-                  <CompactStat
-                    label="Available"
-                    value={money(c.available)}
-                    hint={c.creditLimit > 0 ? `of ${money(c.creditLimit)}` : 'Cash only'}
-                    tone={creditClosed ? 'warn' : 'ok'}
-                  />
-                  <CompactStat
-                    label="Collected"
-                    value={money(d.totals.collected)}
-                    hint={`${c.saleCount || d.totals.saleCount || 0} invoices`}
-                    icon={Banknote}
-                    tone="ok"
-                  />
-                  <CompactStat
-                    label="Units taken"
-                    value={fmt(d.totals.qtySold)}
-                    hint={`${fmt(d.totals.qtyReturned)} returned`}
-                    icon={Package}
-                    tone="info"
-                  />
-                </div>
-                <BookPanel title="Credit line">
-                  <div className="flex items-baseline justify-between gap-2 text-xs">
-                    <span className="text-zinc-600">
-                      {money(c.outstanding)} outstanding
-                    </span>
-                    <span className={creditClosed ? 'font-semibold text-red-700' : 'font-semibold text-teal-800'}>
-                      {money(c.available)} left
-                    </span>
-                  </div>
-                  <div className="mt-2">
-                    <CreditBar percent={c.utilizationPercent} atLimit={creditClosed} />
-                  </div>
-                  <div className="mt-2 text-[11px] text-zinc-500">
-                    Advance {money(advanceBalance)}
-                  </div>
-                </BookPanel>
-                {unpaid.length > 0 && (
+                <div
+                  className={cn(
+                    'grid gap-2 sm:grid-cols-2',
+                    unpaid.length > 0 && 'lg:grid-cols-3',
+                  )}
+                >
+                  <BookPanel title="Credit line">
+                    <div className="flex items-baseline justify-between gap-2 text-xs">
+                      <span className="text-zinc-600">{money(c.outstanding)} outstanding</span>
+                      <span
+                        className={
+                          creditClosed ? 'font-semibold text-red-700' : 'font-semibold text-teal-800'
+                        }
+                      >
+                        {money(c.available)} left
+                      </span>
+                    </div>
+                    <div className="mt-1.5">
+                      <CreditBar percent={c.utilizationPercent} atLimit={creditClosed} />
+                    </div>
+                    <p className="mt-1.5 text-[11px] text-zinc-500">
+                      Limit {money(c.creditLimit)} · Advance {money(advanceBalance)} ·{' '}
+                      {unpaidSummary(c)}
+                    </p>
+                  </BookPanel>
+
+                  {unpaid.length > 0 && (
+                    <BookPanel
+                      title="Unpaid"
+                      action={
+                        canSell ? (
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold text-amber-800"
+                            onClick={() => setPaying(unpaid)}
+                          >
+                            Collect all
+                          </button>
+                        ) : null
+                      }
+                    >
+                      {unpaid.slice(0, 4).map((row) => (
+                        <div
+                          key={row.saleNumber}
+                          className="flex items-center justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 last:pb-0 first:pt-0"
+                        >
+                          <div className="min-w-0">
+                            <Link
+                              to={`/sales/${row.saleNumber}`}
+                              className="font-mono text-[11px] font-semibold text-amber-800"
+                            >
+                              {row.saleNumber}
+                            </Link>
+                            <p className="text-[10px] text-zinc-500">
+                              {row.ageDays ?? 0}d
+                              {row.overdue ? ' · overdue' : ''}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[11px] font-semibold tabular-nums text-red-700">
+                              {money(row.balanceDue)}
+                            </p>
+                            {canSell && (
+                              <button
+                                type="button"
+                                className="text-[10px] font-semibold text-amber-800"
+                                onClick={() => setPaying([row])}
+                              >
+                                Pay
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {unpaid.length > 4 ? (
+                        <p className="pt-1 text-[10px] text-zinc-400">
+                          +{unpaid.length - 4} more unpaid
+                        </p>
+                      ) : null}
+                    </BookPanel>
+                  )}
+
                   <BookPanel
-                    title="Unpaid invoices"
+                    title="Details"
                     action={
-                      canSell ? (
+                      canEdit && !editing ? (
                         <button
                           type="button"
                           className="text-[11px] font-semibold text-amber-800"
-                          onClick={() => setPaying(unpaid)}
+                          onClick={() => setEditing(true)}
                         >
-                          Collect all
+                          Edit
                         </button>
                       ) : null
                     }
                   >
-                    {unpaid.map((row) => (
-                      <div
-                        key={row.saleNumber}
-                        className="flex items-start justify-between gap-3 border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
+                    {!editing ? (
+                      <dl className="grid grid-cols-2 gap-x-2 gap-y-1">
+                        <Fact label="Contact" value={d.contactPerson || '—'} />
+                        <Fact label="Phone" value={d.phone || '—'} />
+                        <Fact label="Region" value={d.region || '—'} />
+                        <Fact label="Terms" value={`${d.paymentTermsDays}d`} />
+                        <div className="col-span-2">
+                          <Fact label="Address" value={d.address || '—'} />
+                        </div>
+                      </dl>
+                    ) : (
+                      <form
+                        className="grid gap-2 sm:grid-cols-2"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          saveMutation.mutate()
+                        }}
                       >
-                        <div className="min-w-0">
-                          <Link
-                            to={`/sales/${row.saleNumber}`}
-                            className="font-mono text-xs font-semibold text-amber-800"
+                        <Field label="Business name">
+                          <input
+                            className="dgn-input"
+                            value={form.name}
+                            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                            required
+                          />
+                        </Field>
+                        <Field label="Contact person">
+                          <input
+                            className="dgn-input"
+                            value={form.contactPerson}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, contactPerson: e.target.value }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Phone">
+                          <input
+                            className="dgn-input"
+                            value={form.phone}
+                            onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                          />
+                        </Field>
+                        <Field label="Region">
+                          <input
+                            className="dgn-input"
+                            value={form.region}
+                            onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
+                          />
+                        </Field>
+                        <div className="sm:col-span-2">
+                          <Field label="Address">
+                            <input
+                              className="dgn-input"
+                              value={form.address}
+                              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                            />
+                          </Field>
+                        </div>
+                        <Field label="Credit limit">
+                          <NairaAmountInput
+                            value={form.creditLimit}
+                            onChange={(value) => setForm((f) => ({ ...f, creditLimit: value }))}
+                            required
+                          />
+                        </Field>
+                        <Field label="Payment terms (days)">
+                          <input
+                            className="dgn-input"
+                            type="number"
+                            min={0}
+                            max={365}
+                            value={form.paymentTermsDays}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Type">
+                          <select
+                            className="dgn-input"
+                            value={form.distributorKind}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                distributorKind: (['INTERNAL', 'SHOP'].includes(e.target.value)
+                                  ? e.target.value
+                                  : 'EXTERNAL') as 'INTERNAL' | 'EXTERNAL' | 'SHOP',
+                              }))
+                            }
                           >
-                            {row.saleNumber}
-                          </Link>
-                          <p className="flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                            {row.ageDays ?? 0}d
-                            {row.overdue ? <StatusChip tone="danger">Overdue</StatusChip> : null}
-                          </p>
+                            <option value="EXTERNAL">External dealer</option>
+                            <option value="INTERNAL">Internal distributor</option>
+                            <option value="SHOP">Market shop</option>
+                          </select>
+                        </Field>
+                        <Field label="Minimum quantity">
+                          <input
+                            className="dgn-input"
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            value={form.minOrderQty}
+                            onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
+                            required
+                          />
+                        </Field>
+                        <Field label="Status">
+                          <select
+                            className="dgn-input"
+                            value={form.isActive ? '1' : '0'}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, isActive: e.target.value === '1' }))
+                            }
+                          >
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                          </select>
+                        </Field>
+                        <div className="sm:col-span-2">
+                          <Field label="Notes">
+                            <textarea
+                              className="dgn-input"
+                              rows={2}
+                              value={form.notes}
+                              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                            />
+                          </Field>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-xs font-semibold tabular-nums text-red-700">
-                            {money(row.balanceDue)}
-                          </p>
-                          {canSell && (
-                            <button
-                              type="button"
-                              className="text-[11px] font-semibold text-amber-800"
-                              onClick={() => setPaying([row])}
-                            >
-                              Pay
-                            </button>
-                          )}
+                        <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                          <button
+                            type="submit"
+                            className="dgn-btn dgn-btn-primary"
+                            disabled={saveMutation.isPending}
+                          >
+                            {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+                          </button>
+                          <button
+                            type="button"
+                            className="dgn-btn dgn-btn-ghost"
+                            onClick={() => {
+                              setEditing(false)
+                              setError('')
+                            }}
+                          >
+                            Cancel
+                          </button>
                         </div>
-                      </div>
+                      </form>
+                    )}
+                  </BookPanel>
+                </div>
+
+                <article className="rounded-lg border border-zinc-300 bg-white px-3.5 py-3.5 shadow-xs sm:rounded-xl sm:px-5 sm:py-4">
+                  <header className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-300 pb-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        Account statement
+                      </p>
+                      <p className="mt-0.5 text-sm font-semibold text-zinc-900">{d.name}</p>
+                      <p className="font-mono text-[11px] text-zinc-600">{d.code}</p>
+                      {d.region ? (
+                        <p className="mt-0.5 text-[11px] text-zinc-500">{d.region}</p>
+                      ) : null}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        Balance due
+                      </p>
+                      <p
+                        className={cn(
+                          'mt-0.5 text-base font-black tabular-nums',
+                          c.outstanding > 0.001 ? 'text-red-700' : 'text-teal-800',
+                        )}
+                      >
+                        {money(c.outstanding)}
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        Debit = sale · Credit = payment
+                      </p>
+                    </div>
+                  </header>
+
+                  {ledger.length === 0 ? (
+                    <p className="py-6 text-center text-xs text-zinc-500">
+                      No sales or payments yet.
+                    </p>
+                  ) : (
+                    <table className="mt-3 w-full text-left text-xs sm:text-sm">
+                      <thead>
+                        <tr className="border-y border-zinc-300 text-[10px] uppercase tracking-wide text-zinc-500 sm:text-[11px]">
+                          <th className="py-1.5 pr-2 font-semibold">Date</th>
+                          <th className="py-1.5 pr-2 font-semibold">Particulars</th>
+                          <th className="py-1.5 pr-2 text-right font-semibold">Debit</th>
+                          <th className="py-1.5 pr-2 text-right font-semibold">Credit</th>
+                          <th className="py-1.5 text-right font-semibold">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...ledger].reverse().map((row) => {
+                          const isDebit = row.debit > 0.001
+                          return (
+                            <tr key={row.id} className="border-b border-zinc-200">
+                              <td className="whitespace-nowrap py-1.5 pr-2 text-zinc-600">
+                                {row.dateLabel}
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                {row.href ? (
+                                  <Link
+                                    to={row.href}
+                                    className="font-medium text-amber-800 hover:underline"
+                                  >
+                                    {row.title}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium text-zinc-900">{row.title}</span>
+                                )}
+                                {row.meta ? (
+                                  <span className="mt-0.5 block text-[10px] text-zinc-500 sm:text-[11px]">
+                                    {row.meta}
+                                  </span>
+                                ) : null}
+                              </td>
+                              <td
+                                className={cn(
+                                  'py-1.5 pr-2 text-right tabular-nums',
+                                  isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                )}
+                              >
+                                {isDebit ? money(row.debit) : '—'}
+                              </td>
+                              <td
+                                className={cn(
+                                  'py-1.5 pr-2 text-right tabular-nums',
+                                  !isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                )}
+                              >
+                                {!isDebit ? money(row.credit) : '—'}
+                              </td>
+                              <td className="py-1.5 text-right tabular-nums text-zinc-700">
+                                {money(row.balanceAfter)}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+
+                  <section className="mt-3 ml-auto w-full max-w-[14rem] space-y-1 text-xs sm:text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-600">Sales (debit)</span>
+                      <span className="font-semibold tabular-nums">
+                        {money(d.totals.revenue)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-zinc-600">Received (credit)</span>
+                      <span className="font-semibold tabular-nums">
+                        {money(d.totals.collected)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 border-t border-zinc-300 pt-1.5">
+                      <span className="font-semibold text-zinc-900">Balance due</span>
+                      <span
+                        className={cn(
+                          'font-black tabular-nums',
+                          c.outstanding > 0.001 ? 'text-red-700' : 'text-teal-800',
+                        )}
+                      >
+                        {money(c.outstanding)}
+                      </span>
+                    </div>
+                  </section>
+                </article>
+
+                {d.byProduct.length > 0 && (
+                  <BookPanel title="What they buy">
+                    {d.byProduct.slice(0, 6).map((row) => (
+                      <DataRow
+                        key={row.productId}
+                        title={row.productName}
+                        meta={`${fmt(row.qty)} units`}
+                        value={money(row.revenue)}
+                      />
                     ))}
                   </BookPanel>
                 )}
               </>
             )}
 
-            <BookPanel title={isShop ? 'Received from factory' : 'Dispatch history'}>
-              {d.sales.length === 0 ? (
-                <p className="text-xs text-zinc-500">Nothing dispatched yet.</p>
-              ) : (
-                d.sales.map((sale) => (
-                  <div
-                    key={sale.id}
-                    className="border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <Link
-                          to={`/sales/${sale.saleNumber}`}
-                          className="font-mono text-xs font-semibold text-amber-800"
-                        >
-                          {sale.saleNumber}
-                        </Link>
-                        <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                          {sale.lines
-                            .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
-                            .join(', ') || `${sale.lineCount} lines`}
-                        </p>
+            {isShop ? (
+              <>
+                <BookPanel title="Received from factory">
+                  {d.sales.length === 0 ? (
+                    <p className="text-xs text-zinc-500">Nothing dispatched yet.</p>
+                  ) : (
+                    d.sales.map((sale) => (
+                      <div
+                        key={sale.id}
+                        className="border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <Link
+                              to={`/sales/${sale.saleNumber}`}
+                              className="font-mono text-xs font-semibold text-amber-800"
+                            >
+                              {sale.saleNumber}
+                            </Link>
+                            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                              {sale.lines
+                                .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
+                                .join(', ') || `${sale.lineCount} lines`}
+                            </p>
+                          </div>
+                          <StatusChip tone="muted">Received</StatusChip>
+                        </div>
                       </div>
-                      <div className="shrink-0 text-right">
-                        {!isShop && <p className="text-xs font-semibold tabular-nums">{money(sale.totalAmount)}</p>}
-                        <StatusChip
-                          tone={
-                            sale.paymentStatus === 'PAID' || sale.paymentStatus === 'SETTLED'
-                              ? 'ok'
-                              : sale.paymentStatus === 'PARTIAL'
-                                ? 'warn'
-                                : isShop
-                                  ? 'muted'
-                                  : 'danger'
-                          }
-                        >
-                          {isShop ? 'Received' : sale.paymentStatus}
-                        </StatusChip>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </BookPanel>
-            {d.returns.length > 0 && (
-              <BookPanel title="Returns">
-                {d.returns.map((ret) => (
-                  <DataRow
-                    key={ret.id}
-                    title={ret.returnNumber}
-                    meta={`${ret.saleNumber || '—'} · ${fmt(ret.qty)} ${ret.uom}`}
-                    value={money(ret.refundAmount)}
-                  />
-                ))}
-              </BookPanel>
-            )}
-
-            <BookPanel
-              title="Details"
-              action={
-                canEdit && !editing ? (
-                  <button
-                    type="button"
-                    className="text-[11px] font-semibold text-amber-800"
-                    onClick={() => setEditing(true)}
-                  >
-                    Edit
-                  </button>
-                ) : null
-              }
-            >
-              {!editing ? (
-                <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
-                  <Fact label="Contact" value={d.contactPerson || '—'} />
-                  <Fact label="Phone" value={d.phone || '—'} />
-                  <Fact label="Region" value={d.region || '—'} />
-                  <Fact label="Status" value={d.isActive ? 'Active' : 'Inactive'} />
-                  {!isShop && (
-                    <>
-                      <Fact label="Terms" value={`${d.paymentTermsDays} days`} />
-                      <Fact
-                        label="Min qty"
-                        value={
-                          Number(d.minOrderQty || 0) > 0
-                            ? Number(d.minOrderQty).toLocaleString()
-                            : 'None'
-                        }
-                      />
-                    </>
+                    ))
                   )}
-                  <div className="col-span-2">
-                    <Fact label="Address" value={d.address || '—'} />
-                  </div>
-                  {d.notes && (
-                    <div className="col-span-2">
-                      <Fact label="Notes" value={d.notes} />
-                    </div>
-                  )}
-                </dl>
-              ) : (
-                <form
-                  className="grid gap-3 sm:grid-cols-2"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    saveMutation.mutate()
-                  }}
+                </BookPanel>
+                <BookPanel
+                  title="Details"
+                  action={
+                    canEdit && !editing ? (
+                      <button
+                        type="button"
+                        className="text-[11px] font-semibold text-amber-800"
+                        onClick={() => setEditing(true)}
+                      >
+                        Edit
+                      </button>
+                    ) : null
+                  }
                 >
-                  <Field label="Business name">
-                    <input
-                      className="dgn-input"
-                      value={form.name}
-                      onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                      required
-                    />
-                  </Field>
-                  <Field label="Contact person">
-                    <input
-                      className="dgn-input"
-                      value={form.contactPerson}
-                      onChange={(e) => setForm((f) => ({ ...f, contactPerson: e.target.value }))}
-                    />
-                  </Field>
-                  <Field label="Phone">
-                    <input
-                      className="dgn-input"
-                      value={form.phone}
-                      onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                    />
-                  </Field>
-                  <Field label="Region">
-                    <input
-                      className="dgn-input"
-                      value={form.region}
-                      onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
-                    />
-                  </Field>
-                  <div className="sm:col-span-2">
-                    <Field label="Address">
-                      <input
-                        className="dgn-input"
-                        value={form.address}
-                        onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                      />
-                    </Field>
-                  </div>
-                  {form.distributorKind !== 'SHOP' && (
-                    <>
-                      <Field label="Credit limit">
-                        <NairaAmountInput
-                          value={form.creditLimit}
-                          onChange={(value) => setForm((f) => ({ ...f, creditLimit: value }))}
-                          required
-                        />
-                      </Field>
-                      <Field label="Payment terms (days)">
-                        <input
-                          className="dgn-input"
-                          type="number"
-                          min={0}
-                          max={365}
-                          value={form.paymentTermsDays}
-                          onChange={(e) => setForm((f) => ({ ...f, paymentTermsDays: e.target.value }))}
-                        />
-                      </Field>
-                      <Field label="Type">
-                        <select
-                          className="dgn-input"
-                          value={form.distributorKind}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              distributorKind: (['INTERNAL', 'SHOP'].includes(e.target.value)
-                                ? e.target.value
-                                : 'EXTERNAL') as 'INTERNAL' | 'EXTERNAL' | 'SHOP',
-                            }))
-                          }
-                        >
-                          <option value="EXTERNAL">External dealer</option>
-                          <option value="INTERNAL">Internal distributor</option>
-                          <option value="SHOP">Market shop</option>
-                        </select>
-                      </Field>
-                      <Field label="Minimum quantity">
-                        <input
-                          className="dgn-input"
-                          type="number"
-                          min={0}
-                          inputMode="decimal"
-                          value={form.minOrderQty}
-                          onChange={(e) => setForm((f) => ({ ...f, minOrderQty: e.target.value }))}
-                          required
-                        />
-                      </Field>
-                    </>
-                  )}
-                  <Field label="Status">
-                    <select
-                      className="dgn-input"
-                      value={form.isActive ? '1' : '0'}
-                      onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.value === '1' }))}
-                    >
-                      <option value="1">Active</option>
-                      <option value="0">Inactive</option>
-                    </select>
-                  </Field>
-                  <div className="sm:col-span-2">
-                    <Field label="Notes">
-                      <textarea
-                        className="dgn-input"
-                        rows={2}
-                        value={form.notes}
-                        onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                      />
-                    </Field>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-                    <button
-                      type="submit"
-                      className="dgn-btn dgn-btn-primary"
-                      disabled={saveMutation.isPending}
-                    >
-                      {saveMutation.isPending ? 'Saving…' : 'Save changes'}
-                    </button>
-                    <button
-                      type="button"
-                      className="dgn-btn dgn-btn-ghost"
-                      onClick={() => {
-                        setEditing(false)
-                        setError('')
+                  {!editing ? (
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      <Fact label="Contact" value={d.contactPerson || '—'} />
+                      <Fact label="Phone" value={d.phone || '—'} />
+                      <Fact label="Region" value={d.region || '—'} />
+                      <Fact label="Status" value={d.isActive ? 'Active' : 'Inactive'} />
+                      <div className="col-span-2">
+                        <Fact label="Address" value={d.address || '—'} />
+                      </div>
+                    </dl>
+                  ) : (
+                    <form
+                      className="grid gap-3 sm:grid-cols-2"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        saveMutation.mutate()
                       }}
                     >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              )}
-            </BookPanel>
-            {!isShop && (
-              <BookPanel title="What they buy">
-                {d.byProduct.length === 0 ? (
-                  <p className="text-xs text-zinc-500">No purchases yet.</p>
-                ) : (
-                  d.byProduct.map((row) => (
-                    <DataRow
-                      key={row.productId}
-                      title={row.productName}
-                      meta={`${fmt(row.qty)} units`}
-                      value={money(row.revenue)}
-                    />
-                  ))
-                )}
-              </BookPanel>
-            )}
+                      <Field label="Business name">
+                        <input
+                          className="dgn-input"
+                          value={form.name}
+                          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                          required
+                        />
+                      </Field>
+                      <Field label="Contact person">
+                        <input
+                          className="dgn-input"
+                          value={form.contactPerson}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, contactPerson: e.target.value }))
+                          }
+                        />
+                      </Field>
+                      <Field label="Phone">
+                        <input
+                          className="dgn-input"
+                          value={form.phone}
+                          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                        />
+                      </Field>
+                      <Field label="Region">
+                        <input
+                          className="dgn-input"
+                          value={form.region}
+                          onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
+                        />
+                      </Field>
+                      <div className="sm:col-span-2">
+                        <Field label="Address">
+                          <input
+                            className="dgn-input"
+                            value={form.address}
+                            onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                          />
+                        </Field>
+                      </div>
+                      <Field label="Status">
+                        <select
+                          className="dgn-input"
+                          value={form.isActive ? '1' : '0'}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, isActive: e.target.value === '1' }))
+                          }
+                        >
+                          <option value="1">Active</option>
+                          <option value="0">Inactive</option>
+                        </select>
+                      </Field>
+                      <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                        <button
+                          type="submit"
+                          className="dgn-btn dgn-btn-primary"
+                          disabled={saveMutation.isPending}
+                        >
+                          {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+                        </button>
+                        <button
+                          type="button"
+                          className="dgn-btn dgn-btn-ghost"
+                          onClick={() => {
+                            setEditing(false)
+                            setError('')
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </BookPanel>
+              </>
+            ) : null}
 
         {paying && (
           <Dialog title="Record payment" onClose={() => setPaying(null)}>

@@ -13,7 +13,6 @@ import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { cn } from '@/lib/utils'
 
 type Direction = 'IN' | 'OUT'
-type Kind = 'RAW' | 'FINISHED' | 'OTHER'
 
 function ChoiceButton({
   active,
@@ -48,10 +47,7 @@ export function SecurityFormPage() {
   const queryClient = useQueryClient()
 
   const [direction, setDirection] = useState<Direction>('IN')
-  const [kind, setKind] = useState<Kind>('RAW')
   const [description, setDescription] = useState('')
-  const [qty, setQty] = useState('')
-  const [uom, setUom] = useState('kg')
   const [partyName, setPartyName] = useState('')
   const [vehicle, setVehicle] = useState('')
   const [notes, setNotes] = useState('')
@@ -72,10 +68,7 @@ export function SecurityFormPage() {
     try {
       await api.post('/security', {
         direction,
-        kind,
         description: description.trim(),
-        qty: Number(qty),
-        uom: uom.trim(),
         partyName: partyName.trim(),
         vehicle: vehicle.trim() || undefined,
         notes: notes.trim() || undefined,
@@ -126,9 +119,7 @@ export function SecurityFormPage() {
               active={direction === 'IN'}
               onClick={() => setDirection('IN')}
               className={
-                direction === 'IN'
-                  ? '!border-emerald-700 !bg-emerald-700 !text-white'
-                  : ''
+                direction === 'IN' ? '!border-emerald-700 !bg-emerald-700 !text-white' : ''
               }
             >
               Coming in
@@ -145,58 +136,6 @@ export function SecurityFormPage() {
           </div>
         </section>
 
-        <section className="space-y-2">
-          <Label className="text-sm font-bold text-zinc-800">Type</Label>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <ChoiceButton active={kind === 'RAW'} onClick={() => setKind('RAW')}>
-              Raw material
-            </ChoiceButton>
-            <ChoiceButton active={kind === 'FINISHED'} onClick={() => setKind('FINISHED')}>
-              Finished goods
-            </ChoiceButton>
-            <ChoiceButton active={kind === 'OTHER'} onClick={() => setKind('OTHER')}>
-              Other
-            </ChoiceButton>
-          </div>
-        </section>
-
-        <section className="space-y-1.5">
-          <Label className="text-sm font-bold text-zinc-800">What is moving</Label>
-          <Input
-            className="h-12 text-base"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Scrap, cartons, diesel…"
-            autoComplete="off"
-          />
-        </section>
-
-        <section className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-sm font-bold text-zinc-800">Quantity</Label>
-            <Input
-              type="number"
-              min={0}
-              step="any"
-              inputMode="decimal"
-              className="h-12 text-base"
-              value={qty}
-              onChange={(e) => setQty(e.target.value)}
-              placeholder="0"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-sm font-bold text-zinc-800">Unit</Label>
-            <Input
-              className="h-12 text-base"
-              value={uom}
-              onChange={(e) => setUom(e.target.value)}
-              placeholder="kg, pcs, bags"
-              autoComplete="off"
-            />
-          </div>
-        </section>
-
         <section className="space-y-1.5">
           <Label className="text-sm font-bold text-zinc-800">
             {direction === 'OUT' ? 'Who took it' : 'Who brought it'}
@@ -207,6 +146,17 @@ export function SecurityFormPage() {
             onChange={(e) => setPartyName(e.target.value)}
             placeholder="Name"
             autoComplete="name"
+          />
+        </section>
+
+        <section className="space-y-1.5">
+          <Label className="text-sm font-bold text-zinc-800">What</Label>
+          <Input
+            className="h-12 text-base"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Scrap, cartons, diesel…"
+            autoComplete="off"
           />
         </section>
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
   PackageCheck,
+  History,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -139,6 +140,7 @@ function formatDate(raw?: string | null) {
 }
 
 export function ProductionStorePage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [showActiveFloor, setShowActiveFloor] = useState(false)
@@ -722,15 +724,27 @@ export function ProductionStorePage() {
       title="Material Store"
       description="Issue color lots to machines."
       actions={
-        <Button
-          type="button"
-          className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
-          onClick={() => handleOpenIssueModal()}
-          disabled={rawMaterialLines.length === 0}
-        >
-          <Send className="size-3.5" />
-          Issue
-        </Button>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs font-semibold"
+            onClick={() => navigate('/production/store/history')}
+          >
+            <History className="size-3.5" />
+            History
+          </Button>
+          <Button
+            type="button"
+            className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
+            onClick={() => handleOpenIssueModal()}
+            disabled={rawMaterialLines.length === 0}
+          >
+            <Send className="size-3.5" />
+            Issue
+          </Button>
+        </div>
       }
     >
       <div className="space-y-4">
