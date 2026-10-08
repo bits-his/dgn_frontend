@@ -33,6 +33,7 @@ export const MENU_PAGES: MenuPage[] = [
   { group: 'Operations', key: 'batches', label: 'Batches', to: '/batches', permission: 'batch.view', nav: 'operations' },
   { group: 'Operations', key: 'masters', label: 'Masters', to: '/masters', permission: 'masters.manage', nav: 'operations' },
   { group: 'Money & people', key: 'processing_money', label: 'Wallet', to: '/wallet', permission: 'float.spend', nav: 'finance' },
+  { group: 'Money & people', key: 'bank_accounts', label: 'Bank accounts', to: '/bank-accounts', permission: 'float.give', nav: 'finance' },
   { group: 'Money & people', key: 'expenses', label: 'Expenses', to: '/expenses', permission: 'expense.view', nav: 'finance' },
   { group: 'Money & people', key: 'staff', label: 'Staff', to: '/staff', permission: 'labour.view', nav: 'finance' },
   { group: 'Money & people', key: 'operators', label: 'Operators', to: '/operators', permission: 'labour.view', nav: 'finance' },
@@ -145,6 +146,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
   FINANCE_OFFICER: [
     'expenses',
     'processing_money',
+    'bank_accounts',
     'payroll',
     'staff',
     'operators',

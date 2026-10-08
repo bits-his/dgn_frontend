@@ -1,4 +1,5 @@
-import { Camera, ImagePlus, Images, X } from 'lucide-react'
+import { useState } from 'react'
+import { Camera, ImagePlus, Images, Loader2, X } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { NairaAmountInput } from '@/components/ui'
 import {
@@ -17,11 +18,12 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
-  compressImageFile,
   DOWNTIME_DAY_OPTIONS,
   DOWNTIME_HOUR_OPTIONS,
   parsePhotoUrls,
+  uploadImageFile,
   type DowntimeUnit,
+  type PhotoUploadKind,
   mediaUrl,
 } from '@/lib/maintenanceForm'
 import { formatDateTime } from '@/lib/dates'
@@ -123,12 +125,15 @@ export function PhotoGallery({
   )
 }
 
+const PHOTO_ACCEPT = 'image/*,.heic,.heif,image/heic,image/heif'
+
 export function MaintenancePhotoPicker({
   photos,
   onChange,
   label = 'Photos',
   variant = 'default',
   required = false,
+  kind = 'maintenance',
 }: {
   photos: string[]
   onChange: (next: string[]) => void
@@ -136,24 +141,44 @@ export function MaintenancePhotoPicker({
   /** Larger camera/gallery controls for phone use (security gate). */
   variant?: 'default' | 'phone'
   required?: boolean
+  /** Folder used when uploading immediately after pick. */
+  kind?: PhotoUploadKind
 }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   async function addFiles(files: FileList | null) {
-    if (!files?.length) return
+    if (!files?.length || busy) return
+    setError(null)
+    setBusy(true)
     const next = [...photos]
-    for (const file of Array.from(files)) {
-      if (!file.type.startsWith('image/')) continue
-      if (next.length >= 8) break
-      try {
-        next.push(await compressImageFile(file))
-      } catch {
-        // skip unreadable files
+    const failures: string[] = []
+    try {
+      for (const file of Array.from(files)) {
+        if (next.length >= 8) break
+        try {
+          next.push(await uploadImageFile(file, kind))
+        } catch (err) {
+          const msg =
+            (err as { response?: { data?: { err?: string; msg?: string } }; message?: string })
+              .response?.data?.err ||
+            (err as { response?: { data?: { msg?: string } } }).response?.data?.msg ||
+            (err as { message?: string }).message ||
+            'Could not upload photo'
+          failures.push(msg)
+        }
       }
+      if (next.length !== photos.length) onChange(next)
+      if (failures.length) {
+        setError(failures[0])
+      }
+    } finally {
+      setBusy(false)
     }
-    onChange(next)
   }
 
   const phone = variant === 'phone'
-  const canAdd = photos.length < 8
+  const canAdd = photos.length < 8 && !busy
 
   return (
     <div>
@@ -171,28 +196,40 @@ export function MaintenancePhotoPicker({
         <div className="mt-2 space-y-3">
           {canAdd && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <label className="flex h-14 cursor-pointer items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white active:bg-zinc-800">
-                <Camera className="size-5 shrink-0" />
-                Take photo
+              <label
+                className={cn(
+                  'flex h-14 cursor-pointer items-center justify-center gap-2 rounded-xl bg-zinc-900 text-sm font-semibold text-white active:bg-zinc-800',
+                  busy && 'pointer-events-none opacity-70',
+                )}
+              >
+                {busy ? <Loader2 className="size-5 shrink-0 animate-spin" /> : <Camera className="size-5 shrink-0" />}
+                {busy ? 'Uploading…' : 'Take photo'}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={PHOTO_ACCEPT}
                   capture="environment"
                   className="hidden"
+                  disabled={busy}
                   onChange={(e) => {
                     void addFiles(e.target.files)
                     e.target.value = ''
                   }}
                 />
               </label>
-              <label className="flex h-14 cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-800 active:bg-zinc-50">
-                <Images className="size-5 shrink-0" />
-                From gallery
+              <label
+                className={cn(
+                  'flex h-14 cursor-pointer items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white text-sm font-semibold text-zinc-800 active:bg-zinc-50',
+                  busy && 'pointer-events-none opacity-70',
+                )}
+              >
+                {busy ? <Loader2 className="size-5 shrink-0 animate-spin" /> : <Images className="size-5 shrink-0" />}
+                {busy ? 'Uploading…' : 'From gallery'}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={PHOTO_ACCEPT}
                   multiple
                   className="hidden"
+                  disabled={busy}
                   onChange={(e) => {
                     void addFiles(e.target.files)
                     e.target.value = ''
@@ -201,6 +238,7 @@ export function MaintenancePhotoPicker({
               </label>
             </div>
           )}
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {photos.length === 0 ? (
             <p className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-6 text-center text-sm text-zinc-500">
               Take a clear photo of the load, goods, or vehicle.
@@ -209,7 +247,7 @@ export function MaintenancePhotoPicker({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {photos.map((src, idx) => (
                 <div
-                  key={`${src.slice(0, 24)}-${idx}`}
+                  key={`${src.slice(0, 48)}-${idx}`}
                   className="relative aspect-[4/3] overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100"
                 >
                   <img src={mediaUrl(src)} alt="" className="size-full object-cover" />
@@ -227,40 +265,44 @@ export function MaintenancePhotoPicker({
           )}
         </div>
       ) : (
-        <div className="mt-1 flex flex-wrap gap-2">
-          {photos.map((src, idx) => (
-            <div
-              key={`${src.slice(0, 24)}-${idx}`}
-              className="relative size-16 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
-            >
-              <img src={mediaUrl(src)} alt="" className="size-full object-cover" />
-              <button
-                type="button"
-                className="absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-black/70 text-white"
-                onClick={() => onChange(photos.filter((_, i) => i !== idx))}
-                aria-label="Remove photo"
+        <div className="mt-1 space-y-1.5">
+          <div className="flex flex-wrap gap-2">
+            {photos.map((src, idx) => (
+              <div
+                key={`${src.slice(0, 48)}-${idx}`}
+                className="relative size-16 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
               >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
-          {canAdd && (
-            <label className="flex size-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-zinc-300 text-zinc-500 dark:border-zinc-700">
-              <ImagePlus className="size-4" />
-              <span className="text-[9px] font-semibold">Add</span>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  void addFiles(e.target.files)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-          )}
+                <img src={mediaUrl(src)} alt="" className="size-full object-cover" />
+                <button
+                  type="button"
+                  className="absolute right-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-black/70 text-white"
+                  onClick={() => onChange(photos.filter((_, i) => i !== idx))}
+                  aria-label="Remove photo"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+            {canAdd && (
+              <label className="flex size-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-zinc-300 text-zinc-500 dark:border-zinc-700">
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
+                <span className="text-[9px] font-semibold">{busy ? '…' : 'Add'}</span>
+                <input
+                  type="file"
+                  accept={PHOTO_ACCEPT}
+                  capture="environment"
+                  multiple
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => {
+                    void addFiles(e.target.files)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          {error ? <p className="text-xs text-red-600">{error}</p> : null}
         </div>
       )}
     </div>

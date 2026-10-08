@@ -1724,6 +1724,7 @@ export function MachinePerformancePage() {
                 onChange={setMaintPhotos}
                 variant="phone"
                 label="Photos"
+                kind="maintenance"
               />
 
               <div>

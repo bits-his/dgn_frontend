@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Banknote, Boxes, CreditCard, Package, Plus } from 'lucide-react'
+import { Banknote, Boxes, CreditCard, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'

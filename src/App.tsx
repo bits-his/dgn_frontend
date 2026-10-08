@@ -45,6 +45,7 @@ import { RecordOutletSalePage } from '@/pages/RecordOutletSalePage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ProductPricingPage } from '@/pages/ProductPricingPage'
 import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
+import { BankAccountsPage } from '@/pages/BankAccountsPage'
 import { ExpensesPage } from '@/pages/ExpensesPage'
 import { LabourPage } from '@/pages/LabourPage'
 import { OperatorWorkPage } from '@/pages/OperatorWorkPage'
@@ -157,6 +158,7 @@ function App() {
                 <Route path="/wallet" element={<ProcessingMoneyPage />} />
                 <Route path="/processing-money/:userId" element={<ProcessingMoneyPage />} />
                 <Route path="/processing-money" element={<ProcessingMoneyPage />} />
+                <Route path="/bank-accounts" element={<BankAccountsPage />} />
                 <Route path="/staff" element={<LabourPage directory="staff" />} />
                 <Route path="/operators/:id" element={<OperatorWorkPage />} />
                 <Route path="/operators" element={<LabourPage directory="operators" />} />

@@ -1306,6 +1306,7 @@ export function MachineDetailPage() {
                 onChange={setMaintPhotos}
                 variant="phone"
                 label="Photos"
+                kind="maintenance"
               />
 
               <div>

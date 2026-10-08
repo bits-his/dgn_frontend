@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
   ChevronRight,
+  Landmark,
   Plus,
   Undo2,
 } from 'lucide-react'
@@ -52,6 +53,9 @@ type WalletTxn = {
   businessDate: string | null
   balanceAfter: number
   batchNumber: string | null
+  bankAccountId?: number | null
+  bankAccountName?: string | null
+  reference?: string | null
   createdByName: string
   createdAt: string
 }
@@ -61,6 +65,13 @@ type HolderOption = {
   name: string
   username?: string
   roleCode?: string
+}
+
+type BankAccountOption = {
+  id: number
+  name: string
+  bankName?: string | null
+  accountNumber?: string | null
 }
 
 function money(n: number) {
@@ -329,10 +340,21 @@ export function ProcessingMoneyPage() {
     },
   })
 
+  const bankAccountsQuery = useQuery({
+    queryKey: ['bank-accounts'],
+    enabled: canGive,
+    queryFn: async () => {
+      const { data } = await api.get('/bank-accounts')
+      return (data.data || []) as BankAccountOption[]
+    },
+  })
+
   const [giveOpen, setGiveOpen] = useState(false)
   const [spendOpen, setSpendOpen] = useState(false)
   const [returnOpen, setReturnOpen] = useState(false)
   const [giveHolderId, setGiveHolderId] = useState('')
+  const [bankAccountId, setBankAccountId] = useState('')
+  const [reference, setReference] = useState('')
   const [amount, setAmount] = useState('')
   const [txnDate, setTxnDate] = useState(todayInputDate)
   const [purpose, setPurpose] = useState('')
@@ -362,6 +384,8 @@ export function ProcessingMoneyPage() {
     setAmount('')
     setPurpose('')
     setNotes('')
+    setBankAccountId('')
+    setReference('')
     setTxnDate(todayInputDate())
     setFormError(null)
     setBusy(false)
@@ -372,6 +396,7 @@ export function ProcessingMoneyPage() {
     setGiveHolderId(detailUserId ? String(detailUserId) : '')
     setGiveOpen(true)
     void holdersQuery.refetch()
+    void bankAccountsQuery.refetch()
   }
 
   const postMoney = async (path: string, body: Record<string, unknown>) => {
@@ -401,8 +426,20 @@ export function ProcessingMoneyPage() {
     sublabel: h.roleCode || h.username,
   }))
 
+  const bankOptions = (bankAccountsQuery.data || []).map((a) => ({
+    value: String(a.id),
+    label: a.name,
+    sublabel: [a.bankName, a.accountNumber].filter(Boolean).join(' · ') || undefined,
+  }))
+
   const targetUserId =
     giveOpen && canGive ? Number(giveHolderId || detailUserId || 0) : Number(detailUserId || 0)
+
+  const canSubmitGive =
+    Boolean(giveHolderId) &&
+    Number(amount) > 0 &&
+    Boolean(bankAccountId) &&
+    Boolean(reference.trim())
 
   const formFields = (
     dialog: 'give' | 'spend' | 'return',
@@ -416,18 +453,48 @@ export function ProcessingMoneyPage() {
         onAmountChange={setAmount}
       />
       {dialog === 'give' && (
-        <div>
-          <span className="dgn-label">Staff member</span>
-          <SearchableSelect
-            value={giveHolderId}
-            onChange={setGiveHolderId}
-            options={holderOptions}
-            placeholder="Choose who receives the money"
-            searchPlaceholder="Search staff"
-            emptyMessage="No staff found"
-            portal
-          />
-        </div>
+        <>
+          <div>
+            <span className="dgn-label">Staff member</span>
+            <SearchableSelect
+              value={giveHolderId}
+              onChange={setGiveHolderId}
+              options={holderOptions}
+              placeholder="Choose who receives the money"
+              searchPlaceholder="Search staff"
+              emptyMessage="No staff found"
+              portal
+            />
+          </div>
+          <div>
+            <span className="dgn-label">Bank account</span>
+            <SearchableSelect
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              options={bankOptions}
+              placeholder="Choose account money is issued from"
+              searchPlaceholder="Search accounts"
+              emptyMessage="No bank accounts — add one first"
+              portal
+            />
+            {!bankOptions.length ? (
+              <p className="mt-1 text-[11px] text-zinc-500">
+                <Link to="/bank-accounts" className="font-medium text-zinc-800 underline">
+                  Add a bank account
+                </Link>{' '}
+                before issuing money.
+              </p>
+            ) : null}
+          </div>
+          <Field label="PV / accounting reference">
+            <Input
+              id="give-reference"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="e.g. PV-00421"
+            />
+          </Field>
+        </>
       )}
       {dialog === 'spend' && (
         <Field label="What was it for">
@@ -454,11 +521,21 @@ export function ProcessingMoneyPage() {
       back={Boolean(selectedId) && !isOwnScope}
       backTo={`/wallet?${rangeQuery}`}
       actions={
-        showList && canGive ? (
-          <Button type="button" size="sm" onClick={openGive}>
-            <Plus className="size-3.5" />
-            Give money
-          </Button>
+        canGive ? (
+          <div className="flex items-center gap-2">
+            <Button type="button" size="sm" variant="outline" asChild>
+              <Link to="/bank-accounts">
+                <Landmark className="size-3.5" />
+                Bank accounts
+              </Link>
+            </Button>
+            {showList ? (
+              <Button type="button" size="sm" onClick={openGive}>
+                <Plus className="size-3.5" />
+                Give money
+              </Button>
+            ) : null}
+          </div>
         ) : null
       }
     >
@@ -636,12 +713,21 @@ export function ProcessingMoneyPage() {
                           <span className="block truncate text-[11px] text-zinc-400 lg:hidden">
                             {txnDateLabel(txn)}
                             {txn.createdByName ? ` · ${txn.createdByName}` : ''}
+                            {txn.reference ? ` · ${txn.reference}` : ''}
+                            {txn.bankAccountName ? ` · ${txn.bankAccountName}` : ''}
                             {txn.batchNumber ? ` · ${txn.batchNumber}` : ''}
                             {txn.notes ? ` · ${txn.notes}` : ''}
                           </span>
-                          {(txn.notes || txn.batchNumber) && (
+                          {(txn.notes || txn.batchNumber || txn.reference || txn.bankAccountName) && (
                             <span className="mt-0.5 hidden truncate text-[11px] text-zinc-400 lg:block">
-                              {[txn.batchNumber, txn.notes].filter(Boolean).join(' · ')}
+                              {[
+                                txn.reference ? `Ref ${txn.reference}` : null,
+                                txn.bankAccountName,
+                                txn.batchNumber,
+                                txn.notes,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
                             </span>
                           )}
                         </span>
@@ -677,12 +763,14 @@ export function ProcessingMoneyPage() {
           {formFields('give')}
           <Button
             className="mt-4 w-full"
-            disabled={busy || !giveHolderId || !(Number(amount) > 0)}
+            disabled={busy || !canSubmitGive}
             onClick={() =>
               postMoney(`/processing-wallets/${giveHolderId}/give`, {
                 amount: Number(amount),
                 notes: notes || null,
                 businessDate: txnDate,
+                bankAccountId: Number(bankAccountId),
+                reference: reference.trim(),
               })
             }
           >

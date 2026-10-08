@@ -19,6 +19,7 @@ import {
   Receipt,
   Users,
   HardHat,
+  Landmark,
   Wallet,
   Layers,
   Bell,
@@ -87,6 +88,9 @@ export function canAccessNavItem(
       ) {
         return true
       }
+      if (item.menuKey === 'bank_accounts' && hasPermission(user, 'float.give')) {
+        return true
+      }
       return false
     }
     if (item.permission) {
@@ -133,6 +137,7 @@ const MENU_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   batches: Search,
   masters: Boxes,
   processing_money: Wallet,
+  bank_accounts: Landmark,
   expenses: Receipt,
   staff: Users,
   operators: HardHat,

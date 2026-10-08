@@ -189,6 +189,7 @@ export function SecurityFormPage() {
             onChange={setPhotos}
             variant="phone"
             required
+            kind="security"
           />
         </section>
 

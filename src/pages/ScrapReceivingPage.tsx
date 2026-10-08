@@ -738,6 +738,7 @@ export function ScrapReceivingPage() {
             photos={photos}
             onChange={setPhotos}
             variant="phone"
+            kind="scrap"
           />
 
           {/* Live Calculation Box - White & Collapsible by default */}
