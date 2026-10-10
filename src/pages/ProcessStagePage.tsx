@@ -273,11 +273,11 @@ export function ProcessStageForm({
   const isDrying = stage === 'drying'
   const isRecrushing = stage === 'recrushing'
   const isRecycling = stage === 'recycling'
-  /** Crushing / washing / drying: weigh after stage. Re-crushing keeps the same kg. */
+  /** Crushing / washing / drying single-lot: weigh after stage. */
   const showsMeasuredOut = isCrushing || isWashing || isDrying
   const showsWaste = isSorting || isRecycling
-  /** Washing and drying: process all colours of a batch in a single run */
-  const isMultiLotStage = isWashing || isDrying
+  /** Washing, drying, re-crushing: enter usable kg per colour on the selected lot */
+  const isMultiLotStage = isWashing || isDrying || isRecrushing
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -526,14 +526,14 @@ export function ProcessStageForm({
     if (selected && activeBatch) {
       setValue('inputBatchNumber', selected.batchNumber)
       setValue('qtyInput', String(selected.qtyRemaining))
-      // Crushing (non-split) may start from remaining; wash multi-lot leaves measured empty.
-      if (isCrushing || isRecrushing) {
+      // Crushing (non-split) may start from remaining; multi-lot stages leave measured empty.
+      if (isCrushing && !isMultiLotStage) {
         setValue('qtyUsable', String(selected.qtyRemaining))
-      } else if (showsMeasuredOut) {
+      } else if (showsMeasuredOut && !isMultiLotStage) {
         setValue('qtyUsable', '')
       }
     }
-  }, [selected, activeBatch, setValue, showsMeasuredOut, isCrushing])
+  }, [selected, activeBatch, setValue, showsMeasuredOut, isCrushing, isMultiLotStage])
 
   const isSplittingCrush =
     isCrushing &&
@@ -709,7 +709,7 @@ export function ProcessStageForm({
         setServerErrors([
           {
             label: 'Colours',
-            message: meta.emptyHint || 'No colour lots waiting for washing.',
+            message: meta.emptyHint || `No colour lots waiting for ${meta.title.toLowerCase()}.`,
           },
         ])
         setSubmitAction(null)
@@ -719,7 +719,7 @@ export function ProcessStageForm({
         setServerErrors([
           {
             label: 'Usable',
-            message: 'Enter usable kg after washing for every colour.',
+            message: `Enter usable kg after ${meta.title.toLowerCase()} for every colour.`,
           },
         ])
         setSubmitAction(null)
@@ -775,22 +775,10 @@ export function ProcessStageForm({
       }
     }
 
-    if (isRecrushing) {
-      const rateKg = Number(values.labourRatePerKg || 0)
-      if (!(rateKg > 0)) {
-        setServerErrors([{ label: 'Labour rate / kg', message: 'Enter labour cost per kg.' }])
-        setSubmitAction(null)
-        return
-      }
-    }
-
     try {
       const isSplitting = isColorAllocation && colorLines.length > 0
-      const recrushQty = Number(selected?.qtyRemaining ?? values.qtyInput ?? 0)
       const labourRateKgVal = Number(values.labourRatePerKg || 0)
-      const relevantKg = isRecrushing
-        ? recrushQty
-        : isMultiLotStage
+      const relevantKg = isMultiLotStage
         ? lotTotalUsable + (isWashing ? secondGradeKg : 0)
         : isSplitting
           ? colorUsable
@@ -808,21 +796,13 @@ export function ProcessStageForm({
         ...values,
         inputBatchNumber:
           activeBatch || selected?.batchNumber || lotLines[0]?.batchNumber || values.inputBatchNumber,
-        qtyInput: isRecrushing
-          ? recrushQty
-          : isMultiLotStage
-            ? lotTotalIn
-            : Number(values.qtyInput),
-        qtyUsable: isRecrushing
-          ? recrushQty
-          : isMultiLotStage
+        qtyInput: isMultiLotStage ? lotTotalIn : Number(values.qtyInput),
+        qtyUsable: isMultiLotStage
           ? lotTotalUsable
           : isSplitting
             ? colorUsable
             : Number(values.qtyUsable),
-        qtyReject: isRecrushing
-          ? 0
-          : isMultiLotStage
+        qtyReject: isMultiLotStage
           ? lotTotalWaste
           : showsWaste
             ? qtyReject
@@ -1018,17 +998,20 @@ export function ProcessStageForm({
             onSubmit={handleSubmit((values) => submitPayload(values, false))}
           >
             <input type="hidden" {...register('inputBatchNumber', { required: true })} />
-            {isRecrushing && <input type="hidden" {...register('qtyInput', { required: true })} />}
 
             {isMultiLotStage && (
               <Card className="p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <h2 className="text-base sm:text-lg font-semibold tracking-tight text-zinc-900">
-                      Colours · usable after {meta.title.toLowerCase()}
+                      {isRecrushing
+                        ? 'Colours · what is being re-crushed'
+                        : `Colours · usable after ${meta.title.toLowerCase()}`}
                     </h2>
                     <p className="text-xs text-[var(--ink-muted)] mt-0.5">
-                      Enter usable kg for each separated colour. Waste and yield calculate automatically.
+                      {isRecrushing
+                        ? 'Enter the usable kg for each colour after re-crushing. Waste and yield calculate automatically.'
+                        : 'Enter usable kg for each separated colour. Waste and yield calculate automatically.'}
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-zinc-700 bg-zinc-100 px-2.5 py-1 rounded-full border border-zinc-200 shrink-0">
@@ -1715,10 +1698,14 @@ export function ProcessStageForm({
                   >
                     {meta.showLabourCost !== false && (
                       meta.labourPerKg ? (
-                        <Field label="Labour rate / kg (₦)">
+                        <Field
+                          label={
+                            isRecrushing ? 'Labour rate / kg (₦) · optional' : 'Labour rate / kg (₦)'
+                          }
+                        >
                           <input
                             inputMode="decimal"
-                            placeholder="e.g. 15"
+                            placeholder={isRecrushing ? '0 if none' : 'e.g. 15'}
                             className="dgn-input"
                             {...register('labourRatePerKg')}
                           />
@@ -1936,7 +1923,6 @@ export function ProcessStageForm({
                 size="default"
                 disabled={
                   formState.isSubmitting ||
-                  (isRecrushing && !(Number(watch('labourRatePerKg') || 0) > 0)) ||
                   (isMultiLotStage
                     ? !lotLines.length || lotMissingUsable || measuredOverIn
                     : !selected ||
