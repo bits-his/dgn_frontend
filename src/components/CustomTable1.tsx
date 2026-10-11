@@ -309,7 +309,7 @@ export default function CustomTable1<TData = any>({
       {/* Desktop/Standard Table */}
       <Card
         className={cn(
-          "p-0 overflow-hidden border border-zinc-200/80 shadow-xs",
+          "p-0 overflow-x-auto border border-zinc-200/80 shadow-xs",
           card && "hidden md:block"
         )}
       >

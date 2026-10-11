@@ -54,7 +54,7 @@ export function PageLayout({
         </div>
       ) : null}
       <div className="flex flex-row flex-wrap items-center justify-between gap-2 min-[880px]:gap-3">
-        <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="min-w-0 flex-1 basis-40 space-y-0.5">
           {title ? (
             bare ? (
               <h1 className="text-lg font-bold tracking-tight text-foreground sm:text-xl md:text-2xl truncate">
@@ -79,7 +79,7 @@ export function PageLayout({
           ) : null}
         </div>
         {actions ? (
-          <div className="flex items-center gap-2 shrink-0 justify-end">
+          <div className="flex min-w-0 max-w-full flex-[1_1_auto] flex-wrap items-center justify-end gap-1.5 sm:flex-none">
             {actions}
           </div>
         ) : null}

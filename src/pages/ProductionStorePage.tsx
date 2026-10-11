@@ -737,30 +737,34 @@ export function ProductionStorePage() {
       title="Material Store"
       description="Issue color lots to machines."
       actions={
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        <div className="flex max-w-full items-center justify-end gap-1.5">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
+            className="h-9 w-9 shrink-0 px-0 sm:w-auto sm:gap-1.5 sm:px-3 text-xs font-semibold"
             onClick={() => navigate('/production/store/labels')}
+            aria-label="Labels"
+            title="Labels"
           >
             <Printer className="size-3.5" />
-            Labels
+            <span className="hidden sm:inline">Labels</span>
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
+            className="h-9 w-9 shrink-0 px-0 sm:w-auto sm:gap-1.5 sm:px-3 text-xs font-semibold"
             onClick={() => navigate('/production/store/history')}
+            aria-label="History"
+            title="History"
           >
             <History className="size-3.5" />
-            History
+            <span className="hidden sm:inline">History</span>
           </Button>
           <Button
             type="button"
-            className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
+            className="h-9 shrink-0 gap-1.5 px-2.5 sm:px-3 font-bold text-xs bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
             onClick={() => handleOpenIssueModal()}
             disabled={rawMaterialLines.length === 0}
           >
