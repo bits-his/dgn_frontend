@@ -14,6 +14,7 @@ import {
   ChevronUp,
   PackageCheck,
   History,
+  Printer,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -28,6 +29,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { SORT_COLORS } from '@/lib/sortColors'
 
 type BatchColorItem = {
@@ -258,7 +266,9 @@ export function ProductionStorePage() {
               qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
               uom: b.uom || 'kg',
               receivedDate: b.businessDate || b.createdAt || b.updatedAt,
-              fromDamage: String(b.notes || '').includes('production damage'),
+              fromDamage:
+                b.batchType === 'DAMAGED' ||
+                String(b.notes || '').includes('production damage'),
               batchItem: b,
             })
           }
@@ -275,7 +285,8 @@ export function ProductionStorePage() {
         qtyRemaining: Number(b.qtyRemaining || 0),
         uom: b.uom || 'kg',
         receivedDate: b.businessDate || b.createdAt || b.updatedAt,
-        fromDamage: String(b.notes || '').includes('production damage'),
+        fromDamage:
+          b.batchType === 'DAMAGED' || String(b.notes || '').includes('production damage'),
         batchItem: b,
       })
     }
@@ -510,7 +521,9 @@ export function ProductionStorePage() {
               {row.original.batchNumber}
             </Link>
             {row.original.fromDamage && (
-              <p className="text-[10px] font-semibold text-amber-800">From damaged goods</p>
+              <p className="text-[10px] font-semibold text-amber-800">
+                {row.original.batchType === 'DAMAGED' ? 'Damaged' : 'From damaged goods'}
+              </p>
             )}
           </div>
         ),
@@ -730,6 +743,16 @@ export function ProductionStorePage() {
             variant="outline"
             size="sm"
             className="h-9 gap-1.5 text-xs font-semibold"
+            onClick={() => navigate('/production/store/labels')}
+          >
+            <Printer className="size-3.5" />
+            Labels
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs font-semibold"
             onClick={() => navigate('/production/store/history')}
           >
             <History className="size-3.5" />
@@ -898,240 +921,233 @@ export function ProductionStorePage() {
           </div>
         )}
 
-        {/* ============================================================= */}
-        {/* MODAL: ISSUE MATERIAL TO MACHINE (CUSTOM SHADCN SELECTS)      */}
-        {/* ============================================================= */}
-        {isIssueModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-            <div className="relative w-full max-w-md rounded-xl bg-white p-4 shadow-xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between pb-2.5 border-b border-zinc-100">
-                <h2 className="text-sm font-bold text-zinc-900">Issue to machine</h2>
-                <button
-                  type="button"
-                  className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 cursor-pointer"
-                  onClick={() => setIsIssueModalOpen(false)}
-                >
-                  <X className="size-4" />
-                </button>
+        <Dialog open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
+          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+              <DialogTitle className="text-base font-bold tracking-tight text-foreground">
+                Issue to machine
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Select machine, product, and material lots to issue from the store.
+              </DialogDescription>
+            </DialogHeader>
+
+            {issueModalError && (
+              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
+                {issueModalError}
+              </div>
+            )}
+
+            <form className="mt-3 space-y-4" onSubmit={handleExecuteIssueToMachine}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                    Machine
+                  </label>
+                  <Select value={issueMachineId} onValueChange={setIssueMachineId}>
+                    <SelectTrigger className="h-9 text-xs bg-white">
+                      <SelectValue placeholder="Machine…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productionMachines.map((m) => (
+                        <SelectItem key={m.id} value={String(m.id)}>
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                    Product
+                  </label>
+                  <Select value={issueProductId} onValueChange={setIssueProductId}>
+                    <SelectTrigger className="h-9 text-xs bg-white">
+                      <SelectValue placeholder="Product…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productsQuery.data?.map((p) => (
+                        <SelectItem key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              {issueModalError && (
-                <div className="mt-2.5 rounded-lg bg-red-50 p-2 text-xs text-red-700 border border-red-200">
-                  {issueModalError}
-                </div>
-              )}
+              {activeRunForMachine ? (
+                <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
+                  Machine is running — material will add to the current run
+                  {activeRunForMachine.batch?.batchNumber
+                    ? ` (${activeRunForMachine.batch.batchNumber})`
+                    : ''}
+                  .
+                </p>
+              ) : null}
 
-              <form className="mt-3 space-y-3" onSubmit={handleExecuteIssueToMachine}>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                      Machine
-                    </label>
-                    <Select value={issueMachineId} onValueChange={setIssueMachineId}>
-                      <SelectTrigger className="h-8 text-xs bg-white">
-                        <SelectValue placeholder="Machine…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {productionMachines.map((m) => (
-                          <SelectItem key={m.id} value={String(m.id)}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 pr-2 sm:grid-cols-[1fr_8rem]">
+                    <span className="text-[11px] font-semibold text-zinc-600">Color</span>
+                    <span className="text-[11px] font-semibold text-zinc-600">KG</span>
                   </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                      Product
-                    </label>
-                    <Select value={issueProductId} onValueChange={setIssueProductId}>
-                      <SelectTrigger className="h-8 text-xs bg-white">
-                        <SelectValue placeholder="Product…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {productsQuery.data?.map((p) => (
-                          <SelectItem key={p.id} value={String(p.id)}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {activeRunForMachine ? (
-                  <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1.5">
-                    Machine is running — material will add to the current run
-                    {activeRunForMachine.batch?.batchNumber
-                      ? ` (${activeRunForMachine.batch.batchNumber})`
-                      : ''}
-                    .
-                  </p>
-                ) : null}
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="grid grid-cols-[1fr_5.5rem] gap-2 flex-1 pr-2">
-                      <span className="text-[11px] font-semibold text-zinc-600">Color</span>
-                      <span className="text-[11px] font-semibold text-zinc-600">KG</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer shrink-0"
-                      onClick={() =>
-                        setIssueMaterialLines((prev) => [
-                          ...prev,
-                          { id: String(Date.now()), lineKey: '', qty: '' },
-                        ])
-                      }
-                    >
-                      + Add
-                    </button>
-                  </div>
-
-                  {issueMaterialLines.map((row) => {
-                    return (
-                      <div key={row.id} className="flex items-center gap-1.5">
-                        <div className="grid grid-cols-[1fr_5.5rem] gap-2 flex-1 min-w-0">
-                          <Select
-                            value={row.lineKey || undefined}
-                            onValueChange={(val) =>
-                              setIssueMaterialLines((prev) =>
-                                prev.map((l) =>
-                                  l.id === row.id ? { ...l, lineKey: val, qty: '' } : l,
-                                ),
-                              )
-                            }
-                          >
-                            <SelectTrigger className="h-8 text-xs bg-white">
-                              <SelectValue placeholder="Select color…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {rawMaterialLines.map((l) => (
-                                <SelectItem key={l.key} value={l.key}>
-                                  {colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <input
-                            type="number"
-                            step="any"
-                            min={0}
-                            className="dgn-input font-semibold text-xs h-8"
-                            placeholder="kg"
-                            value={row.qty}
-                            onChange={(e) =>
-                              setIssueMaterialLines((prev) =>
-                                prev.map((l) =>
-                                  l.id === row.id ? { ...l, qty: e.target.value } : l,
-                                ),
-                              )
-                            }
-                          />
-                        </div>
-                        {issueMaterialLines.length > 1 ? (
-                          <button
-                            type="button"
-                            className="text-zinc-400 hover:text-red-600 cursor-pointer shrink-0 p-1"
-                            onClick={() =>
-                              setIssueMaterialLines((prev) =>
-                                prev.filter((l) => l.id !== row.id),
-                              )
-                            }
-                          >
-                            <X className="size-3.5" />
-                          </button>
-                        ) : (
-                          <span className="w-5 shrink-0" />
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                      Masterbatch kg
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="dgn-input text-xs h-8"
-                      placeholder="0"
-                      value={issueMasterBatchKg}
-                      onChange={(e) => setIssueMasterBatchKg(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                      MB ₦/kg
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="dgn-input text-xs h-8"
-                      placeholder="0"
-                      value={issueMasterBatchPricePerKg}
-                      onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                      Batching kg
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="dgn-input text-xs h-8"
-                      placeholder="0"
-                      value={issueBatchingKg}
-                      onChange={(e) => setIssueBatchingKg(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                      Batching ₦/kg
-                    </label>
-                    <input
-                      type="number"
-                      step="any"
-                      min={0}
-                      className="dgn-input text-xs h-8"
-                      placeholder="0"
-                      value={issueBatchingPricePerKg}
-                      onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100">
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsIssueModalOpen(false)}
+                    className="text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer shrink-0"
+                    onClick={() =>
+                      setIssueMaterialLines((prev) => [
+                        ...prev,
+                        { id: String(Date.now()), lineKey: '', qty: '' },
+                      ])
+                    }
                   >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isIssueSubmitting}
-                    className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
-                    size="sm"
-                  >
-                    <Send className="size-3.5" />
-                    {isIssueSubmitting ? 'Issuing…' : 'Issue'}
-                  </Button>
+                    + Add
+                  </button>
                 </div>
-              </form>
-            </div>
-          </div>
-        )}
+
+                {issueMaterialLines.map((row) => {
+                  return (
+                    <div key={row.id} className="flex items-center gap-1.5">
+                      <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 min-w-0 sm:grid-cols-[1fr_8rem]">
+                        <Select
+                          value={row.lineKey || undefined}
+                          onValueChange={(val) =>
+                            setIssueMaterialLines((prev) =>
+                              prev.map((l) =>
+                                l.id === row.id ? { ...l, lineKey: val, qty: '' } : l,
+                              ),
+                            )
+                          }
+                        >
+                          <SelectTrigger className="h-9 text-xs bg-white">
+                            <SelectValue placeholder="Select color…" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {rawMaterialLines.map((l) => (
+                              <SelectItem key={l.key} value={l.key}>
+                                {colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <input
+                          type="number"
+                          step="any"
+                          min={0}
+                          className="dgn-input font-semibold text-xs h-9"
+                          placeholder="kg"
+                          value={row.qty}
+                          onChange={(e) =>
+                            setIssueMaterialLines((prev) =>
+                              prev.map((l) =>
+                                l.id === row.id ? { ...l, qty: e.target.value } : l,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      {issueMaterialLines.length > 1 ? (
+                        <button
+                          type="button"
+                          className="text-zinc-400 hover:text-red-600 cursor-pointer shrink-0 p-1"
+                          onClick={() =>
+                            setIssueMaterialLines((prev) =>
+                              prev.filter((l) => l.id !== row.id),
+                            )
+                          }
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      ) : (
+                        <span className="w-5 shrink-0" />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                    Masterbatch (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="dgn-input text-xs h-9"
+                    placeholder="0"
+                    value={issueMasterBatchKg}
+                    onChange={(e) => setIssueMasterBatchKg(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                    Price per kg
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="dgn-input text-xs h-9"
+                    placeholder="0"
+                    value={issueMasterBatchPricePerKg}
+                    onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                    Virgin material (kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="dgn-input text-xs h-9"
+                    placeholder="0"
+                    value={issueBatchingKg}
+                    onChange={(e) => setIssueBatchingKg(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
+                    Price per kg
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="dgn-input text-xs h-9"
+                    placeholder="0"
+                    value={issueBatchingPricePerKg}
+                    onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsIssueModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isIssueSubmitting}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
+                  size="sm"
+                >
+                  <Send className="size-3.5" />
+                  {isIssueSubmitting ? 'Issuing…' : 'Issue'}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
     </PageLayout>
   )

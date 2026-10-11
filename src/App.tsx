@@ -22,6 +22,8 @@ import { ProductionPage } from '@/pages/ProductionPage'
 import { MachineProductionPage } from '@/pages/MachineProductionPage'
 import { MachineWorkLogPage } from '@/pages/MachineWorkLogPage'
 import { ProductionStorePage } from '@/pages/ProductionStorePage'
+import { StoreLabelsReprintPage } from '@/pages/StoreLabelsReprintPage'
+import { BatchLabelVerifyPage } from '@/pages/BatchLabelVerifyPage'
 import { MaterialIssueHistoryPage } from '@/pages/MaterialIssueHistoryPage'
 import { DamagedPage } from '@/pages/DamagedPage'
 import { SecurityPage } from '@/pages/SecurityPage'
@@ -108,6 +110,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/v/:batchNumber" element={<BatchLabelVerifyPage />} />
             <Route element={<ProtectedRoute />}>
               <Route path="/sales/:saleNumber/invoice" element={<SaleInvoicePage />} />
               <Route path="/sales/:saleNumber/receipt" element={<SaleReceiptPage />} />
@@ -125,6 +128,7 @@ function App() {
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
+                <Route path="/production/store/labels" element={<StoreLabelsReprintPage />} />
                 <Route path="/production/store/history" element={<MaterialIssueHistoryPage />} />
                 <Route path="/production/damaged" element={<DamagedPage />} />
                 <Route path="/production/damaged/new" element={<Navigate to="/production/damaged" replace />} />

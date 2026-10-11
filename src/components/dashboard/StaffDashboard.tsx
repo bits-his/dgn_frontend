@@ -34,7 +34,7 @@ import {
   Tag,
   AlertTriangle,
   Shield,
-  Sun,
+  // Sun, // drying icon — stage retired
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -203,19 +203,20 @@ const ALL_SIDEBAR_QUICK_ACTIONS: QuickActionItem[] = [
     menuKey: 'second_grade',
     permission: 'batch.view',
   },
-  {
-    to: '/process/drying',
-    title: 'Drying Stage',
-    desc: 'Dry washed lots before re-crush',
-    icon: Sun,
-    tone: 'bg-orange-500 text-white',
-    menuKey: 'drying',
-    permission: 'batch.create',
-  },
+  // Drying removed from workflow.
+  // {
+  //   to: '/process/drying',
+  //   title: 'Drying Stage',
+  //   desc: 'Dry washed lots before re-crush',
+  //   icon: Sun,
+  //   tone: 'bg-orange-500 text-white',
+  //   menuKey: 'drying',
+  //   permission: 'batch.create',
+  // },
   {
     to: '/process/recrushing',
     title: 'Re-crushing',
-    desc: 'Re-crush washed and dried lots',
+    desc: 'Re-crush washed lots',
     icon: RotateCcw,
     tone: 'bg-slate-700 text-white',
     menuKey: 'recrushing',
@@ -581,14 +582,14 @@ export function StaffDashboard() {
 
     cards.push(...stageCards('crush', 'Crushing', '/process/crushing', Hammer, shortLabel, s.crushing))
     cards.push(...stageCards('wash', 'Washing', '/process/washing', Droplets, shortLabel, s.washing))
-    cards.push(...stageCards('dry', 'Drying', '/process/drying', Factory, shortLabel, s.drying))
+    // cards.push(...stageCards('dry', 'Drying', '/process/drying', Factory, shortLabel, s.drying))
 
     if (s.recrushing) {
       cards.push({
         key: 'recrush-wait',
         label: 'Re-crush waiting',
         value: String(s.recrushing.waitingLots),
-        hint: 'Wash / dry lots ready',
+        hint: 'Washed lots ready',
         icon: RotateCcw,
         tone: 'text-slate-700',
         to: '/process/recrushing',

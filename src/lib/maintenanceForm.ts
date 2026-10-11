@@ -286,7 +286,7 @@ export async function compressImageFile(file: File, maxEdge = 1600, quality = 0.
   return best
 }
 
-export type PhotoUploadKind = 'scrap' | 'security' | 'maintenance'
+export type PhotoUploadKind = 'scrap' | 'security' | 'maintenance' | 'process'
 
 /** Compress then upload one photo; returns a durable `/uploads/...` path. */
 export async function uploadImageFile(file: File, kind: PhotoUploadKind = 'scrap'): Promise<string> {

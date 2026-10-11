@@ -338,7 +338,7 @@ export function ScrapReceivingListPage() {
   return (
     <PageLayout
       title="Scrap Buying"
-      description="Every scrap purchase stays here after crushing, washing, drying, or re-crushing"
+      description="Every scrap purchase stays here after crushing, washing, or re-crushing"
       actions={
         <Button
           size="sm"

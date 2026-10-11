@@ -451,7 +451,7 @@ export function InventoryPage() {
             </div>
           </div>
           <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.wipQty ?? 0)} kg</div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Crushed, washed & drying</p>
+          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Crushed & washed</p>
         </div>
 
         <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">

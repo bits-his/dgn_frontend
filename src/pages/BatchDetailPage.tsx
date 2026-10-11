@@ -53,6 +53,7 @@ const TYPE_LABEL: Record<string, string> = {
   CRUSH: 'Crushed',
   WASH: 'Washed',
   DRY: 'Dried',
+  DAMAGED: 'Damaged',
   PROD: 'Finished goods',
   RECYCLE: 'Recycle',
   LOT: 'In process',
@@ -792,19 +793,13 @@ export function BatchDetailPage() {
         </Button>
       ) : batch.batchType === 'WASH' && remaining ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
-          <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-            Process drying →
-          </Link>
-        </Button>
-      ) : batch.batchType === 'DRY' && remaining && !hasRecrushing ? (
-        <Button size="sm" className="h-8 text-xs font-semibold" asChild>
           <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
             Process re-crushing →
           </Link>
         </Button>
-      ) : hasRecrushing && remaining ? (
+      ) : batch.batchType === 'DRY' && remaining ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
-          <Link to="/production/store">Issue to machine →</Link>
+          <Link to="/production/store">Move to Material Store →</Link>
         </Button>
       ) : batch.batchType === 'SCRAP' && remaining ? (
         <Button size="sm" className="h-8 text-xs font-semibold" asChild>
@@ -1083,12 +1078,20 @@ export function BatchDetailPage() {
         ) : batch.batchType === 'WASH' && Number(batch.qtyRemaining || 0) > 0 ? (
           <Button
             size="sm"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
             asChild
           >
-            <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-              Process drying →
+            <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+              Process re-crushing →
             </Link>
+          </Button>
+        ) : batch.batchType === 'DRY' && Number(batch.qtyRemaining || 0) > 0 ? (
+          <Button
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            asChild
+          >
+            <Link to="/production/store">Move to Material Store →</Link>
           </Button>
         ) : null
       }
@@ -1181,8 +1184,8 @@ export function BatchDetailPage() {
                 {batch.batchType === 'CRUSH'
                   ? 'Output colours from crushing run · Ready for washing'
                   : batch.batchType === 'WASH'
-                  ? 'Washed colours · Ready for drying'
-                  : 'Dried colours · Ready for production or recycling'}
+                  ? 'Washed colours · Ready for re-crushing'
+                  : 'Re-crushed colours · Ready for material store'}
               </p>
             </div>
             {Number(batch.qtyRemaining || 0) > 0 && (
@@ -1196,8 +1199,8 @@ export function BatchDetailPage() {
                     Process Washing →
                   </Link>
                 ) : batch.batchType === 'WASH' ? (
-                  <Link to={`/process/drying/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
-                    Process drying →
+                  <Link to={`/process/recrushing/new?batch=${encodeURIComponent(batch.batchNumber)}`}>
+                    Process re-crushing →
                   </Link>
                 ) : (
                   <Link to="/production/store">

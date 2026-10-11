@@ -37,6 +37,7 @@ import { StaffDashboard } from '@/components/dashboard/StaffDashboard'
 import { OutletDashboard } from '@/components/dashboard/OutletDashboard'
 import { isOutletScoped } from '@/lib/outlet'
 import { dateRangeApiParams, type DateRangeState } from '@/lib/dateRange'
+import { formatBusinessDate, formatDate } from '@/lib/dates'
 import { fmtDozenPcs } from '@/lib/units'
 
 type AlertTop = {
@@ -130,6 +131,7 @@ type Dashboard = {
     availableKg?: number
     wasteKg?: number
     secondGradeKg?: number
+    damagedRecrushKg?: number
     wipKg: number
     fgUnits: number
     fgDozen?: number
@@ -155,10 +157,11 @@ type Dashboard = {
     wasteKg?: number
     secondGradeKg?: number
     availableKg?: number
-    sortedKg: number
-    crushedKg: number
-    washedKg: number
-    driedKg: number
+    sortedKg?: number | null
+    crushedKg?: number | null
+    washedKg?: number | null
+    driedKg?: number | null
+    damagedRecrushKg?: number
   }
   quality: {
     openHolds: number
@@ -182,7 +185,15 @@ type Dashboard = {
     supplierName: string
     inboundForm: string
     kg: number
+    availableKg?: number
+    wasteKg?: number
+    secondGradeKg?: number
+    remainingKg?: number
+    crushedKg?: number
+    washedKg?: number
+    driedKg?: number
     cost: number
+    businessDate?: string | null
     receivedAt: string
   }>
   productionOutput?: Array<{
@@ -485,14 +496,15 @@ export function DashboardPage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Available</span>
+                      <span className="text-muted-foreground">Material available</span>
                       <span className="font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                        {fmt(
-                          d.materialFlow.availableKg ??
-                            d.inventory.availableKg ??
-                            0,
-                        )}{' '}
-                        kg
+                        {fmt(d.inventory.rawKg || 0)} kg
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">Waste</span>
+                      <span className="font-semibold tabular-nums text-rose-600">
+                        {fmt(d.materialFlow.wasteKg || 0)} kg
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -502,9 +514,14 @@ export function DashboardPage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Waste</span>
-                      <span className="font-semibold tabular-nums text-rose-600">
-                        {fmt(d.materialFlow.wasteKg || 0)} kg
+                      <span className="text-muted-foreground">Damaged recrushed</span>
+                      <span className="font-semibold tabular-nums text-sky-700 dark:text-sky-400">
+                        {fmt(
+                          d.materialFlow.damagedRecrushKg ||
+                            d.inventory.damagedRecrushKg ||
+                            0,
+                        )}{' '}
+                        kg
                       </span>
                     </div>
                   </div>
@@ -996,7 +1013,7 @@ export function DashboardPage() {
                         Raw Material
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Scrap bought, second grade, and waste for {d.range.label}
+                        Scrap bought, material available, and process flow for {d.range.label}
                       </DialogDescription>
                     </div>
                   </div>
@@ -1009,7 +1026,20 @@ export function DashboardPage() {
                       {fmt(d.materialFlow.receivedKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Net weight from scrap buying</span>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Material available</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+                      {fmt(d.inventory.rawKg || 0)}{' '}
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-600">
+                      {fmt(d.materialFlow.wasteKg || 0)}{' '}
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
+                    </p>
                   </div>
                   <div className="rounded-lg border border-amber-200/80 bg-amber-50/60 p-2.5 dark:border-amber-900 dark:bg-amber-950/40">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Second grade</span>
@@ -1017,40 +1047,48 @@ export function DashboardPage() {
                       {fmt(d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Recovered as second grade</span>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-600">
-                      {fmt(d.materialFlow.wasteKg || 0)}{' '}
+                  <div className="rounded-lg border border-sky-200/80 bg-sky-50/60 p-2.5 dark:border-sky-900 dark:bg-sky-950/40">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Damaged recrushed</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-sky-800 dark:text-sky-300">
+                      {fmt(
+                        d.materialFlow.damagedRecrushKg ||
+                          d.inventory.damagedRecrushKg ||
+                          0,
+                      )}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Lost in processing</span>
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sorted</span>
-                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.sortedKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">WIP</span>
-                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
-                      {fmt(d.inventory.wipKg || 0)}{' '}
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Crushed</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {fmt(d.materialFlow.crushedKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dried ready</span>
-                    <p className="mt-0.5 text-base font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Washed</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {fmt(d.materialFlow.washedKg || 0)}{' '}
+                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
+                    </p>
+                  </div>
+                  {/* Dried KPI retired with drying stage
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dried</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmt(d.materialFlow.driedKg || 0)}{' '}
                       <span className="text-[11px] font-normal text-muted-foreground">kg</span>
                     </p>
                   </div>
+                  */}
                 </div>
 
                 <div className="space-y-1.5">
@@ -1063,36 +1101,60 @@ export function DashboardPage() {
                     </p>
                   ) : (
                     <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full text-left text-xs border-collapse">
+                      <table className="w-full min-w-[36rem] text-left text-xs border-collapse">
                         <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
-                            <th className="py-2.5 px-3">Buy</th>
-                            <th className="py-2.5 px-3 text-right">Kg</th>
-                            <th className="py-2.5 px-3 text-right">Cost</th>
+                            <th className="w-[1%] whitespace-nowrap py-1.5 px-2">Buy</th>
+                            <th className="py-1.5 px-2 text-right">Bought</th>
+                            <th className="py-1.5 px-2 text-right">Available</th>
+                            <th className="py-1.5 px-2 text-right">Waste</th>
+                            <th className="py-1.5 px-2 text-right">2nd grade</th>
+                            <th className="py-1.5 px-2 text-right">Crushed</th>
+                            <th className="py-1.5 px-2 text-right">Washed</th>
+                            {/* <th className="py-1.5 px-2 text-right">Dried</th> */}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                           {(d.scrapPurchases || []).map((row) => (
                             <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3">
-                                <Link
-                                  to={`/receiving/${row.id}`}
-                                  onClick={() => setActiveKpiModal(null)}
-                                  className="block min-h-11 font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
-                                >
-                                  {row.batchNumber || `REC-${row.id}`}
-                                  <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
-                                    {row.supplierName}
-                                    {row.inboundForm ? ` · ${row.inboundForm}` : ''}
+                              <td className="w-[1%] whitespace-nowrap py-1.5 px-2 align-middle">
+                                <div className="flex flex-col gap-0.5">
+                                  <Link
+                                    to={`/receiving/${row.id}`}
+                                    onClick={() => setActiveKpiModal(null)}
+                                    className="font-mono text-[11px] font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
+                                    title={[row.supplierName, row.inboundForm].filter(Boolean).join(' · ')}
+                                  >
+                                    {row.batchNumber || `REC-${row.id}`}
+                                  </Link>
+                                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                                    {row.businessDate
+                                      ? formatBusinessDate(row.businessDate)
+                                      : formatDate(row.receivedAt)}
                                   </span>
-                                </Link>
+                                </div>
                               </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
-                                {fmt(row.kg)} kg
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
+                                {fmt(row.kg)}
                               </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold align-top">
-                                {money(row.cost)}
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 align-middle">
+                                {fmt(row.availableKg ?? 0)}
                               </td>
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-600 align-middle">
+                                {fmt(row.wasteKg ?? 0)}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums text-amber-700 dark:text-amber-400 align-middle">
+                                {fmt(row.secondGradeKg ?? 0)}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
+                                {fmt(row.crushedKg ?? 0)}
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
+                                {fmt(row.washedKg ?? 0)}
+                              </td>
+                              {/* <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
+                                {fmt(row.driedKg ?? 0)}
+                              </td> */}
                             </tr>
                           ))}
                         </tbody>

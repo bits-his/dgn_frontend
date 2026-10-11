@@ -28,6 +28,9 @@ export function DamagedPage() {
   const [pickKg, setPickKg] = useState('')
   const [colorError, setColorError] = useState('')
   const [notes, setNotes] = useState('')
+  const [labourRatePerKg, setLabourRatePerKg] = useState('')
+  const [electricUnits, setElectricUnits] = useState('')
+  const [otherCost, setOtherCost] = useState('')
   const [errors, setErrors] = useState<ErrorItem[]>([])
   const [success, setSuccess] = useState('')
   const [saving, setSaving] = useState(false)
@@ -46,6 +49,11 @@ export function DamagedPage() {
     () => +colorLines.reduce((sum, line) => sum + Number(line.qtyKg || 0), 0).toFixed(3),
     [colorLines],
   )
+  const labourTotal = useMemo(() => {
+    const rate = Number(labourRatePerKg || 0)
+    if (!(rate > 0) || !(totalKg > 0)) return 0
+    return +(rate * totalKg).toFixed(2)
+  }, [labourRatePerKg, totalKg])
 
   function addColorLine() {
     setColorError('')
@@ -85,14 +93,21 @@ export function DamagedPage() {
       const { data } = await api.post('/production/damaged/recrush', {
         colorLines,
         notes: notes.trim() || undefined,
+        labourRatePerKg: Number(labourRatePerKg || 0) || undefined,
+        electricUnits: Number(electricUnits || 0) || undefined,
+        otherCost: Number(otherCost || 0) || undefined,
       })
       setSuccess(data.message || 'Sent to the material store.')
       setColorLines([])
       setPickColor('')
       setPickKg('')
       setNotes('')
+      setLabourRatePerKg('')
+      setElectricUnits('')
+      setOtherCost('')
       await queryClient.invalidateQueries({ queryKey: ['damaged-goods'] })
       await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
       navigate('/production/store', { replace: true })
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -114,7 +129,7 @@ export function DamagedPage() {
   return (
     <PageLayout
       title="Damaged"
-      description="Weigh each colour and send kg to the material store. Staff labour is already covered by salary."
+      description="Weigh each colour and send kg to the material store as Damaged lots. Enter electric units consumed, labour rate, and other costs when needed."
     >
       <div className="w-full space-y-4">
         {success && (
@@ -224,14 +239,51 @@ export function DamagedPage() {
           </Card>
 
           <Card className="!p-2.5 sm:!p-3.5">
-            <Field label="Note">
-              <input
-                className="dgn-input"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional note"
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
+              <Field label="Labour rate / kg (₦) · optional">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  value={labourRatePerKg}
+                  onChange={(e) => setLabourRatePerKg(e.target.value)}
+                  placeholder="0 if none"
+                />
+              </Field>
+              <Field label="Electric units · optional">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  value={electricUnits}
+                  onChange={(e) => setElectricUnits(e.target.value)}
+                  placeholder="Units consumed"
+                />
+              </Field>
+              <Field label="Other costs (₦) · optional">
+                <input
+                  inputMode="decimal"
+                  className="dgn-input"
+                  value={otherCost}
+                  onChange={(e) => setOtherCost(e.target.value)}
+                  placeholder="0 if none"
+                />
+              </Field>
+            </div>
+            {labourTotal > 0 && (
+              <p className="mt-2 text-xs text-zinc-500">
+                Labour total: ₦{labourTotal.toLocaleString()} ({Number(labourRatePerKg).toLocaleString()}/kg ×{' '}
+                {totalKg.toLocaleString()} kg)
+              </p>
+            )}
+            <div className="mt-3">
+              <Field label="Note">
+                <input
+                  className="dgn-input"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional note"
+                />
+              </Field>
+            </div>
           </Card>
 
           <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">

@@ -20,6 +20,12 @@ export function ProcessStageListPage() {
   const navigate = useNavigate()
   const { stage = 'sorting' } = useParams()
   const [searchParams] = useSearchParams()
+
+  // Drying removed from workflow — wash → material store.
+  if (stage === 'drying') {
+    return <Navigate to="/production/store" replace />
+  }
+
   const meta = STAGE_META[stage] || STAGE_META.sorting
   const isSorting = stage === 'sorting'
   const isCrushing = stage === 'crushing'

@@ -34,7 +34,7 @@ import {
   Tag,
   Download,
   Recycle,
-  Sun,
+  // Sun, // drying icon — stage retired
   GitBranch,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
@@ -122,7 +122,7 @@ const MENU_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   crushing: Hammer,
   washing: Droplets,
   second_grade: Layers,
-  drying: Sun,
+  // drying: Sun, // retired stage
   recrushing: RotateCcw,
   recycling: Recycle,
   production_store: Warehouse,

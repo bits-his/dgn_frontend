@@ -47,6 +47,10 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
+      // Public verify pages must not bounce scanners to login.
+      if (window.location.pathname.startsWith('/v/')) {
+        return Promise.reject(error)
+      }
       localStorage.removeItem('dgn_token')
       localStorage.removeItem('dgn_user')
       if (!window.location.pathname.includes('/login')) {
