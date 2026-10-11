@@ -5,7 +5,7 @@ import {
   Bell,
   RefreshCw,
   X,
-  DollarSign,
+  Banknote,
   Factory,
   Recycle,
   PackageCheck,
@@ -639,7 +639,7 @@ export function DashboardPage() {
                       Sales
                     </span>
                     <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
-                      <DollarSign className="size-3" />
+                      <Banknote className="size-3" />
                     </div>
                   </div>
                   <p className="mt-1 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
@@ -1436,7 +1436,7 @@ export function DashboardPage() {
                 <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
                   <div className="flex items-center gap-2.5">
                     <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                      <DollarSign className="size-4" />
+                      <Banknote className="size-4" />
                     </div>
                     <div>
                       <DialogTitle className="text-base font-bold tracking-tight text-foreground">

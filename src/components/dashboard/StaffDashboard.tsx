@@ -154,6 +154,18 @@ type StaffOpsSections = {
     pendingCount: number
   }
   alerts?: { totalUnacknowledged: number; bySeverity: Record<string, number> }
+  operators?: Array<{
+    rank: number
+    operatorId: number | null
+    operatorName: string
+    good: number
+    reject: number
+    rejectPercent: number
+    qualityPercent: number
+    downtimeMinutes: number
+    kgUsable: number
+    score: number
+  }>
 }
 
 type KpiCard = {
@@ -774,6 +786,9 @@ export function StaffDashboard() {
   }, [user])
 
   const alertCount = sections.alerts?.totalUnacknowledged || 0
+  const operatorRanked = (sections.operators || []).slice(0, 5)
+  const showOperatorLeaderboard = Boolean(sections.production) || operatorRanked.length > 0
+  const leaderScore = operatorRanked[0]?.score || 1
 
   return (
     <div className="space-y-6">
@@ -889,6 +904,96 @@ export function StaffDashboard() {
           )
         })}
       </div>
+
+      {showOperatorLeaderboard && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold tracking-tight text-foreground">
+                Operator Leaderboard
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Top 5 by good output, quality, and uptime · {shortLabel}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+              <Link to="/operators">All operators →</Link>
+            </Button>
+          </div>
+
+          {!operatorRanked.length ? (
+            <Card className="p-4 text-xs text-muted-foreground">
+              No operator output recorded for this period.
+            </Card>
+          ) : (
+            <Card className="!p-3 sm:!p-4">
+              <ol className="space-y-2.5">
+                {operatorRanked.map((op, idx) => {
+                  const width = Math.max(
+                    6,
+                    Math.round((Number(op.score || 0) / leaderScore) * 100),
+                  )
+                  const href = op.operatorId ? `/operators/${op.operatorId}` : '/operators'
+                  return (
+                    <li key={`${op.operatorId || op.operatorName}-${idx}`}>
+                      <Link
+                        to={href}
+                        className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-indigo-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-indigo-900"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={cn(
+                              'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
+                              idx === 0
+                                ? 'bg-amber-400 text-amber-950'
+                                : idx === 1
+                                  ? 'bg-zinc-300 text-zinc-800'
+                                  : idx === 2
+                                    ? 'bg-orange-200 text-orange-900'
+                                    : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
+                            )}
+                          >
+                            {op.rank || idx + 1}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="truncate text-sm font-semibold text-foreground group-hover:text-indigo-700">
+                                {op.operatorName}
+                              </p>
+                              <p className="shrink-0 text-xs font-bold tabular-nums text-foreground">
+                                {fmtDozenPcs(op.good)}
+                              </p>
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full',
+                                  idx === 0 ? 'bg-amber-500' : 'bg-indigo-500',
+                                )}
+                                style={{ width: `${width}%` }}
+                              />
+                            </div>
+                            <p className="mt-1 text-[10px] text-muted-foreground">
+                              {op.qualityPercent}% quality
+                              {op.rejectPercent > 0 ? ` · ${op.rejectPercent}% reject` : ''}
+                              {op.downtimeMinutes > 0
+                                ? ` · ${Number(op.downtimeMinutes).toLocaleString()} min down`
+                                : ''}
+                              {op.kgUsable > 0
+                                ? ` · ${Number(op.kgUsable).toLocaleString()} kg processed`
+                                : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ol>
+            </Card>
+          )}
+        </div>
+      )}
 
       {fastActions.length > 0 && (
         <div>

@@ -215,37 +215,9 @@ export function MachineProductionPage() {
               No production recorded for this period.
             </p>
           ) : (
-            <>
-              <div className="md:hidden space-y-2">
-                {productions.map((row) => (
-                  <article
-                    key={row.id}
-                    className="rounded-xl border border-zinc-200 bg-white p-3 shadow-xs space-y-1.5"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-zinc-900">{row.operatorName}</p>
-                        <p className="text-[11px] text-zinc-500">
-                          {row.shiftName} · {row.productName}
-                        </p>
-                      </div>
-                      <span className="text-[10px] tabular-nums text-zinc-400">
-                        {row.businessDate ? formatBusinessDate(row.businessDate) : ''}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-emerald-700">
-                        {fmtDozenPcs(row.qtyGood)}
-                      </span>
-                      <span className="font-semibold text-red-700">{fmt(row.qtyDamage)} dmg</span>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <div className="hidden md:block">
-                <CustomTable1 data={productions} columns={columns} />
-              </div>
-            </>
+            <div className="overflow-x-auto">
+              <CustomTable1 data={productions} columns={columns} />
+            </div>
           )}
         </div>
       </div>

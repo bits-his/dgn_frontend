@@ -29,29 +29,20 @@ type ProductRow = {
   uom: string
   unitsPerDozen?: number | string | null
   sellingPrice?: number | string | null
-  reorderLevel?: number | string | null
-  standardMaterialPerUnit?: number | string | null
+  averageWeight?: number | string | null
   qtyOnHand?: number
   stockValue?: number
   isActive?: boolean
 }
 
 type ProductFormState = {
-  code: string
   name: string
-  uom: string
-  reorderLevel: string
-  standardMaterialPerUnit: string
-  pricePerDozen: string
+  averageWeight: string
 }
 
 const emptyForm = (): ProductFormState => ({
-  code: '',
   name: '',
-  uom: 'pcs',
-  reorderLevel: '',
-  standardMaterialPerUnit: '',
-  pricePerDozen: '',
+  averageWeight: '',
 })
 
 function money(n: number) {
@@ -149,20 +140,12 @@ export function ProductPricingPage() {
   const saveProduct = useMutation({
     mutationFn: async () => {
       const payload: Record<string, unknown> = {
-        code: form.code.trim(),
         name: form.name.trim(),
-        uom: form.uom.trim() || 'pcs',
         isActive: true,
       }
-      if (form.reorderLevel !== '') payload.reorderLevel = Number(form.reorderLevel)
-      if (form.standardMaterialPerUnit !== '') {
-        payload.standardMaterialPerUnit = Number(form.standardMaterialPerUnit)
-      }
-      const pricePerDozen = Number(form.pricePerDozen)
-      if (Number.isFinite(pricePerDozen) && pricePerDozen > 0) {
-        const per = editing ? perDozenOf(editing) : 12
-        payload.sellingPrice = unitPriceFromDozen(pricePerDozen, per)
-      }
+      const avg = Number(form.averageWeight)
+      if (Number.isFinite(avg) && avg > 0) payload.averageWeight = avg
+      else if (editing) payload.averageWeight = 0
 
       if (editing) {
         const { data } = await api.patch(`/masters/products/${editing.id}`, payload)
@@ -206,18 +189,12 @@ export function ProductPricingPage() {
 
   const openEdit = (row: ProductRow) => {
     setEditing(row)
-    const per = perDozenOf(row)
-    const unit = Number(row.sellingPrice) || 0
     setForm({
-      code: row.code || '',
       name: row.name || '',
-      uom: row.uom || 'pcs',
-      reorderLevel: row.reorderLevel != null && row.reorderLevel !== '' ? String(row.reorderLevel) : '',
-      standardMaterialPerUnit:
-        row.standardMaterialPerUnit != null && row.standardMaterialPerUnit !== ''
-          ? String(row.standardMaterialPerUnit)
+      averageWeight:
+        row.averageWeight != null && Number(row.averageWeight) > 0
+          ? String(row.averageWeight)
           : '',
-      pricePerDozen: priceToInput(dozenPriceFromUnit(unit, per)),
     })
     setError('')
     setFormOpen(true)
@@ -251,6 +228,21 @@ export function ProductPricingPage() {
             {qtyLabel(row.original)}
           </span>
         ),
+      },
+      {
+        id: 'avgWeight',
+        header: 'Avg weight',
+        cell: ({ row }) => {
+          const w = Number(row.original.averageWeight)
+          if (!Number.isFinite(w) || !(w > 0)) {
+            return <span className="text-xs text-zinc-400">—</span>
+          }
+          return (
+            <span className="text-xs tabular-nums font-medium text-zinc-800">
+              {w.toLocaleString(undefined, { maximumFractionDigits: 3 })} g
+            </span>
+          )
+        },
       },
       {
         id: 'price',
@@ -321,7 +313,7 @@ export function ProductPricingPage() {
   return (
     <PageLayout
       title="Product pricing"
-      description="Create products and set price per dozen — unit price is calculated for sales."
+      description="Create products, set average weight, and price per dozen when ready."
       actions={
         canManage ? (
           <Button
@@ -376,89 +368,10 @@ export function ProductPricingPage() {
           </p>
         )}
 
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-2.5">
-          {products.isLoading ? (
-            <p className="text-xs text-zinc-500 py-8 text-center">Loading products…</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-xs text-zinc-500 py-8 text-center">
-              No products yet. Add your first product to set a selling price.
-            </p>
-          ) : (
-            filtered.map((row) => {
-              const unit = Number(row.sellingPrice) || 0
-              const per = perDozenOf(row)
-              const dozen = unit > 0 ? dozenPriceFromUnit(unit, per) : 0
-              const qty = Number(row.qtyOnHand) || 0
-              const value = Number(row.stockValue) || qty * unit
-              return (
-                <article
-                  key={row.id}
-                  className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-zinc-900 truncate">{row.name}</p>
-                      <p className="text-[11px] font-mono text-zinc-500">{row.code}</p>
-                    </div>
-                    <span className="text-[10px] uppercase tracking-wide text-zinc-500 shrink-0">
-                      {row.uom}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    <Metric label="Stock" value={qtyLabel(row)} />
-                    <Metric
-                      label="Per dozen"
-                      value={dozen > 0 ? money(dozen) : '—'}
-                    />
-                    <Metric
-                      label="Unit"
-                      value={unit > 0 ? money(unit) : '—'}
-                    />
-                  </div>
-                  {value > 0 ? (
-                    <p className="text-[11px] text-zinc-500">
-                      Stock value{' '}
-                      <span className="font-semibold tabular-nums text-zinc-800">{money(value)}</span>
-                    </p>
-                  ) : null}
-
-                  {canManage && (
-                    <div className="flex gap-2 pt-0.5">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 flex-1 text-xs gap-1.5"
-                        onClick={() => openPrice(row)}
-                      >
-                        <Tag className="size-3.5" />
-                        Update price
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 flex-1 text-xs gap-1.5"
-                        onClick={() => openEdit(row)}
-                      >
-                        <Pencil className="size-3.5" />
-                        Edit
-                      </Button>
-                    </div>
-                  )}
-                </article>
-              )
-            })
-          )}
-        </div>
-
-        {/* Desktop table */}
-        <div className="hidden md:block">
+        <div className="overflow-x-auto">
           {!products.isLoading && filtered.length === 0 ? (
             <p className="text-xs text-zinc-500 py-6 text-center">
-              No products yet. Add your first product to set a selling price.
+              No products yet. Add your first product to get started.
             </p>
           ) : (
             <CustomTable1 data={filtered} columns={columns} loading={products.isLoading} />
@@ -482,8 +395,8 @@ export function ProductPricingPage() {
             <DialogTitle>{editing ? 'Edit product' : 'Add product'}</DialogTitle>
             <DialogDescription>
               {editing
-                ? `Update details for ${editing.name}.`
-                : 'Create a finished product and optionally set its selling price.'}
+                ? `Update ${editing.name}. Set selling price separately with Price.`
+                : 'Enter the product name and average weight. Price can be set later.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -492,24 +405,14 @@ export function ProductPricingPage() {
               e.preventDefault()
               setError('')
               setMessage('')
-              if (!form.code.trim() || !form.name.trim()) {
-                setError('Code and name are required')
+              if (!form.name.trim()) {
+                setError('Name is required')
                 return
               }
               saveProduct.mutate()
             }}
             className="space-y-3.5"
           >
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold">Code</Label>
-              <Input
-                value={form.code}
-                onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-                className="h-8 text-xs font-mono"
-                placeholder="e.g. CUP-250"
-                required
-              />
-            </div>
             <div className="space-y-1">
               <Label className="text-xs font-semibold">Name</Label>
               <Input
@@ -520,62 +423,18 @@ export function ProductPricingPage() {
                 required
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">Unit</Label>
-                <Input
-                  value={form.uom}
-                  onChange={(e) => setForm((f) => ({ ...f, uom: e.target.value }))}
-                  className="h-8 text-xs"
-                  placeholder="pcs"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold">Reorder level</Label>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={form.reorderLevel}
-                  onChange={(e) => setForm((f) => ({ ...f, reorderLevel: e.target.value }))}
-                  className="h-8 text-xs"
-                  placeholder="0"
-                />
-              </div>
-            </div>
             <div className="space-y-1">
-              <Label className="text-xs font-semibold">Material per unit (optional)</Label>
+              <Label className="text-xs font-semibold">Average weight (g)</Label>
               <Input
                 type="number"
                 inputMode="decimal"
-                value={form.standardMaterialPerUnit}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, standardMaterialPerUnit: e.target.value }))
-                }
+                step="any"
+                min={0}
+                value={form.averageWeight}
+                onChange={(e) => setForm((f) => ({ ...f, averageWeight: e.target.value }))}
                 className="h-8 text-xs"
-                placeholder="kg per unit"
+                placeholder="e.g. 12.5"
               />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold">Price per dozen</Label>
-              <NairaAmountInput
-                value={form.pricePerDozen}
-                onChange={(v) => setForm((f) => ({ ...f, pricePerDozen: v }))}
-                placeholder="0"
-              />
-              {Number(form.pricePerDozen) > 0 ? (
-                <p className="text-[11px] text-zinc-500">
-                  Unit price{' '}
-                  <span className="font-semibold tabular-nums text-zinc-800">
-                    {money(
-                      unitPriceFromDozen(
-                        Number(form.pricePerDozen),
-                        editing ? perDozenOf(editing) : 12,
-                      ),
-                    )}
-                  </span>
-                  {' '}/ pc
-                </p>
-              ) : null}
             </div>
 
             {error && formOpen ? (
@@ -601,7 +460,7 @@ export function ProductPricingPage() {
                 type="submit"
                 size="sm"
                 className="h-8 text-xs font-semibold"
-                disabled={saveProduct.isPending || !form.code.trim() || !form.name.trim()}
+                disabled={saveProduct.isPending || !form.name.trim()}
               >
                 {saveProduct.isPending ? 'Saving…' : editing ? 'Save changes' : 'Add product'}
               </Button>
@@ -746,15 +605,6 @@ function SummaryTile({
     >
       <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{label}</p>
       <p className="mt-0.5 text-sm font-semibold tabular-nums text-zinc-900">{value}</p>
-    </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-zinc-50 px-2 py-1.5">
-      <p className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="text-xs font-semibold tabular-nums text-zinc-900 truncate">{value}</p>
     </div>
   )
 }
