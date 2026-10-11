@@ -14,8 +14,7 @@ import {
   ChevronUp,
   PackageCheck,
   History,
-  Printer,
-  ShoppingCart,
+  Blend,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -392,19 +391,43 @@ export function ProductionStorePage() {
     })
   }, [rawMaterialLines, search])
 
+  type MixLineDraft = { id: string; lineKey: string; qty: string }
+  type StoreMixRow = {
+    id: number
+    mixNumber: string
+    batchNumber: string
+    sortColor: string
+    totalKg: number
+    qtyRemaining: number
+    lines: Array<{ id: number; batchNumber: string; color: string | null; qtyKg: number }>
+  }
+
+  const mixesQuery = useQuery({
+    queryKey: ['production-store-mixes'],
+    queryFn: async () => {
+      const { data } = await api.get('/production/store/mixes')
+      return (data.data || []) as StoreMixRow[]
+    },
+    refetchInterval: 20_000,
+  })
+  const availableMixes = mixesQuery.data || []
+
   // -------------------------------------------------------------
-  // MODAL STATE: ISSUE MATERIAL TO MACHINE
+  // MODAL STATE: MIX + ISSUE
   // -------------------------------------------------------------
+  const [isMixModalOpen, setIsMixModalOpen] = useState(false)
+  const [mixLines, setMixLines] = useState<MixLineDraft[]>([
+    { id: '1', lineKey: '', qty: '' },
+  ])
+  const [mixNotes, setMixNotes] = useState('')
+  const [isMixSubmitting, setIsMixSubmitting] = useState(false)
+  const [mixModalError, setMixModalError] = useState('')
+
   const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
   const [issueMachineId, setIssueMachineId] = useState('')
   const [issueProductId, setIssueProductId] = useState('')
-
-  // Multiple material lots (e.g. white + blue) in one issue
-  type IssueMaterialLine = { id: string; lineKey: string; qty: string }
-  const [issueMaterialLines, setIssueMaterialLines] = useState<IssueMaterialLine[]>([
-    { id: '1', lineKey: '', qty: '0' },
-  ])
-
+  const [issueMixId, setIssueMixId] = useState('')
+  const [issueKg, setIssueKg] = useState('')
   const [issueNotes, setIssueNotes] = useState('')
   const [isIssueSubmitting, setIsIssueSubmitting] = useState(false)
   const [issueModalError, setIssueModalError] = useState('')
@@ -415,12 +438,110 @@ export function ProductionStorePage() {
     return map
   }, [rawMaterialLines])
 
-  const handleOpenIssueModal = (preselected?: StoreMaterialLine) => {
+  const selectedIssueMix = useMemo(
+    () => availableMixes.find((m) => String(m.id) === issueMixId) || null,
+    [availableMixes, issueMixId],
+  )
+
+  const handleOpenMixModal = (preselected?: StoreMaterialLine) => {
+    setMixModalError('')
+    setMixLines([
+      {
+        id: String(Date.now()),
+        lineKey: preselected?.key || '',
+        qty: '',
+      },
+    ])
+    setMixNotes('')
+    setIsMixModalOpen(true)
+  }
+
+  const handleCreateMix = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setMixModalError('')
+    setErrorBanner('')
+    setSuccessBanner('')
+
+    const materials: Array<{
+      inputBatchNumber: string
+      colorItemId?: number
+      inputColor?: string
+      materialConsumed: number
+    }> = []
+
+    for (const row of mixLines) {
+      const line = lineByKey.get(row.lineKey)
+      const qty = Number(row.qty)
+      if (!line) {
+        setMixModalError('Select a material lot for every row.')
+        return
+      }
+      if (!(qty > 0)) {
+        setMixModalError(
+          `Enter quantity for ${line.displayLabel || colorName(line.color)} (${line.batchNumber}).`,
+        )
+        return
+      }
+      if (qty > line.qtyRemaining + 0.001) {
+        setMixModalError(
+          `Cannot mix ${qty} kg of ${line.displayLabel || colorName(line.color)}. Only ${line.qtyRemaining} kg available.`,
+        )
+        return
+      }
+      materials.push({
+        inputBatchNumber: line.batchNumber,
+        colorItemId: line.colorItemId || undefined,
+        inputColor: line.color || undefined,
+        materialConsumed: qty,
+      })
+    }
+
+    if (!materials.length) {
+      setMixModalError('Add at least one lot to mix.')
+      return
+    }
+
+    setIsMixSubmitting(true)
+    try {
+      const { data } = await api.post('/production/store/mixes', {
+        lines: materials,
+        notes: mixNotes.trim() || undefined,
+      })
+      const mixNumber = data.data?.mixNumber || 'mix'
+      const totalKg = data.data?.totalKg
+      setSuccessBanner(
+        data.message ||
+          `Created ${mixNumber}${totalKg != null ? ` · ${fmt(totalKg, 1)} kg` : ''}`,
+      )
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['production-store'] }),
+        queryClient.invalidateQueries({ queryKey: ['production-store-colors'] }),
+        queryClient.invalidateQueries({ queryKey: ['production-store-mixes'] }),
+      ])
+      setIsMixModalOpen(false)
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { msg?: string; err?: string; errors?: Record<string, string> } }
+      }
+      const backendMsg =
+        axiosErr.response?.data?.msg ||
+        axiosErr.response?.data?.err ||
+        (axiosErr.response?.data?.errors
+          ? Object.values(axiosErr.response.data.errors).join(', ')
+          : null)
+      setMixModalError(backendMsg || 'Failed to create mix.')
+    } finally {
+      setIsMixSubmitting(false)
+    }
+  }
+
+  const handleOpenIssueModal = () => {
     setIssueModalError('')
-    const firstKey = preselected?.key || ''
-    setIssueMaterialLines([{ id: String(Date.now()), lineKey: firstKey, qty: '' }])
     setIssueMachineId(productionMachines[0] ? String(productionMachines[0].id) : '')
     setIssueProductId(productsQuery.data?.[0] ? String(productsQuery.data[0].id) : '')
+    const firstMix = availableMixes[0]
+    setIssueMixId(firstMix ? String(firstMix.id) : '')
+    setIssueKg(firstMix ? String(firstMix.qtyRemaining) : '')
     setIssueNotes('')
     setIsIssueModalOpen(true)
   }
@@ -439,85 +560,47 @@ export function ProductionStorePage() {
       setIssueModalError('Please select the product to manufacture.')
       return
     }
-
-    const materials: Array<{
-      inputBatchNumber: string
-      colorItemId?: number
-      inputColor?: string
-      materialConsumed: number
-      lineKey: string
-    }> = []
-    let hasProcessLot = false
-
-    for (const row of issueMaterialLines) {
-      const line = lineByKey.get(row.lineKey)
-      const qty = Number(row.qty)
-      if (!line) {
-        setIssueModalError('Select a material lot for every row.')
-        return
-      }
-      if (!(qty > 0)) {
-        setIssueModalError(
-          `Enter quantity for ${line.displayLabel || colorName(line.color)} (${line.batchNumber}).`,
-        )
-        return
-      }
-      if (qty > line.qtyRemaining + 0.001) {
-        setIssueModalError(
-          `Cannot issue ${qty} kg of ${line.displayLabel || colorName(line.color)}. Only ${line.qtyRemaining} kg available.`,
-        )
-        return
-      }
-      if (!line.additiveKind) hasProcessLot = true
-      materials.push({
-        inputBatchNumber: line.batchNumber,
-        colorItemId: line.colorItemId || undefined,
-        inputColor: line.color || undefined,
-        materialConsumed: qty,
-        lineKey: line.key,
-      })
-    }
-
-    if (!materials.length) {
-      setIssueModalError('Add at least one material lot to issue.')
+    if (!issueMixId) {
+      setIssueModalError('Select a mix to issue.')
       return
     }
-    if (!hasProcessLot) {
-      setIssueModalError('Select at least one process colour lot (not only masterbatch/virgin).')
+    const qty = Number(issueKg)
+    if (!(qty > 0)) {
+      setIssueModalError('Enter how many kg to issue from the mix.')
+      return
+    }
+    if (selectedIssueMix && qty > selectedIssueMix.qtyRemaining + 0.001) {
+      setIssueModalError(
+        `Cannot issue ${qty} kg. Mix has ${selectedIssueMix.qtyRemaining} kg left.`,
+      )
       return
     }
 
     setIsIssueSubmitting(true)
     try {
-      const totalKg = materials.reduce((sum, m) => sum + m.materialConsumed, 0)
-
       const payload: Record<string, unknown> = {
-        materials: materials.map(({ lineKey: _lineKey, ...m }) => m),
+        mixId: Number(issueMixId),
         machineId: Number(issueMachineId),
         productId: Number(issueProductId),
-        materialConsumed: totalKg,
+        materialConsumed: qty,
         notes: issueNotes.trim() || undefined,
       }
 
       const startRes = await api.post('/production/runs/start', payload)
 
       const targetMachine = productionMachines.find((m) => m.id === Number(issueMachineId))
-      const materialSummary = materials
-        .map((m) => {
-          const line = lineByKey.get(m.lineKey)
-          return `${m.materialConsumed} kg ${line?.displayLabel || colorName(line?.color || m.inputColor)}`
-        })
-        .join(' + ')
+      const mixLabel = selectedIssueMix?.mixNumber || issueMixId
 
       setSuccessBanner(
         startRes.data?.addedToExisting
-          ? `Added ${materialSummary} to running ${targetMachine?.name || 'machine'}.`
-          : `Issued ${materialSummary} to ${targetMachine?.name || issueMachineId}.`,
+          ? `Added ${fmt(qty, 1)} kg from ${mixLabel} to running ${targetMachine?.name || 'machine'}.`
+          : `Issued ${fmt(qty, 1)} kg from ${mixLabel} to ${targetMachine?.name || issueMachineId}.`,
       )
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['production-store'] }),
         queryClient.invalidateQueries({ queryKey: ['production-store-colors'] }),
+        queryClient.invalidateQueries({ queryKey: ['production-store-mixes'] }),
         queryClient.invalidateQueries({ queryKey: ['production-runs'] }),
         queryClient.invalidateQueries({ queryKey: ['production-inputs'] }),
       ])
@@ -525,11 +608,15 @@ export function ProductionStorePage() {
       setIsIssueModalOpen(false)
       setShowActiveFloor(true)
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { msg?: string; err?: string; errors?: Record<string, string> } } }
+      const axiosErr = err as {
+        response?: { data?: { msg?: string; err?: string; errors?: Record<string, string> } }
+      }
       const backendMsg =
         axiosErr.response?.data?.msg ||
         axiosErr.response?.data?.err ||
-        (axiosErr.response?.data?.errors ? Object.values(axiosErr.response.data.errors).join(', ') : null)
+        (axiosErr.response?.data?.errors
+          ? Object.values(axiosErr.response.data.errors).join(', ')
+          : null)
       setIssueModalError(backendMsg || 'Failed to issue material to machine.')
     } finally {
       setIsIssueSubmitting(false)
@@ -603,11 +690,12 @@ export function ProductionStorePage() {
           <Button
             type="button"
             size="sm"
-            className="h-7 px-2.5 text-xs font-semibold gap-1 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
-            onClick={() => handleOpenIssueModal(row.original)}
+            variant="outline"
+            className="h-7 px-2.5 text-xs font-semibold gap-1"
+            onClick={() => handleOpenMixModal(row.original)}
           >
-            <Send className="size-3" />
-            Issue
+            <Blend className="size-3" />
+            Mix
           </Button>
         ),
       },
@@ -789,44 +877,37 @@ export function ProductionStorePage() {
   return (
     <PageLayout
       title="Material Store"
-      description="Issue color lots to machines."
+      description="Mix colours, then issue a mix to a machine."
       actions={
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        <div className="flex max-w-full items-center justify-end gap-1.5">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
-            onClick={() => navigate('/production/store/purchase')}
-          >
-            <ShoppingCart className="size-3.5" />
-            Buy additives
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
-            onClick={() => navigate('/production/store/labels')}
-          >
-            <Printer className="size-3.5" />
-            Labels
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 gap-1.5 text-xs font-semibold"
+            className="h-9 w-9 shrink-0 px-0 sm:w-auto sm:gap-1.5 sm:px-3 text-xs font-semibold"
             onClick={() => navigate('/production/store/history')}
+            aria-label="History"
+            title="History"
           >
             <History className="size-3.5" />
-            History
+            <span className="hidden sm:inline">History</span>
           </Button>
           <Button
             type="button"
-            className="gap-1.5 font-bold text-xs h-9 bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
-            onClick={() => handleOpenIssueModal()}
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 gap-1.5 px-2.5 sm:px-3 text-xs font-semibold"
+            onClick={() => handleOpenMixModal()}
             disabled={rawMaterialLines.length === 0}
+          >
+            <Blend className="size-3.5" />
+            Mix
+          </Button>
+          <Button
+            type="button"
+            className="h-9 shrink-0 gap-1.5 px-2.5 sm:px-3 font-bold text-xs bg-violet-600 hover:bg-violet-700 text-white shadow-xs"
+            onClick={handleOpenIssueModal}
+            disabled={availableMixes.length === 0}
           >
             <Send className="size-3.5" />
             Issue
@@ -985,14 +1066,144 @@ export function ProductionStorePage() {
           </div>
         )}
 
+        <Dialog open={isMixModalOpen} onOpenChange={setIsMixModalOpen}>
+          <DialogContent className="max-h-[92vh] w-[min(90vw,40rem)] max-w-[min(90vw,40rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+              <DialogTitle className="text-base font-bold tracking-tight text-foreground">
+                Mix materials
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Combine colour lots (and additives) into a mix. Issue that mix to a machine next.
+              </DialogDescription>
+            </DialogHeader>
+
+            {mixModalError && (
+              <div className="mt-3 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
+                {mixModalError}
+              </div>
+            )}
+
+            <form className="mt-3 space-y-4" onSubmit={handleCreateMix}>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 pr-2 sm:grid-cols-[1fr_8rem]">
+                    <span className="text-[11px] font-semibold text-zinc-600">Color</span>
+                    <span className="text-[11px] font-semibold text-zinc-600">KG</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer shrink-0"
+                    onClick={() =>
+                      setMixLines((prev) => [
+                        ...prev,
+                        { id: String(Date.now()), lineKey: '', qty: '' },
+                      ])
+                    }
+                  >
+                    + Add
+                  </button>
+                </div>
+
+                {mixLines.map((row) => (
+                  <div key={row.id} className="flex items-center gap-1.5">
+                    <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 min-w-0 sm:grid-cols-[1fr_8rem]">
+                      <Select
+                        value={row.lineKey || undefined}
+                        onValueChange={(val) =>
+                          setMixLines((prev) =>
+                            prev.map((l) =>
+                              l.id === row.id ? { ...l, lineKey: val, qty: '' } : l,
+                            ),
+                          )
+                        }
+                      >
+                        <SelectTrigger className="h-9 text-xs bg-white">
+                          <SelectValue placeholder="Select color…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {rawMaterialLines.map((l) => (
+                            <SelectItem key={l.key} value={l.key}>
+                              {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <input
+                        type="number"
+                        step="any"
+                        min={0}
+                        className="dgn-input font-semibold text-xs h-9"
+                        placeholder="kg"
+                        value={row.qty}
+                        onChange={(e) =>
+                          setMixLines((prev) =>
+                            prev.map((l) =>
+                              l.id === row.id ? { ...l, qty: e.target.value } : l,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    {mixLines.length > 1 ? (
+                      <button
+                        type="button"
+                        className="text-zinc-400 hover:text-red-600 cursor-pointer shrink-0 p-1"
+                        onClick={() =>
+                          setMixLines((prev) => prev.filter((l) => l.id !== row.id))
+                        }
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    ) : (
+                      <span className="w-5 shrink-0" />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                  Notes (optional)
+                </label>
+                <Input
+                  value={mixNotes}
+                  onChange={(e) => setMixNotes(e.target.value)}
+                  className="h-9 text-xs"
+                  placeholder="e.g. morning blend"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsMixModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isMixSubmitting}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
+                  size="sm"
+                >
+                  <Blend className="size-3.5" />
+                  {isMixSubmitting ? 'Mixing…' : 'Save mix'}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
         <Dialog open={isIssueModalOpen} onOpenChange={setIsIssueModalOpen}>
-          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <DialogContent className="max-h-[92vh] w-[min(90vw,40rem)] max-w-[min(90vw,40rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
               <DialogTitle className="text-base font-bold tracking-tight text-foreground">
                 Issue to machine
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                Select machine, product, and material lots to issue from the store.
+                Select machine, product, and a saved mix.
               </DialogDescription>
             </DialogHeader>
 
@@ -1050,86 +1261,69 @@ export function ProductionStorePage() {
                 </p>
               ) : null}
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 pr-2 sm:grid-cols-[1fr_8rem]">
-                    <span className="text-[11px] font-semibold text-zinc-600">Color</span>
-                    <span className="text-[11px] font-semibold text-zinc-600">KG</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="text-[11px] font-semibold text-violet-700 hover:underline cursor-pointer shrink-0"
-                    onClick={() =>
-                      setIssueMaterialLines((prev) => [
-                        ...prev,
-                        { id: String(Date.now()), lineKey: '', qty: '' },
-                      ])
-                    }
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                    Mix
+                  </label>
+                  <Select
+                    value={issueMixId || undefined}
+                    onValueChange={(val) => {
+                      setIssueMixId(val)
+                      const mix = availableMixes.find((m) => String(m.id) === val)
+                      if (mix) setIssueKg(String(mix.qtyRemaining))
+                    }}
                   >
-                    + Add
-                  </button>
+                    <SelectTrigger className="h-9 text-xs bg-white">
+                      <SelectValue placeholder="Select mix…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableMixes.map((m) => (
+                        <SelectItem key={m.id} value={String(m.id)}>
+                          {m.mixNumber} · {m.sortColor} · {fmt(m.qtyRemaining, 1)} kg
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                    KG
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="dgn-input font-semibold text-xs h-9 w-full"
+                    placeholder="kg"
+                    value={issueKg}
+                    onChange={(e) => setIssueKg(e.target.value)}
+                  />
+                </div>
+              </div>
 
-                {issueMaterialLines.map((row) => {
-                  return (
-                    <div key={row.id} className="flex items-center gap-1.5">
-                      <div className="grid grid-cols-[1fr_7rem] gap-2 flex-1 min-w-0 sm:grid-cols-[1fr_8rem]">
-                        <Select
-                          value={row.lineKey || undefined}
-                          onValueChange={(val) =>
-                            setIssueMaterialLines((prev) =>
-                              prev.map((l) =>
-                                l.id === row.id ? { ...l, lineKey: val, qty: '' } : l,
-                              ),
-                            )
-                          }
-                        >
-                          <SelectTrigger className="h-9 text-xs bg-white">
-                            <SelectValue placeholder="Select color…" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {rawMaterialLines.map((l) => (
-                              <SelectItem key={l.key} value={l.key}>
-                                {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)}{' '}
-                                kg
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <input
-                          type="number"
-                          step="any"
-                          min={0}
-                          className="dgn-input font-semibold text-xs h-9"
-                          placeholder="kg"
-                          value={row.qty}
-                          onChange={(e) =>
-                            setIssueMaterialLines((prev) =>
-                              prev.map((l) =>
-                                l.id === row.id ? { ...l, qty: e.target.value } : l,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                      {issueMaterialLines.length > 1 ? (
-                        <button
-                          type="button"
-                          className="text-zinc-400 hover:text-red-600 cursor-pointer shrink-0 p-1"
-                          onClick={() =>
-                            setIssueMaterialLines((prev) =>
-                              prev.filter((l) => l.id !== row.id),
-                            )
-                          }
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      ) : (
-                        <span className="w-5 shrink-0" />
-                      )}
-                    </div>
-                  )
-                })}
+              {selectedIssueMix?.lines?.length ? (
+                <p className="text-[11px] text-zinc-500">
+                  Contains{' '}
+                  {selectedIssueMix.lines
+                    .map(
+                      (l) =>
+                        `${fmt(l.qtyKg, 1)} kg ${l.color ? colorName(l.color) : l.batchNumber}`,
+                    )
+                    .join(' + ')}
+                </p>
+              ) : null}
+
+              <div>
+                <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                  Notes (optional)
+                </label>
+                <Input
+                  value={issueNotes}
+                  onChange={(e) => setIssueNotes(e.target.value)}
+                  className="h-9 text-xs"
+                  placeholder="Optional note"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
@@ -1143,7 +1337,7 @@ export function ProductionStorePage() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isIssueSubmitting}
+                  disabled={isIssueSubmitting || availableMixes.length === 0}
                   className="bg-violet-600 hover:bg-violet-700 text-white font-bold gap-1.5"
                   size="sm"
                 >

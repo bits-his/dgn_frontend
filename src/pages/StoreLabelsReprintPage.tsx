@@ -14,7 +14,6 @@ import {
 } from '@/components/StoreBatchLabelModal'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { formatBusinessDate } from '@/lib/dates'
-import { batchVerifyUrl } from '@/lib/batchLabel'
 
 type BatchColorItem = {
   color: string
@@ -194,7 +193,6 @@ export function StoreLabelsReprintPage() {
   return (
     <PageLayout
       title="Store labels"
-      description="Reprint QR labels for material store batches. Scan opens the verify page with colour, batch, and date."
       actions={
         <Button type="button" variant="outline" size="sm" className="h-9 text-xs" asChild>
           <Link to="/production/store">Back to store</Link>
@@ -211,13 +209,6 @@ export function StoreLabelsReprintPage() {
             className="h-9 pl-8 text-sm"
           />
         </div>
-
-        <p className="text-[11px] text-zinc-500">
-          Verify URL pattern:{' '}
-          <span className="font-mono text-zinc-700">
-            {batchVerifyUrl('BATCH-NUMBER')}
-          </span>
-        </p>
 
         <CustomTable1
           data={rows}

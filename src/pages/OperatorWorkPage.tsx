@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { HardHat, Layers, Factory } from 'lucide-react'
@@ -13,8 +13,7 @@ import {
   dateRangeLabel,
   type DateRangeState,
 } from '@/lib/dateRange'
-import { formatDateTime } from '@/lib/dates'
-import { cn } from '@/lib/utils'
+import { formatDate } from '@/lib/dates'
 import { fmtDozenPcs } from '@/lib/units'
 
 type WorkRow = {
@@ -117,10 +116,10 @@ export function OperatorWorkPage() {
     () => [
       {
         accessorKey: 'at',
-        header: 'When',
+        header: 'Date',
         cell: ({ row }) => (
           <span className="text-xs text-zinc-600 tabular-nums whitespace-nowrap">
-            {formatDateTime(row.original.at)}
+            {formatDate(row.original.at)}
           </span>
         ),
       },
@@ -136,9 +135,10 @@ export function OperatorWorkPage() {
       {
         accessorKey: 'machineName',
         header: 'Machine',
-        meta: { hideOnMobile: true },
         cell: ({ row }) => (
-          <span className="text-xs text-zinc-700">{row.original.machineName || '—'}</span>
+          <span className="text-xs text-zinc-700 whitespace-nowrap">
+            {row.original.machineName || '—'}
+          </span>
         ),
       },
       {
@@ -148,7 +148,7 @@ export function OperatorWorkPage() {
           const r = row.original
           if (r.kind === 'production') {
             return (
-              <div>
+              <div className="whitespace-nowrap">
                 <p className="text-xs font-semibold tabular-nums text-zinc-900">
                   {fmtDozenPcs(r.qtyGood)} good
                 </p>
@@ -159,7 +159,7 @@ export function OperatorWorkPage() {
             )
           }
           return (
-            <div>
+            <div className="whitespace-nowrap">
               <p className="text-xs font-semibold tabular-nums text-zinc-900">
                 {fmt(r.qtyUsable)} kg usable
               </p>
@@ -167,37 +167,6 @@ export function OperatorWorkPage() {
             </div>
           )
         },
-      },
-      {
-        accessorKey: 'status',
-        header: 'Status',
-        meta: { hideOnMobile: true },
-        cell: ({ row }) => (
-          <span
-            className={cn(
-              'inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase',
-              row.original.status === 'ACTIVE'
-                ? 'bg-teal-50 text-teal-800 border border-teal-200'
-                : 'bg-zinc-100 text-zinc-600',
-            )}
-          >
-            {row.original.status || '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'open',
-        header: '',
-        meta: { hideOnMobile: true },
-        cell: ({ row }) =>
-          row.original.productionRunId ? (
-            <Link
-              to={`/production/${row.original.productionRunId}/work`}
-              className="text-[11px] font-semibold text-zinc-600 hover:text-zinc-900 hover:underline"
-            >
-              View
-            </Link>
-          ) : null,
       },
     ],
     [],
@@ -282,7 +251,7 @@ export function OperatorWorkPage() {
                 <Layers className="size-3.5" /> {totals.processJobs} process
               </span>
             </div>
-            <CustomTable1 columns={columns} data={work} card />
+            <CustomTable1 columns={columns} data={work} />
           </div>
         )}
       </div>

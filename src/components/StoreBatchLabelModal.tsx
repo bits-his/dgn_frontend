@@ -211,9 +211,6 @@ export function StoreBatchLabelModal({ open, data, onDone, doneLabel }: Props) {
                       </p>
                     ) : null}
                     <p>Labelled: {printedAt}</p>
-                    <p className="mt-1 break-all font-mono text-[10px] text-violet-700">
-                      Scan → {verifyUrl}
-                    </p>
                   </div>
                 </div>
               </div>
