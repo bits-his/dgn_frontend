@@ -23,6 +23,7 @@ import { MachineProductionPage } from '@/pages/MachineProductionPage'
 import { MachineWorkLogPage } from '@/pages/MachineWorkLogPage'
 import { ProductionStorePage } from '@/pages/ProductionStorePage'
 import { StoreLabelsReprintPage } from '@/pages/StoreLabelsReprintPage'
+import { StoreAdditivePurchasePage } from '@/pages/StoreAdditivePurchasePage'
 import { BatchLabelVerifyPage } from '@/pages/BatchLabelVerifyPage'
 import { MaterialIssueHistoryPage } from '@/pages/MaterialIssueHistoryPage'
 import { DamagedPage } from '@/pages/DamagedPage'
@@ -128,6 +129,7 @@ function App() {
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
+                <Route path="/production/store/purchase" element={<StoreAdditivePurchasePage />} />
                 <Route path="/production/store/labels" element={<StoreLabelsReprintPage />} />
                 <Route path="/production/store/history" element={<MaterialIssueHistoryPage />} />
                 <Route path="/production/damaged" element={<DamagedPage />} />

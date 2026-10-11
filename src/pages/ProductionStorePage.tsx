@@ -15,6 +15,7 @@ import {
   PackageCheck,
   History,
   Printer,
+  ShoppingCart,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -61,7 +62,7 @@ type BatchItem = {
   createdAt?: string
   updatedAt?: string
   notes?: string | null
-  material?: { id: number; name: string; code?: string }
+  material?: { id: number; name: string; code?: string | null }
   location?: { id: number; name: string; code: string }
   colorItems?: BatchColorItem[]
 }
@@ -121,6 +122,8 @@ type StoreMaterialLine = {
   receivedDate?: string
   fromDamage?: boolean
   batchItem: BatchItem
+  additiveKind?: 'masterbatch' | 'virgin' | 'pigment' | null
+  displayLabel?: string
 }
 
 function colorName(code?: string | null) {
@@ -229,22 +232,46 @@ export function ProductionStorePage() {
     )
   }, [allRuns])
 
-  // Color additive inventory (Masterbatch or Pigment)
-  const colorBatches = useMemo(() => {
-    return storeBatches.filter(
-      (b) => b.batchType === 'MASTERBATCH' || b.batchType === 'PIGMENT'
+  const ADDITIVE_CODES = new Set(['MAT-MASTERBATCH', 'MAT-VIRGIN', 'MAT-PIGMENT'])
+
+  const isAdditiveBatch = (b: BatchItem) => {
+    const code = b.material?.code || ''
+    if (ADDITIVE_CODES.has(code)) return true
+    const sort = String(b.sortColor || '')
+    return (
+      sort.includes('(Masterbatch)') ||
+      sort.includes('(Virgin)') ||
+      sort.includes('(Normal Pigment)')
     )
+  }
+
+  // Purchased additives (masterbatch / virgin / pigment)
+  const colorBatches = useMemo(() => {
+    return storeBatches.filter(isAdditiveBatch)
   }, [storeBatches])
 
-  // Raw materials ready for machine issue (CRUSH, WASH, DRY, EXTRUSION)
+  // Recycled/process lots (exclude purchased additives from main store table metrics)
   const rawMaterialBatches = useMemo(() => {
-    return storeBatches.filter(
-      (b) => b.batchType !== 'MASTERBATCH' && b.batchType !== 'PIGMENT'
-    )
+    return storeBatches.filter((b) => !isAdditiveBatch(b))
   }, [storeBatches])
+
+  function additiveKindOf(b: BatchItem): StoreMaterialLine['additiveKind'] {
+    const code = b.material?.code || ''
+    const sort = String(b.sortColor || '')
+    if (code === 'MAT-VIRGIN' || sort.includes('(Virgin)')) return 'virgin'
+    if (code === 'MAT-MASTERBATCH' || sort.includes('(Masterbatch)')) return 'masterbatch'
+    if (code === 'MAT-PIGMENT' || sort.includes('(Normal Pigment)')) return 'pigment'
+    return null
+  }
+
+  function additiveDisplayName(b: BatchItem) {
+    return String(b.sortColor || b.material?.name || 'Additive')
+      .replace(/\s*\((Masterbatch|Normal Pigment|Virgin)\)/i, '')
+      .trim()
+  }
 
   // -------------------------------------------------------------
-  // SEPARATED COLOR LOTS: Flatten batches so each color is distinct
+  // Color select lines: process colors + purchased masterbatch/virgin
   // -------------------------------------------------------------
   const rawMaterialLines = useMemo<StoreMaterialLine[]>(() => {
     const lines: StoreMaterialLine[] = []
@@ -255,6 +282,7 @@ export function ProductionStorePage() {
         )
         if (positiveItems.length > 0) {
           for (const c of positiveItems) {
+            const label = colorName(c.color)
             lines.push({
               key: `${b.batchNumber}-${c.id}`,
               batchId: b.id,
@@ -270,11 +298,14 @@ export function ProductionStorePage() {
                 b.batchType === 'DAMAGED' ||
                 String(b.notes || '').includes('production damage'),
               batchItem: b,
+              additiveKind: null,
+              displayLabel: label,
             })
           }
           continue
         }
       }
+      const label = colorName(b.sortColor) || b.sortColor || 'Natural'
       lines.push({
         key: `${b.batchNumber}-base`,
         batchId: b.id,
@@ -288,16 +319,39 @@ export function ProductionStorePage() {
         fromDamage:
           b.batchType === 'DAMAGED' || String(b.notes || '').includes('production damage'),
         batchItem: b,
+        additiveKind: null,
+        displayLabel: label,
       })
     }
-    // Newest received first
+
+    for (const b of colorBatches) {
+      const kind = additiveKindOf(b)
+      const name = additiveDisplayName(b)
+      const kindLabel =
+        kind === 'virgin' ? 'Virgin' : kind === 'masterbatch' ? 'Masterbatch' : 'Pigment'
+      lines.push({
+        key: `${b.batchNumber}-additive`,
+        batchId: b.id,
+        batchNumber: b.batchNumber,
+        batchType: b.batchType,
+        materialName: b.material?.name || kindLabel,
+        color: b.sortColor || name,
+        qtyRemaining: Number(b.qtyRemaining || 0),
+        uom: b.uom || 'kg',
+        receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+        batchItem: b,
+        additiveKind: kind,
+        displayLabel: `${kindLabel} · ${name}`,
+      })
+    }
+
     lines.sort((a, b) => {
       const ta = a.receivedDate ? new Date(a.receivedDate).getTime() : 0
       const tb = b.receivedDate ? new Date(b.receivedDate).getTime() : 0
       return tb - ta
     })
     return lines
-  }, [rawMaterialBatches])
+  }, [rawMaterialBatches, colorBatches])
 
   // Metrics
   const totalStoreKg = useMemo(
@@ -351,14 +405,6 @@ export function ProductionStorePage() {
     { id: '1', lineKey: '', qty: '0' },
   ])
 
-  // Master Batch additive (amount & price)
-  const [issueMasterBatchKg, setIssueMasterBatchKg] = useState('0')
-  const [issueMasterBatchPricePerKg, setIssueMasterBatchPricePerKg] = useState('0')
-
-  // Batching additive (amount & price)
-  const [issueBatchingKg, setIssueBatchingKg] = useState('0')
-  const [issueBatchingPricePerKg, setIssueBatchingPricePerKg] = useState('0')
-
   const [issueNotes, setIssueNotes] = useState('')
   const [isIssueSubmitting, setIsIssueSubmitting] = useState(false)
   const [issueModalError, setIssueModalError] = useState('')
@@ -373,10 +419,6 @@ export function ProductionStorePage() {
     setIssueModalError('')
     const firstKey = preselected?.key || ''
     setIssueMaterialLines([{ id: String(Date.now()), lineKey: firstKey, qty: '' }])
-    setIssueMasterBatchKg('0')
-    setIssueMasterBatchPricePerKg('0')
-    setIssueBatchingKg('0')
-    setIssueBatchingPricePerKg('0')
     setIssueMachineId(productionMachines[0] ? String(productionMachines[0].id) : '')
     setIssueProductId(productsQuery.data?.[0] ? String(productsQuery.data[0].id) : '')
     setIssueNotes('')
@@ -403,7 +445,9 @@ export function ProductionStorePage() {
       colorItemId?: number
       inputColor?: string
       materialConsumed: number
+      lineKey: string
     }> = []
+    let hasProcessLot = false
 
     for (const row of issueMaterialLines) {
       const line = lineByKey.get(row.lineKey)
@@ -413,20 +457,24 @@ export function ProductionStorePage() {
         return
       }
       if (!(qty > 0)) {
-        setIssueModalError(`Enter quantity for ${colorName(line.color)} (${line.batchNumber}).`)
+        setIssueModalError(
+          `Enter quantity for ${line.displayLabel || colorName(line.color)} (${line.batchNumber}).`,
+        )
         return
       }
       if (qty > line.qtyRemaining + 0.001) {
         setIssueModalError(
-          `Cannot issue ${qty} kg of ${colorName(line.color)}. Only ${line.qtyRemaining} kg available.`,
+          `Cannot issue ${qty} kg of ${line.displayLabel || colorName(line.color)}. Only ${line.qtyRemaining} kg available.`,
         )
         return
       }
+      if (!line.additiveKind) hasProcessLot = true
       materials.push({
         inputBatchNumber: line.batchNumber,
         colorItemId: line.colorItemId || undefined,
         inputColor: line.color || undefined,
         materialConsumed: qty,
+        lineKey: line.key,
       })
     }
 
@@ -434,25 +482,20 @@ export function ProductionStorePage() {
       setIssueModalError('Add at least one material lot to issue.')
       return
     }
+    if (!hasProcessLot) {
+      setIssueModalError('Select at least one process colour lot (not only masterbatch/virgin).')
+      return
+    }
 
     setIsIssueSubmitting(true)
     try {
-      const mbKg = Number(issueMasterBatchKg || 0)
-      const mbPrice = Number(issueMasterBatchPricePerKg || 0)
-      const batchingKg = Number(issueBatchingKg || 0)
-      const batchingPrice = Number(issueBatchingPricePerKg || 0)
       const totalKg = materials.reduce((sum, m) => sum + m.materialConsumed, 0)
 
       const payload: Record<string, unknown> = {
-        materials,
+        materials: materials.map(({ lineKey: _lineKey, ...m }) => m),
         machineId: Number(issueMachineId),
         productId: Number(issueProductId),
         materialConsumed: totalKg,
-        masterbatchKg: mbKg > 0 ? mbKg : undefined,
-        masterbatchPricePerKg: mbPrice > 0 ? mbPrice : undefined,
-        batchingKg: batchingKg > 0 ? batchingKg : undefined,
-        batchingPricePerKg: batchingPrice > 0 ? batchingPrice : undefined,
-        colorCost: mbKg > 0 && mbPrice > 0 ? +(mbKg * mbPrice).toFixed(2) : undefined,
         notes: issueNotes.trim() || undefined,
       }
 
@@ -461,10 +504,8 @@ export function ProductionStorePage() {
       const targetMachine = productionMachines.find((m) => m.id === Number(issueMachineId))
       const materialSummary = materials
         .map((m) => {
-          const line = rawMaterialLines.find(
-            (l) => l.batchNumber === m.inputBatchNumber && (l.colorItemId || null) === (m.colorItemId || null),
-          )
-          return `${m.materialConsumed} kg ${colorName(line?.color || m.inputColor)}`
+          const line = lineByKey.get(m.lineKey)
+          return `${m.materialConsumed} kg ${line?.displayLabel || colorName(line?.color || m.inputColor)}`
         })
         .join(' + ')
 
@@ -476,6 +517,7 @@ export function ProductionStorePage() {
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['production-store'] }),
+        queryClient.invalidateQueries({ queryKey: ['production-store-colors'] }),
         queryClient.invalidateQueries({ queryKey: ['production-runs'] }),
         queryClient.invalidateQueries({ queryKey: ['production-inputs'] }),
       ])
@@ -704,18 +746,30 @@ export function ProductionStorePage() {
         id: 'type',
         header: 'Type',
         accessorKey: 'batchType',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-700">
-            {row.original.batchType === 'MASTERBATCH' ? 'Masterbatch' : 'Pigment'}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const code = row.original.material?.code || ''
+          const sort = String(row.original.sortColor || '')
+          const label =
+            code === 'MAT-VIRGIN' || sort.includes('(Virgin)')
+              ? 'Virgin material'
+              : code === 'MAT-MASTERBATCH' || sort.includes('(Masterbatch)')
+                ? 'Masterbatch'
+                : code === 'MAT-PIGMENT' || sort.includes('(Normal Pigment)')
+                  ? 'Pigment'
+                  : row.original.material?.name || 'Additive'
+          return <span className="text-xs text-zinc-700">{label}</span>
+        },
       },
       {
         id: 'color',
-        header: 'Color',
+        header: 'Name',
         accessorKey: 'sortColor',
         cell: ({ row }) => (
-          <span className="text-xs text-zinc-900">{colorName(row.original.sortColor)}</span>
+          <span className="text-xs text-zinc-900">
+            {String(row.original.sortColor || '')
+              .replace(/\s*\((Masterbatch|Normal Pigment|Virgin)\)/i, '')
+              .trim() || row.original.material?.name || '—'}
+          </span>
         ),
       },
       {
@@ -738,6 +792,16 @@ export function ProductionStorePage() {
       description="Issue color lots to machines."
       actions={
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs font-semibold"
+            onClick={() => navigate('/production/store/purchase')}
+          >
+            <ShoppingCart className="size-3.5" />
+            Buy additives
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -1026,7 +1090,8 @@ export function ProductionStorePage() {
                           <SelectContent>
                             {rawMaterialLines.map((l) => (
                               <SelectItem key={l.key} value={l.key}>
-                                {colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
+                                {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)}{' '}
+                                kg
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1065,65 +1130,6 @@ export function ProductionStorePage() {
                     </div>
                   )
                 })}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                    Masterbatch (kg)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0}
-                    className="dgn-input text-xs h-9"
-                    placeholder="0"
-                    value={issueMasterBatchKg}
-                    onChange={(e) => setIssueMasterBatchKg(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                    Price per kg
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0}
-                    className="dgn-input text-xs h-9"
-                    placeholder="0"
-                    value={issueMasterBatchPricePerKg}
-                    onChange={(e) => setIssueMasterBatchPricePerKg(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                    Virgin material (kg)
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0}
-                    className="dgn-input text-xs h-9"
-                    placeholder="0"
-                    value={issueBatchingKg}
-                    onChange={(e) => setIssueBatchingKg(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-medium text-zinc-500 mb-0.5">
-                    Price per kg
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min={0}
-                    className="dgn-input text-xs h-9"
-                    placeholder="0"
-                    value={issueBatchingPricePerKg}
-                    onChange={(e) => setIssueBatchingPricePerKg(e.target.value)}
-                  />
-                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
