@@ -85,7 +85,16 @@ export const ROLE_OPTIONS = [
 const ALL_KEYS = SIDEBAR_MENU_ACCESS.map((i) => i.key)
 
 export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
-  WORKER: ['crushing', 'washing', 'second_grade', /* 'drying', */ 'recrushing', 'recycling', 'processing_money'],
+  WORKER: [
+    'crushing',
+    'washing',
+    'second_grade',
+    /* 'drying', */
+    'recrushing',
+    'recycling',
+    'processing_money',
+    'expenses',
+  ],
   OPERATOR: [
     'receiving',
     'crushing',
@@ -100,6 +109,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
     'store_purchase',
     'damaged',
     'processing_money',
+    'expenses',
   ],
   STAFF: [
     'receiving',
@@ -117,6 +127,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
     'inventory',
     'batches',
     'processing_money',
+    'expenses',
   ],
   PROD_SUPERVISOR: [
     'receiving',
@@ -137,6 +148,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
     'machines',
     'alerts',
     'processing_money',
+    'expenses',
   ],
   QC_OFFICER: ['qc', 'batches', 'production', 'production_store', 'store_labels', 'inventory', 'alerts'],
   INVENTORY_OFFICER: ['inventory', 'receiving', 'batches', 'production', 'production_store', 'store_labels', 'store_purchase', 'alerts'],
@@ -150,6 +162,7 @@ export const ROLE_DEFAULT_MENU_ACCESS: Record<string, string[]> = {
     'damaged',
     'batches',
     'processing_money',
+    'expenses',
     'security',
   ],
   SALES_OFFICER: ['sales', 'pricing', 'distributors', 'inventory', 'production_store', 'store_labels', 'sales_margins', 'alerts'],

@@ -288,7 +288,7 @@ export async function compressImageFile(file: File, maxEdge = 1600, quality = 0.
 
 export type PhotoUploadKind = 'scrap' | 'security' | 'maintenance' | 'process'
 
-/** Compress then upload one photo; returns a durable `/uploads/...` path. */
+/** Compress then upload one photo; returns Cloudinary URL or `/uploads/...` path. */
 export async function uploadImageFile(file: File, kind: PhotoUploadKind = 'scrap'): Promise<string> {
   const dataUrl = await compressImageFile(file)
   const { data } = await api.post('/uploads/photos', { kind, photo: dataUrl })

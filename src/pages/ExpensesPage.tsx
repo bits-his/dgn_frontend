@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, X, Search, CheckCircle2, Clock, Building2, Layers } from 'lucide-react'
+import { Check, Plus, X, Search, Wallet } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
@@ -26,6 +26,7 @@ import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { formatBusinessDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth-store'
+import { cn } from '@/lib/utils'
 
 type Category = {
   id: number
@@ -63,8 +64,6 @@ type Summary = {
   rejectedTotal: number
   factoryPoolTotal: number
   batchChargedTotal: number
-  byClass: Record<string, number>
-  byCategory: { label: string; amount: number }[]
   periodAllocated: boolean
   allocationNumber: string | null
 }
@@ -81,7 +80,8 @@ const STATUS_STYLES: Record<string, string> = {
 
 export function ExpensesPage() {
   const user = useAuthStore((s) => s.user)
-  const canCreate = hasPermission(user, 'expense.create')
+  const canCreate =
+    hasPermission(user, 'expense.create') || hasPermission(user, 'float.spend')
   const canApprove = hasPermission(user, 'expense.approve')
   const queryClient = useQueryClient()
   const [composing, setComposing] = useState(false)
@@ -91,6 +91,17 @@ export function ExpensesPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [rejectBusy, setRejectBusy] = useState(false)
   const [rejectError, setRejectError] = useState<string | null>(null)
+
+  const wallet = useQuery({
+    queryKey: ['processing-wallet-me'],
+    queryFn: async () => {
+      const { data } = await api.get('/processing-wallets/me')
+      return data as {
+        hasWallet?: boolean
+        data?: { remaining?: number; given?: number; spent?: number }
+      }
+    },
+  })
 
   const summary = useQuery({
     queryKey: ['expense-summary'],
@@ -110,13 +121,21 @@ export function ExpensesPage() {
     },
   })
 
-  const handleApprove = async (id: number) => {
+  const refreshAll = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['expenses'] }),
+      queryClient.invalidateQueries({ queryKey: ['expense-summary'] }),
+      queryClient.invalidateQueries({ queryKey: ['processing-wallet-me'] }),
+      queryClient.invalidateQueries({ queryKey: ['processing-wallets'] }),
+    ])
+  }
+
+  const handleApprove = async (row: ExpenseRow) => {
     try {
-      await api.post(`/expenses/${id}/approve`)
-      queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+      await api.post(`/expenses/${row.expenseNumber}/decision`, { decision: 'APPROVE' })
+      await refreshAll()
     } catch {
-      // handled by global handler
+      // global handler
     }
   }
 
@@ -125,11 +144,13 @@ export function ExpensesPage() {
     setRejectError(null)
     setRejectBusy(true)
     try {
-      await api.post(`/expenses/${rejectingExpense.id}/reject`, { reason: rejectReason })
+      await api.post(`/expenses/${rejectingExpense.expenseNumber}/decision`, {
+        decision: 'REJECT',
+        reason: rejectReason,
+      })
       setRejectingExpense(null)
       setRejectReason('')
-      queryClient.invalidateQueries({ queryKey: ['expenses'] })
-      queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+      await refreshAll()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
       setRejectError(String((body && body.err) || 'Could not reject expense'))
@@ -148,48 +169,26 @@ export function ExpensesPage() {
         e.description.toLowerCase().includes(q) ||
         (e.vendorName && e.vendorName.toLowerCase().includes(q)) ||
         (e.categoryName && e.categoryName.toLowerCase().includes(q)) ||
-        (e.batchNumber && e.batchNumber.toLowerCase().includes(q))
+        (e.batchNumber && e.batchNumber.toLowerCase().includes(q)),
     )
   }, [expenses.data, search])
 
   const columns = useMemo<ColumnDef<ExpenseRow>[]>(
     () => [
       {
-        accessorKey: 'businessDate',
-        header: 'Date & Ref',
-        cell: ({ row }) => (
-          <div>
-            <p className="text-xs text-zinc-900 font-medium">
-              {formatBusinessDate(row.original.businessDate)}
-            </p>
-            <p className="font-mono text-[11px] text-zinc-400 mt-0.5">{row.original.expenseNumber}</p>
-          </div>
-        ),
-      },
-      {
         accessorKey: 'description',
-        header: 'Description',
+        header: 'Expense',
         cell: ({ row }) => (
-          <div>
-            <p className="font-semibold text-xs text-zinc-900">{row.original.description}</p>
-            <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 mt-0.5">
-              {row.original.vendorName && <span>{row.original.vendorName}</span>}
-              <span>· {row.original.paymentMethod}</span>
-              {row.original.receiptRef && <span>· receipt #{row.original.receiptRef}</span>}
-            </div>
-            {row.original.decisionReason && (
-              <p className="mt-1 text-[11px] text-red-600">Reason: {row.original.decisionReason}</p>
-            )}
-          </div>
-        ),
-      },
-      {
-        accessorKey: 'categoryName',
-        header: 'Category',
-        cell: ({ row }) => (
-          <div>
-            <p className="text-xs text-zinc-800">{row.original.categoryName || '—'}</p>
-            <p className="text-[11px] capitalize text-zinc-400">{row.original.costClass.toLowerCase()}</p>
+          <div className="min-w-0 py-0.5">
+            <p className="text-xs font-semibold text-zinc-900 truncate">{row.original.description}</p>
+            <p className="text-[10px] text-zinc-500 mt-0.5">
+              {formatBusinessDate(row.original.businessDate)}
+              <span className="font-mono"> · {row.original.expenseNumber}</span>
+              {row.original.categoryName ? ` · ${row.original.categoryName}` : ''}
+            </p>
+            {row.original.decisionReason ? (
+              <p className="mt-0.5 text-[10px] text-red-600">{row.original.decisionReason}</p>
+            ) : null}
           </div>
         ),
       },
@@ -197,299 +196,216 @@ export function ExpensesPage() {
         accessorKey: 'amount',
         header: 'Amount',
         cell: ({ row }) => (
-          <span className="font-semibold text-xs tabular-nums text-zinc-900">
-            {money(row.original.amount)}
-          </span>
+          <div className="text-right">
+            <p className="text-xs font-bold tabular-nums text-zinc-900">{money(row.original.amount)}</p>
+            <p className="text-[10px] text-zinc-500">{row.original.paymentMethod}</p>
+          </div>
         ),
       },
       {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => (
-          <div>
-            <span
-              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                STATUS_STYLES[row.original.status] ?? 'bg-zinc-100 text-zinc-600'
-              }`}
-            >
-              {row.original.status}
-            </span>
-            {row.original.approvedBy && (
-              <p className="text-[10px] text-zinc-400 mt-0.5">by {row.original.approvedBy}</p>
+          <span
+            className={cn(
+              'inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold',
+              STATUS_STYLES[row.original.status] ?? 'bg-zinc-100 text-zinc-600',
             )}
-          </div>
-        ),
-      },
-      {
-        id: 'scope',
-        header: 'Scope / Batch',
-        cell: ({ row }) => (
-          <div>
-            {row.original.allocationScope === 'BATCH' ? (
-              row.original.batchNumber ? (
-                <Link
-                  to={`/batches/${row.original.batchNumber}`}
-                  className="font-mono text-xs font-semibold text-zinc-900 hover:underline"
-                >
-                  {row.original.batchNumber}
-                </Link>
-              ) : (
-                <span className="text-xs text-zinc-700">Batch</span>
-              )
-            ) : (
-              <span className="text-xs text-zinc-600">Factory overhead</span>
-            )}
-            {row.original.recordedBy && (
-              <p className="text-[10px] text-zinc-400 mt-0.5">by {row.original.recordedBy}</p>
-            )}
-          </div>
+          >
+            {row.original.status}
+          </span>
         ),
       },
       {
         id: 'actions',
         header: '',
         cell: ({ row }) => {
-          if (canApprove && row.original.status === 'PENDING') {
-            return (
-              <div className="flex items-center justify-end gap-1.5">
-                <Button
-                  size="sm"
-                  className="h-7 px-2.5 text-xs font-semibold gap-1"
-                  onClick={() => handleApprove(row.original.id)}
-                >
-                  <Check className="size-3" /> Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs font-semibold gap-1 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => setRejectingExpense(row.original)}
-                >
-                  <X className="size-3" /> Reject
-                </Button>
-              </div>
-            )
-          }
-          return null
+          if (!(canApprove && row.original.status === 'PENDING')) return null
+          return (
+            <div className="flex items-center justify-end gap-1">
+              <Button
+                size="sm"
+                className="h-7 px-2 text-[11px] font-semibold gap-1"
+                onClick={() => handleApprove(row.original)}
+              >
+                <Check className="size-3" />
+                Approve
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px] font-semibold text-red-600"
+                onClick={() => setRejectingExpense(row.original)}
+              >
+                <X className="size-3" />
+              </Button>
+            </div>
+          )
         },
       },
     ],
-    [canApprove]
+    [canApprove],
   )
 
   const s = summary.data
+  const remaining = Number(wallet.data?.data?.remaining || 0)
+  const hasWallet = Boolean(wallet.data?.hasWallet)
 
   return (
     <PageLayout
       title="Factory Expenses"
-      description="Operating expenses, direct batch costs, and overhead allocation pool"
+      description="Spend from wallet · approve into overhead or batch cost"
       actions={
-        canCreate ? (
-          <Button
-            size="sm"
-            className="h-8 px-3 text-xs font-semibold gap-1.5"
-            onClick={() => setComposing(true)}
-          >
-            <Plus className="size-3.5" /> Record expense
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs font-semibold" asChild>
+            <Link to="/wallet">
+              <Wallet className="size-3.5" />
+              Wallet
+            </Link>
           </Button>
-        ) : null
+          {canCreate ? (
+            <Button
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5"
+              onClick={() => setComposing(true)}
+            >
+              <Plus className="size-3.5" />
+              Log expense
+            </Button>
+          ) : null}
+        </div>
       }
     >
-      <div className="space-y-4">
-        {s && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-            {/* Approved in Period */}
-            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                    Approved · {s.periodLabel}
-                  </span>
-                  <div className="size-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="size-3" />
-                  </div>
-                </div>
-                <div className="mt-1">
-                  <span className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums tracking-tight truncate block">
-                    {money(s.approvedTotal)}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-                Disbursements finalized
-              </p>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="rounded-xl border border-zinc-900 bg-zinc-900 text-white px-3 py-2.5 col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                Wallet left
+              </span>
+              <Wallet className="size-3.5 text-zinc-400" />
             </div>
-
-            {/* Waiting Approval */}
-            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                    Pending Approval
-                  </span>
-                  <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${s.pendingCount > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}`}>
-                    <Clock className="size-3" />
-                  </div>
-                </div>
-                <div className="mt-1 flex items-baseline gap-1">
-                  <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate ${s.pendingCount > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
-                    {money(s.pendingTotal)}
-                  </span>
-                  {s.pendingCount > 0 && (
-                    <span className="text-[10px] text-amber-700 dark:text-amber-300 font-medium truncate">
-                      ({s.pendingCount} req)
-                    </span>
-                  )}
-                </div>
-              </div>
-              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-                {s.pendingCount > 0 ? `${s.pendingCount} voucher${s.pendingCount === 1 ? '' : 's'} waiting signoff` : 'All caught up'}
-              </p>
-            </div>
-
-            {/* Overhead Pool */}
-            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                    Overhead Pool
-                  </span>
-                  <div className="size-5 rounded-md bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-400 flex items-center justify-center shrink-0">
-                    <Building2 className="size-3" />
-                  </div>
-                </div>
-                <div className="mt-1">
-                  <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
-                    {money(s.factoryPoolTotal)}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-                Plant-wide shared spend
-              </p>
-            </div>
-
-            {/* Direct Batch Cost */}
-            <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                    Direct Batch Cost
-                  </span>
-                  <div className="size-5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-400 flex items-center justify-center shrink-0">
-                    <Layers className="size-3" />
-                  </div>
-                </div>
-                <div className="mt-1">
-                  <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate block">
-                    {money(s.batchChargedTotal)}
-                  </span>
-                </div>
-              </div>
-              <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-                Charged straight to lots
-              </p>
-            </div>
+            <p className="mt-0.5 text-base font-black tabular-nums">
+              {hasWallet ? money(remaining) : '—'}
+            </p>
+            <p className="text-[10px] text-zinc-400 truncate">
+              {hasWallet ? 'Used when you log an expense' : 'Ask finance to fund your wallet'}
+            </p>
           </div>
-        )}
-
-        {s?.periodAllocated && (
-          <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900">
-            <span className="font-semibold">{s.periodLabel} is closed.</span> Overhead was allocated as{' '}
-            <Link to="/costs/overhead" className="font-mono font-semibold underline">
-              {s.allocationNumber}
-            </Link>
-            . New expenses cannot be posted to that month until the allocation is reversed.
+          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Pending
+            </p>
+            <p className="mt-0.5 text-base font-black tabular-nums text-amber-700">
+              {money(s?.pendingTotal || 0)}
+            </p>
+            <p className="text-[10px] text-zinc-400">{s?.pendingCount || 0} waiting</p>
           </div>
-        )}
-
-        {/* Filter & search controls */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-            <div className="w-full sm:w-48">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-8 text-xs font-semibold">
-                  <SelectValue placeholder="All expenses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All expenses</SelectItem>
-                  <SelectItem value="PENDING">Pending approval</SelectItem>
-                  <SelectItem value="APPROVED">Approved</SelectItem>
-                  <SelectItem value="REJECTED">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
-              <Input
-                className="pl-8 h-8 text-xs w-full"
-                placeholder="Search description, vendor, ref…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
+          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Approved · {s?.periodLabel || 'period'}
+            </p>
+            <p className="mt-0.5 text-base font-black tabular-nums text-teal-700">
+              {money(s?.approvedTotal || 0)}
+            </p>
+            <p className="text-[10px] text-zinc-400">In costs</p>
           </div>
-
-          <div className="text-xs text-zinc-500 self-end sm:self-center">
-            {filtered.length} expense record{filtered.length === 1 ? '' : 's'}
+          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 hidden lg:block">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              Overhead pool
+            </p>
+            <p className="mt-0.5 text-base font-black tabular-nums text-zinc-900">
+              {money(s?.factoryPoolTotal || 0)}
+            </p>
+            <p className="text-[10px] text-zinc-400">Factory-wide</p>
           </div>
         </div>
 
-        {/* CustomTable1 with card removed around it */}
-        <CustomTable1
-          columns={columns}
-          data={filtered}
-          loading={expenses.isLoading}
-          card
-        />
+        {s?.periodAllocated ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <span className="font-semibold">{s.periodLabel} is closed.</span> Overhead allocated as{' '}
+            <Link to="/costs/overhead" className="font-mono font-semibold underline">
+              {s.allocationNumber}
+            </Link>
+            .
+          </div>
+        ) : null}
 
-        {/* Record Expense Modal Dialog */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-8 w-[9.5rem] text-xs font-semibold">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All</SelectItem>
+              <SelectItem value="PENDING">Pending</SelectItem>
+              <SelectItem value="APPROVED">Approved</SelectItem>
+              <SelectItem value="REJECTED">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="relative flex-1 min-w-[10rem] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400" />
+            <Input
+              className="pl-8 h-8 text-xs"
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <span className="text-[11px] text-zinc-500 ml-auto">{filtered.length} records</span>
+        </div>
+
+        <CustomTable1 columns={columns} data={filtered} loading={expenses.isLoading} card />
+
         <Dialog open={composing} onOpenChange={setComposing}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Record Factory Expense</DialogTitle>
+              <DialogTitle>Log expense</DialogTitle>
               <DialogDescription>
-                Log a disbursement, assign its cost category, and decide if charged to a batch or the overhead pool.
+                Pays from your wallet now. Approval posts it to factory cost.
               </DialogDescription>
             </DialogHeader>
-
             <NewExpenseModalForm
-              onDone={() => {
+              walletRemaining={remaining}
+              hasWallet={hasWallet}
+              onDone={async () => {
                 setComposing(false)
-                queryClient.invalidateQueries({ queryKey: ['expenses'] })
-                queryClient.invalidateQueries({ queryKey: ['expense-summary'] })
+                await refreshAll()
               }}
             />
           </DialogContent>
         </Dialog>
 
-        {/* Reject Confirmation Dialog */}
-        {rejectingExpense && (
-          <Dialog open={Boolean(rejectingExpense)} onOpenChange={(open) => !open && setRejectingExpense(null)}>
+        {rejectingExpense ? (
+          <Dialog
+            open={Boolean(rejectingExpense)}
+            onOpenChange={(open) => !open && setRejectingExpense(null)}
+          >
             <DialogContent className="max-w-md">
               <DialogHeader>
-                <DialogTitle>Reject Expense</DialogTitle>
+                <DialogTitle>Reject expense</DialogTitle>
                 <DialogDescription>
-                  Explain why {rejectingExpense.expenseNumber} ({money(rejectingExpense.amount)}) is being rejected.
+                  {rejectingExpense.expenseNumber} · {money(rejectingExpense.amount)}. Wallet spend
+                  is refunded if it was paid from wallet.
                 </DialogDescription>
               </DialogHeader>
-
-              <div className="space-y-3 mt-2">
+              <div className="space-y-3 mt-1">
                 <div>
-                  <Label className="text-xs mb-1 block">Rejection reason (min 5 characters)</Label>
+                  <Label className="text-xs mb-1 block">Reason (min 5 characters)</Label>
                   <Input
                     className="h-8 text-xs"
-                    placeholder="e.g. Incorrect receipt, unauthorized item"
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
                   />
                 </div>
-
-                {rejectError && <p className="text-xs text-red-600 font-medium">{rejectError}</p>}
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
-                  <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setRejectingExpense(null)}>
+                {rejectError ? <p className="text-xs text-red-600 font-medium">{rejectError}</p> : null}
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => setRejectingExpense(null)}
+                  >
                     Cancel
                   </Button>
                   <Button
@@ -498,28 +414,33 @@ export function ExpensesPage() {
                     disabled={rejectBusy || rejectReason.trim().length < 5}
                     onClick={handleConfirmReject}
                   >
-                    {rejectBusy ? 'Rejecting…' : 'Confirm rejection'}
+                    {rejectBusy ? 'Rejecting…' : 'Reject & refund'}
                   </Button>
                 </div>
               </div>
             </DialogContent>
           </Dialog>
-        )}
+        ) : null}
       </div>
     </PageLayout>
   )
 }
 
-function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
+function NewExpenseModalForm({
+  onDone,
+  walletRemaining,
+  hasWallet,
+}: {
+  onDone: () => void
+  walletRemaining: number
+  hasWallet: boolean
+}) {
   const [costCategoryId, setCostCategoryId] = useState('')
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [vendorName, setVendorName] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState('CASH')
-  const [receiptRef, setReceiptRef] = useState('')
   const [allocationScope, setAllocationScope] = useState('FACTORY')
   const [batchNumber, setBatchNumber] = useState('')
-  const [incurredAt, setIncurredAt] = useState('')
   const [notes, setNotes] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -528,10 +449,7 @@ function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
     queryKey: ['expense-categories'],
     queryFn: async () => {
       const { data } = await api.get('/expenses/categories')
-      return {
-        categories: data.data as Category[],
-        paymentMethods: data.paymentMethods as string[],
-      }
+      return { categories: data.data as Category[] }
     },
   })
 
@@ -544,22 +462,32 @@ function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
     return Array.from(map.entries())
   }, [categories.data])
 
+  const amountNum = Number(amount) || 0
+  const overBalance = hasWallet && amountNum > walletRemaining + 0.001
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
+    if (!hasWallet) {
+      setError('No wallet yet. Ask finance to give you money first.')
+      return
+    }
+    if (overBalance) {
+      setError(`Only ${money(walletRemaining)} left in your wallet`)
+      return
+    }
     setSaving(true)
     try {
       await api.post('/expenses', {
         costCategoryId: Number(costCategoryId),
         description,
-        amount: Number(amount),
-        vendorName,
-        paymentMethod,
-        receiptRef,
+        amount: amountNum,
+        vendorName: vendorName || undefined,
+        paymentMethod: 'WALLET',
+        payFromWallet: true,
         allocationScope,
         batchNumber: allocationScope === 'BATCH' ? batchNumber : undefined,
-        incurredAt: incurredAt || undefined,
-        notes,
+        notes: notes || undefined,
       })
       onDone()
     } catch (err: unknown) {
@@ -575,24 +503,39 @@ function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 mt-2">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <Label className="text-xs mb-1 block">Description</Label>
-          <Input
-            className="h-8 text-xs"
-            required
-            placeholder="Diesel delivery, machine grease, packaging sacks…"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
+    <form onSubmit={submit} className="space-y-3 mt-1">
+      <div
+        className={cn(
+          'rounded-lg border px-3 py-2 text-xs',
+          hasWallet ? 'border-zinc-200 bg-zinc-50' : 'border-amber-200 bg-amber-50 text-amber-900',
+        )}
+      >
+        {hasWallet ? (
+          <p>
+            Wallet remaining <span className="font-bold tabular-nums">{money(walletRemaining)}</span>
+          </p>
+        ) : (
+          <p>Open a wallet first — expenses pay from your processing money.</p>
+        )}
+      </div>
 
-        <div>
-          <Label className="text-xs mb-1 block">Cost category</Label>
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">What was spent</Label>
+        <Input
+          className="h-8 text-xs"
+          required
+          placeholder="Diesel, grease, packaging…"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Category</Label>
           <Select value={costCategoryId} onValueChange={setCostCategoryId}>
             <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Choose category" />
+              <SelectValue placeholder="Choose…" />
             </SelectTrigger>
             <SelectContent>
               {grouped.map(([group, list]) =>
@@ -600,140 +543,102 @@ function NewExpenseModalForm({ onDone }: { onDone: () => void }) {
                   <SelectItem key={cat.id} value={String(cat.id)}>
                     {group} · {cat.name}
                   </SelectItem>
-                ))
+                )),
               )}
             </SelectContent>
           </Select>
         </div>
-
-        <div>
-          <Label className="text-xs mb-1 block">Amount (₦)</Label>
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Amount (₦)</Label>
           <Input
             type="number"
             inputMode="decimal"
-            className="h-8 text-xs font-semibold"
+            className={cn('h-8 text-xs font-semibold', overBalance && 'border-red-400')}
             required
+            min={0}
+            step="any"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
         </div>
-
-        <div>
-          <Label className="text-xs mb-1 block">Vendor / supplier</Label>
-          <Input
-            className="h-8 text-xs"
-            placeholder="TotalEnergies, Oando, Hardware store"
-            value={vendorName}
-            onChange={(e) => setVendorName(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <Label className="text-xs mb-1 block">Payment method</Label>
-          <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(categories.data?.paymentMethods ?? ['CASH', 'TRANSFER', 'POS', 'CHEQUE']).map((m) => (
-                <SelectItem key={m} value={m}>
-                  {m}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div>
-          <Label className="text-xs mb-1 block">Receipt / invoice #</Label>
-          <Input
-            className="h-8 text-xs"
-            placeholder="Optional receipt reference"
-            value={receiptRef}
-            onChange={(e) => setReceiptRef(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <Label className="text-xs mb-1 block">Date incurred</Label>
-          <Input
-            type="date"
-            className="h-8 text-xs"
-            value={incurredAt}
-            onChange={(e) => setIncurredAt(e.target.value)}
-          />
-        </div>
-
-        <div className="sm:col-span-2">
-          <Label className="text-xs mb-1 block">Charge to</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <label
-              className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs ${
-                allocationScope === 'FACTORY'
-                  ? 'border-zinc-900 bg-zinc-50 font-semibold'
-                  : 'border-zinc-200'
-              }`}
-            >
-              <input
-                type="radio"
-                name="scope"
-                checked={allocationScope === 'FACTORY'}
-                onChange={() => setAllocationScope('FACTORY')}
-              />
-              <span>Factory overhead pool</span>
-            </label>
-            <label
-              className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs ${
-                allocationScope === 'BATCH'
-                  ? 'border-zinc-900 bg-zinc-50 font-semibold'
-                  : 'border-zinc-200'
-              }`}
-            >
-              <input
-                type="radio"
-                name="scope"
-                checked={allocationScope === 'BATCH'}
-                onChange={() => setAllocationScope('BATCH')}
-              />
-              <span>Direct to specific batch</span>
-            </label>
-          </div>
-        </div>
-
-        {allocationScope === 'BATCH' && (
-          <div className="sm:col-span-2">
-            <Label className="text-xs mb-1 block">Batch number</Label>
-            <Input
-              className="h-8 text-xs font-mono"
-              required
-              placeholder="e.g. CRU-2026-001"
-              value={batchNumber}
-              onChange={(e) => setBatchNumber(e.target.value)}
-            />
-          </div>
-        )}
-
-        <div className="sm:col-span-2">
-          <Label className="text-xs mb-1 block">Notes</Label>
-          <Input
-            className="h-8 text-xs"
-            placeholder="Optional notes or justification"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
       </div>
 
-      {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">Vendor (optional)</Label>
+        <Input
+          className="h-8 text-xs"
+          placeholder="Supplier name"
+          value={vendorName}
+          onChange={(e) => setVendorName(e.target.value)}
+        />
+      </div>
 
-      <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className={cn(
+            'rounded-lg border px-2.5 py-2 text-left text-xs',
+            allocationScope === 'FACTORY'
+              ? 'border-zinc-900 bg-zinc-50 font-semibold'
+              : 'border-zinc-200',
+          )}
+          onClick={() => setAllocationScope('FACTORY')}
+        >
+          Factory overhead
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'rounded-lg border px-2.5 py-2 text-left text-xs',
+            allocationScope === 'BATCH'
+              ? 'border-zinc-900 bg-zinc-50 font-semibold'
+              : 'border-zinc-200',
+          )}
+          onClick={() => setAllocationScope('BATCH')}
+        >
+          Direct to batch
+        </button>
+      </div>
+
+      {allocationScope === 'BATCH' ? (
+        <div className="space-y-1">
+          <Label className="text-xs font-semibold">Batch number</Label>
+          <Input
+            className="h-8 text-xs font-mono"
+            required
+            placeholder="e.g. PROD-…"
+            value={batchNumber}
+            onChange={(e) => setBatchNumber(e.target.value)}
+          />
+        </div>
+      ) : null}
+
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">Notes (optional)</Label>
+        <Input
+          className="h-8 text-xs"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </div>
+
+      {error ? <p className="text-xs text-red-600 font-medium">{error}</p> : null}
+
+      <div className="flex justify-end pt-2 border-t border-zinc-100">
         <Button
           type="submit"
           size="sm"
           className="h-8 text-xs font-semibold"
-          disabled={saving || !description || !costCategoryId || !(Number(amount) > 0)}
+          disabled={
+            saving ||
+            !description ||
+            !costCategoryId ||
+            !(amountNum > 0) ||
+            !hasWallet ||
+            overBalance
+          }
         >
-          {saving ? 'Saving…' : 'Record expense'}
+          {saving ? 'Paying…' : `Pay ${amountNum > 0 ? money(amountNum) : ''} from wallet`}
         </Button>
       </div>
     </form>

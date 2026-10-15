@@ -88,6 +88,14 @@ export function canAccessNavItem(
       ) {
         return true
       }
+      if (
+        item.menuKey === 'expenses' &&
+        (hasPermission(user, 'expense.view') ||
+          hasPermission(user, 'expense.create') ||
+          hasPermission(user, 'float.spend'))
+      ) {
+        return true
+      }
       if (item.menuKey === 'bank_accounts' && hasPermission(user, 'float.give')) {
         return true
       }

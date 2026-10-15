@@ -2,25 +2,12 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
-import {
-  AlertTriangle,
-  ArrowRightLeft,
-  ClipboardList,
-  SlidersHorizontal,
-  Layers,
-  Hammer,
-  PackageCheck,
-  DollarSign,
-  MapPin,
-  Boxes,
-  Package,
-} from 'lucide-react'
+import { ClipboardList, PackageCheck, Layers, Plus } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Card, Field, StatPill } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -28,51 +15,72 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
+import { fmtDozenPcs, pcsFromDozen, perDozenOf } from '@/lib/units'
+import { SORT_COLORS } from '@/lib/sortColors'
+import { cn } from '@/lib/utils'
 
-type StockLine = {
-  id: number
-  qtyOnHand: number
-  uom: string
-  locationId: number
-  locationCode: string | null
-  locationName: string | null
-  locationType: string | null
-  materialName: string | null
-  productName: string | null
-  batchNumber: string | null
-  batchType: string | null
-  ageDays: number | null
-}
+const RM_STAGES = [
+  {
+    code: 'SCRAP',
+    label: 'Scrap (unsorted)',
+    location: 'RM-YARD',
+    needsColor: false,
+  },
+  {
+    code: 'SORT',
+    label: 'Sorted',
+    location: 'WIP-SORT',
+    needsColor: true,
+  },
+  {
+    code: 'CRUSH',
+    label: 'Crushed',
+    location: 'WIP-CRUSH',
+    needsColor: true,
+  },
+  {
+    code: 'WASH',
+    label: 'Washed',
+    location: 'WIP-WASH',
+    needsColor: true,
+  },
+  {
+    code: 'DRY',
+    label: 'Re-crushed / store-ready',
+    location: 'PROD-STORE',
+    needsColor: true,
+  },
+  {
+    code: 'RECYCLE',
+    label: 'Recycled pellets',
+    location: 'PROD-STORE',
+    needsColor: true,
+  },
+] as const
 
 type Overview = {
   totals: {
-    lines: number
     rawMaterialQty: number
     wipQty: number
     finishedGoodsQty: number
-    stockValue: number
-    unvaluedLines: number
   }
-  byLocation: Array<{
-    locationId: number
-    code: string | null
-    name: string
-    locationType: string
-    qty: number
-    lines: number
-    uom: string
-  }>
   byMaterial: Array<{
     materialId: number
     code: string | null
     name: string
     qty: number
     uom: string
-    reorderLevel: number
-    belowReorder: boolean
   }>
   byProduct: Array<{
     productId: number
@@ -80,54 +88,46 @@ type Overview = {
     name: string
     qty: number
     uom: string
-    reorderLevel: number
-    belowReorder: boolean
   }>
-  currency: string
 }
 
-type Alerts = {
-  ageingDaysThreshold: number
-  counts: { lowStock: number; ageing: number; negative: number }
-  lowStock: Array<{
-    kind: string
-    code: string | null
-    name: string
-    qty: number
-    uom: string
-    reorderLevel: number
-    shortfall: number
-    severity: string
-  }>
-  ageing: StockLine[]
-  negative: StockLine[]
+type ProductOption = {
+  id: number
+  name: string
+  code: string
+  uom?: string
+  unitsPerDozen?: number | string | null
 }
 
-type MasterItem = { id: number; name: string; code?: string }
-
-const REASON_LABELS: Record<string, string> = {
-  STOCK_COUNT: 'Physical count difference',
-  DAMAGE: 'Damaged stock',
-  SPILLAGE: 'Spillage',
-  THEFT: 'Theft / missing',
-  DATA_ENTRY_ERROR: 'Data entry error',
-  MOISTURE_LOSS: 'Moisture loss',
-  OTHER: 'Other',
+type MaterialOption = {
+  id: number
+  name: string
+  code: string
+  uom?: string
+  category?: string | null
 }
+
+type TabKey = 'finished' | 'raw'
 
 function fmt(n: number) {
-  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 3 })
+  return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
+}
+
+function qtyLabel(qty: number, uom?: string | null) {
+  const unit = String(uom || 'pcs').toLowerCase()
+  if (unit === 'pcs' || unit === 'pc' || unit === 'unit' || unit === 'units') {
+    return fmtDozenPcs(qty)
+  }
+  return `${fmt(qty)} ${uom || 'kg'}`
 }
 
 export function InventoryPage() {
   const user = useAuthStore((s) => s.user)
   const canAdjust = hasPermission(user, 'inventory.adjust')
   const queryClient = useQueryClient()
-
-  const [locationFilter, setLocationFilter] = useState('')
-  const [batchFilter, setBatchFilter] = useState('')
-  const [viewMode, setViewMode] = useState<'lines' | 'location' | 'material' | 'product'>('lines')
-  const [panel, setPanel] = useState<{ mode: 'adjust' | 'transfer'; line: StockLine } | null>(null)
+  const [tab, setTab] = useState<TabKey>('finished')
+  const [search, setSearch] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
 
   const overview = useQuery({
     queryKey: ['inventory-overview'],
@@ -137,713 +137,612 @@ export function InventoryPage() {
     },
   })
 
-  const alerts = useQuery({
-    queryKey: ['inventory-alerts'],
+  const products = useQuery({
+    queryKey: ['masters-products-pricing'],
     queryFn: async () => {
-      const { data } = await api.get('/inventory/alerts')
-      return data.data as Alerts
+      const { data } = await api.get('/masters/products')
+      return (data.data || []) as ProductOption[]
     },
+    enabled: canAdjust && tab === 'finished',
   })
 
-  const locations = useQuery({
-    queryKey: ['locations'],
+  const materials = useQuery({
+    queryKey: ['masters-materials'],
     queryFn: async () => {
-      const { data } = await api.get('/masters/locations')
-      return data.data as MasterItem[]
+      const { data } = await api.get('/masters/materials')
+      return (data.data || []) as MaterialOption[]
     },
+    enabled: canAdjust && tab === 'raw',
   })
 
-  const balances = useQuery({
-    queryKey: ['inventory-balances', locationFilter, batchFilter],
-    queryFn: async () => {
-      const params = new URLSearchParams()
-      if (locationFilter) params.set('locationId', locationFilter)
-      if (batchFilter) params.set('batchNumber', batchFilter)
-      const { data } = await api.get(`/inventory/balances?${params.toString()}`)
-      return data.data as StockLine[]
-    },
-  })
-
-  const refreshAll = () => {
-    queryClient.invalidateQueries({ queryKey: ['inventory-overview'] })
-    queryClient.invalidateQueries({ queryKey: ['inventory-alerts'] })
-    queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })
+  const refresh = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['inventory-overview'] })
+    await queryClient.invalidateQueries({ queryKey: ['inventory-balances'] })
+    await queryClient.invalidateQueries({ queryKey: ['inventory-alerts'] })
+    await queryClient.invalidateQueries({ queryKey: ['sellable-batches'] })
   }
 
-  const totals = overview.data?.totals
-  const alertCount = alerts.data
-    ? alerts.data.counts.lowStock + alerts.data.counts.ageing + alerts.data.counts.negative
-    : 0
+  const finishedRows = useMemo(() => {
+    const rows = overview.data?.byProduct || []
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        String(r.code || '')
+          .toLowerCase()
+          .includes(q),
+    )
+  }, [overview.data?.byProduct, search])
 
-  const columns = useMemo<ColumnDef<StockLine>[]>(
-    () => [
-      {
-        id: 'batchNumber',
-        header: 'Batch',
-        cell: ({ row }) => {
-          const line = row.original
-          return line.batchNumber ? (
-            <Link
-              to={`/batches/${line.batchNumber}`}
-              className="font-semibold text-xs text-[var(--accent-strong)] hover:underline inline-flex items-center gap-1 whitespace-nowrap"
-            >
-              {line.batchNumber}
-            </Link>
-          ) : (
-            <span className="text-zinc-400 text-xs">—</span>
-          )
-        },
-      },
-      {
-        id: 'item',
-        header: 'Item',
-        cell: ({ row }) => (
-          <span className="font-medium text-xs text-zinc-800">
-            {row.original.productName || row.original.materialName || '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'location',
-        header: 'Location',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-600">
-            {row.original.locationName || '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'qtyOnHand',
-        header: 'On Hand',
-        cell: ({ row }) => (
-          <span className="font-semibold text-xs tabular-nums text-zinc-800">
-            {fmt(row.original.qtyOnHand)} {row.original.uom}
-          </span>
-        ),
-      },
-      {
-        id: 'age',
-        header: 'Age',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-500 tabular-nums">
-            {row.original.ageDays != null ? `${row.original.ageDays}d` : '—'}
-          </span>
-        ),
-      },
-      ...(canAdjust
-        ? [
-            {
-              id: 'actions',
-              header: 'Actions',
-              cell: ({ row }: { row: { original: StockLine } }) => {
-                const line = row.original
-                return (
-                  <div className="flex items-center gap-1.5 whitespace-nowrap">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
-                      onClick={() => setPanel({ mode: 'adjust', line })}
-                    >
-                      <SlidersHorizontal className="size-3.5 shrink-0" />
-                      <span>Adjust</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-8 px-2.5 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
-                      onClick={() => setPanel({ mode: 'transfer', line })}
-                    >
-                      <ArrowRightLeft className="size-3.5 shrink-0" />
-                      <span>Transfer</span>
-                    </Button>
-                  </div>
-                )
-              },
-            } as ColumnDef<StockLine>,
-          ]
-        : []),
-    ],
-    [canAdjust]
-  )
+  const rawRows = useMemo(() => {
+    const rows = overview.data?.byMaterial || []
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        String(r.code || '')
+          .toLowerCase()
+          .includes(q),
+    )
+  }, [overview.data?.byMaterial, search])
 
-  const locationColumns = useMemo<ColumnDef<Overview['byLocation'][number]>[]>(
-    () => [
-      {
-        id: 'name',
-        header: 'Location',
-        cell: ({ row }) => (
-          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
-            <MapPin className="size-3.5 text-zinc-400 shrink-0" />
-            <span>{row.original.name}</span>
-          </span>
-        ),
-      },
-      {
-        id: 'locationType',
-        header: 'Type',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-500 capitalize">
-            {row.original.locationType.toLowerCase()}
-          </span>
-        ),
-      },
-      {
-        id: 'lines',
-        header: 'Active Lines',
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-zinc-600 font-medium">
-            {row.original.lines}
-          </span>
-        ),
-      },
-      {
-        id: 'qty',
-        header: 'On Hand Quantity',
-        cell: ({ row }) => (
-          <span className="text-xs font-semibold tabular-nums text-zinc-900">
-            {fmt(row.original.qty)} {row.original.uom}
-          </span>
-        ),
-      },
-    ],
-    []
-  )
-
-  const materialColumns = useMemo<ColumnDef<Overview['byMaterial'][number]>[]>(
-    () => [
-      {
-        id: 'name',
-        header: 'Material',
-        cell: ({ row }) => (
-          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
-            <Boxes className="size-3.5 text-zinc-400 shrink-0" />
-            <span>{row.original.name}</span>
-          </span>
-        ),
-      },
-      {
-        id: 'reorderLevel',
-        header: 'Reorder Level',
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-zinc-500">
-            {fmt(row.original.reorderLevel)} {row.original.uom}
-          </span>
-        ),
-      },
-      {
-        id: 'qty',
-        header: 'On Hand Quantity',
-        cell: ({ row }) => (
-          <span
-            className={`text-xs font-semibold tabular-nums ${
-              row.original.belowReorder ? 'text-red-700' : 'text-zinc-900'
-            }`}
-          >
-            {fmt(row.original.qty)} {row.original.uom}
-          </span>
-        ),
-      },
-      {
-        id: 'status',
-        header: 'Status',
-        cell: ({ row }) =>
-          row.original.belowReorder ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
-              Low Stock
-            </span>
-          ) : (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Adequate
-            </span>
-          ),
-      },
-    ],
-    []
-  )
-
-  const productColumns = useMemo<ColumnDef<Overview['byProduct'][number]>[]>(
+  const finishedColumns = useMemo<ColumnDef<Overview['byProduct'][number]>[]>(
     () => [
       {
         id: 'name',
         header: 'Product',
         cell: ({ row }) => (
-          <span className="font-medium text-xs text-zinc-900 flex items-center gap-1.5">
-            <Package className="size-3.5 text-zinc-400 shrink-0" />
-            <span>{row.original.name}</span>
-          </span>
-        ),
-      },
-      {
-        id: 'reorderLevel',
-        header: 'Reorder Level',
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-zinc-500">
-            {fmt(row.original.reorderLevel)} {row.original.uom}
-          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-900">{row.original.name}</p>
+            {row.original.code ? (
+              <p className="text-[11px] font-mono text-zinc-500">{row.original.code}</p>
+            ) : null}
+          </div>
         ),
       },
       {
         id: 'qty',
-        header: 'On Hand Quantity',
+        header: 'Stock',
         cell: ({ row }) => (
-          <span
-            className={`text-xs font-semibold tabular-nums ${
-              row.original.belowReorder ? 'text-red-700' : 'text-zinc-900'
-            }`}
-          >
-            {fmt(row.original.qty)} {row.original.uom}
+          <span className="text-sm font-bold tabular-nums text-emerald-700">
+            {qtyLabel(row.original.qty, row.original.uom)}
           </span>
         ),
       },
+    ],
+    [],
+  )
+
+  const rawColumns = useMemo<ColumnDef<Overview['byMaterial'][number]>[]>(
+    () => [
       {
-        id: 'status',
-        header: 'Status',
-        cell: ({ row }) =>
-          row.original.belowReorder ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
-              Low Stock
-            </span>
-          ) : (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Adequate
-            </span>
-          ),
+        id: 'name',
+        header: 'Material',
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-zinc-900">{row.original.name}</p>
+            {row.original.code ? (
+              <p className="text-[11px] font-mono text-zinc-500">{row.original.code}</p>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: 'qty',
+        header: 'Stock',
+        cell: ({ row }) => (
+          <span className="text-sm font-bold tabular-nums text-amber-700">
+            {fmt(row.original.qty)} {row.original.uom || 'kg'}
+          </span>
+        ),
       },
     ],
-    []
+    [],
   )
+
+  const totals = overview.data?.totals
+  const finishedTotal = Number(totals?.finishedGoodsQty || 0)
+  const rawTotal = Number(totals?.rawMaterialQty || 0) + Number(totals?.wipQty || 0)
 
   return (
     <PageLayout
-      title="Stock visibility"
-      description="Inventory · Balances, locations, alerts, and reorder levels"
+      title="Inventory"
+      description="Stock by product and material"
       actions={
-        <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
-          <Link to="/inventory/ledger" className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <ClipboardList className="size-3.5 shrink-0" />
-            <span>Movement ledger</span>
-          </Link>
-        </Button>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {canAdjust ? (
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 gap-1.5 text-xs font-semibold"
+              onClick={() => setAddOpen(true)}
+            >
+              <Plus className="size-3.5" />
+              Initial stock
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs font-semibold" asChild>
+            <Link to="/inventory/ledger">
+              <ClipboardList className="size-3.5" />
+              Ledger
+            </Link>
+          </Button>
+        </div>
       }
     >
-      <div className="space-y-6">
-
-      <div className="mb-6 grid grid-cols-2 gap-2.5 sm:gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Raw Material</span>
-            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-amber-50 text-amber-600">
-              <Layers className="size-3.5 sm:size-4" />
-            </div>
-          </div>
-          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.rawMaterialQty ?? 0)} kg</div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Scrap & sorted stock</p>
-        </div>
-
-        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Work in Progress</span>
-            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-slate-50 text-slate-600">
-              <Hammer className="size-3.5 sm:size-4" />
-            </div>
-          </div>
-          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.wipQty ?? 0)} kg</div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Crushed & washed</p>
-        </div>
-
-        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Finished Goods</span>
-            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-emerald-50 text-emerald-600">
-              <PackageCheck className="size-3.5 sm:size-4" />
-            </div>
-          </div>
-          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">{fmt(totals?.finishedGoodsQty ?? 0)} pcs</div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Manufactured outputs</p>
-        </div>
-
-        <div className="rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Stock Value</span>
-            <div className="flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl bg-teal-50 text-teal-600">
-              <DollarSign className="size-3.5 sm:size-4" />
-            </div>
-          </div>
-          <div className="text-base sm:text-xl font-bold tracking-tight text-zinc-900 truncate">₦{fmt(totals?.stockValue ?? 0)}</div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">Inventory valuation</p>
-        </div>
-
-        <div className="col-span-2 sm:col-span-2 lg:col-span-1 xl:col-span-1 rounded-xl sm:rounded-2xl border border-zinc-200/80 bg-white p-3 sm:p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-1 sm:mb-1.5">
-            <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-zinc-500 truncate">Open Alerts</span>
-            <div className={`flex size-7 sm:size-8 shrink-0 items-center justify-center rounded-lg sm:rounded-xl ${alertCount > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
-              <AlertTriangle className="size-3.5 sm:size-4" />
-            </div>
-          </div>
-          <div className={`text-base sm:text-xl font-bold tracking-tight truncate ${alertCount > 0 ? 'text-red-700' : 'text-zinc-900'}`}>
-            {alertCount}
-          </div>
-          <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-400 truncate">
-            {alertCount > 0 ? `${alertCount} items need attention` : 'All levels nominal'}
-          </p>
-        </div>
-      </div>
-
-      {alerts.data && alertCount > 0 && (
-        <Card className="mb-4 border-amber-200 bg-amber-50/70 !p-4">
-          <div className="flex items-center gap-2 text-amber-950">
-            <AlertTriangle className="size-4.5 text-amber-700" />
-            <h2 className="text-sm font-semibold tracking-tight">Attention needed ({alertCount} alerts)</h2>
-          </div>
-          <div className="mt-3 space-y-3 text-xs text-amber-950">
-            {alerts.data.lowStock.length > 0 && (
-              <div>
-                <p className="font-semibold text-amber-900 mb-1">Below reorder level</p>
-                <ul className="space-y-1">
-                  {alerts.data.lowStock.map((item) => (
-                    <li key={`${item.kind}-${item.code}`} className="flex items-center gap-1.5">
-                      <span className="size-1 rounded-full bg-amber-700" />
-                      <span>
-                        <strong className="font-semibold">{item.name}</strong>: {fmt(item.qty)} {item.uom} on hand (min {fmt(item.reorderLevel)} {item.uom}, short by {fmt(item.shortfall)} {item.uom})
-                        {item.severity === 'CRITICAL' && <span className="ml-1.5 font-bold text-red-700">(Out of Stock)</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTab('finished')}
+            className={cn(
+              'rounded-xl border px-3 py-2.5 text-left transition-colors',
+              tab === 'finished'
+                ? 'border-emerald-300 bg-emerald-50/80'
+                : 'border-zinc-200 bg-white hover:bg-zinc-50',
             )}
-            {alerts.data.ageing.length > 0 && (
-              <div>
-                <p className="font-semibold text-amber-900 mb-1">Sitting longer than {alerts.data.ageingDaysThreshold} days</p>
-                <ul className="space-y-1">
-                  {alerts.data.ageing.slice(0, 5).map((line) => (
-                    <li key={line.id} className="flex items-center gap-1.5">
-                      <span className="size-1 rounded-full bg-amber-700" />
-                      <span>{line.batchNumber || line.materialName}: {fmt(line.qtyOnHand)} {line.uom} at {line.locationName} ({line.ageDays} days old)</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {alerts.data.negative.length > 0 && (
-              <div>
-                <p className="font-semibold text-red-900 mb-1">Negative balances (data anomaly)</p>
-                <ul className="space-y-1 text-red-800">
-                  {alerts.data.negative.map((line) => (
-                    <li key={line.id} className="flex items-center gap-1.5">
-                      <span className="size-1 rounded-full bg-red-700" />
-                      <span>{line.batchNumber || line.materialName}: {fmt(line.qtyOnHand)} {line.uom} at {line.locationName}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-
-      <div className="space-y-4">
-        {/* View Select and Filters Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-          <div className="w-full sm:w-60">
-            <Select value={viewMode} onValueChange={(val) => setViewMode(val as 'lines' | 'location' | 'material' | 'product')}>
-              <SelectTrigger className="w-full h-8 text-xs font-semibold">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="w-full">
-                <SelectItem value="lines">
-                  Stock Lines ({balances.data?.length ?? 0})
-                </SelectItem>
-                <SelectItem value="location">
-                  By Location ({overview.data?.byLocation.length ?? 0})
-                </SelectItem>
-                <SelectItem value="material">
-                  By Material ({overview.data?.byMaterial.length ?? 0})
-                </SelectItem>
-                <SelectItem value="product">
-                  By Product ({overview.data?.byProduct.length ?? 0})
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {viewMode === 'lines' && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
-              <div className="w-full sm:w-52">
-                <Select
-                  value={locationFilter || "ALL"}
-                  onValueChange={(val) => setLocationFilter(val === "ALL" ? "" : val)}
-                >
-                  <SelectTrigger className="w-full h-8 text-xs font-medium">
-                    <SelectValue placeholder="All locations" />
-                  </SelectTrigger>
-                  <SelectContent className="w-full">
-                    <SelectItem value="ALL">All locations</SelectItem>
-                    {locations.data?.map((loc) => (
-                      <SelectItem key={loc.id} value={String(loc.id)}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="w-full sm:w-52">
-                <Input
-                  className="h-8 text-xs w-full"
-                  placeholder="Search batch..."
-                  value={batchFilter}
-                  onChange={(e) => setBatchFilter(e.target.value)}
-                />
-              </div>
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                Finished
+              </span>
+              <PackageCheck
+                className={cn(
+                  'size-3.5',
+                  tab === 'finished' ? 'text-emerald-600' : 'text-zinc-400',
+                )}
+              />
             </div>
+            <p className="mt-0.5 text-base font-bold tabular-nums text-zinc-900">
+              {fmtDozenPcs(finishedTotal)}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('raw')}
+            className={cn(
+              'rounded-xl border px-3 py-2.5 text-left transition-colors',
+              tab === 'raw'
+                ? 'border-amber-300 bg-amber-50/80'
+                : 'border-zinc-200 bg-white hover:bg-zinc-50',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                Raw material
+              </span>
+              <Layers
+                className={cn('size-3.5', tab === 'raw' ? 'text-amber-600' : 'text-zinc-400')}
+              />
+            </div>
+            <p className="mt-0.5 text-base font-bold tabular-nums text-zinc-900">
+              {fmt(rawTotal)} kg
+            </p>
+          </button>
+        </div>
+
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={tab === 'finished' ? 'Search product…' : 'Search material…'}
+          className="h-8 max-w-xs text-xs"
+        />
+
+        <div className="overflow-x-auto">
+          {tab === 'finished' ? (
+            <CustomTable1
+              data={finishedRows}
+              columns={finishedColumns}
+              loading={overview.isLoading}
+            />
+          ) : (
+            <CustomTable1 data={rawRows} columns={rawColumns} loading={overview.isLoading} />
           )}
         </div>
-
-        {/* CustomTable rendering based on viewMode without any surrounding card */}
-        {viewMode === 'lines' && (
-          <CustomTable1
-            data={balances.data || []}
-            columns={columns}
-            loading={balances.isLoading}
-            card
-          />
-        )}
-        {viewMode === 'location' && (
-          <CustomTable1
-            data={overview.data?.byLocation || []}
-            columns={locationColumns}
-            loading={overview.isLoading}
-          />
-        )}
-        {viewMode === 'material' && (
-          <CustomTable1
-            data={overview.data?.byMaterial || []}
-            columns={materialColumns}
-            loading={overview.isLoading}
-          />
-        )}
-        {viewMode === 'product' && (
-          <CustomTable1
-            data={overview.data?.byProduct || []}
-            columns={productColumns}
-            loading={overview.isLoading}
-          />
-        )}
       </div>
 
-      {panel && (
-        <StockActionDialog
-          mode={panel.mode}
-          line={panel.line}
-          locations={locations.data ?? []}
-          onClose={() => setPanel(null)}
-          onDone={() => {
-            setPanel(null)
-            refreshAll()
+      {tab === 'finished' ? (
+        <InitialStockDialog
+          open={addOpen}
+          products={products.data || []}
+          onClose={() => setAddOpen(false)}
+          onDone={async () => {
+            setAddOpen(false)
+            await refresh()
+          }}
+        />
+      ) : (
+        <InitialRmStockDialog
+          open={addOpen}
+          materials={materials.data || []}
+          onClose={() => setAddOpen(false)}
+          onDone={async () => {
+            setAddOpen(false)
+            await refresh()
           }}
         />
       )}
-      </div>
     </PageLayout>
   )
 }
 
-function StockActionDialog({
-  mode,
-  line,
-  locations,
+function InitialStockDialog({
+  open,
+  products,
   onClose,
   onDone,
 }: {
-  mode: 'adjust' | 'transfer'
-  line: StockLine
-  locations: MasterItem[]
+  open: boolean
+  products: ProductOption[]
   onClose: () => void
   onDone: () => void
 }) {
-  const [qtyDelta, setQtyDelta] = useState('')
-  const [reasonCode, setReasonCode] = useState('STOCK_COUNT')
+  const [productId, setProductId] = useState('')
+  const [dozen, setDozen] = useState('')
+  const [pcs, setPcs] = useState('')
   const [notes, setNotes] = useState('')
-  const [writeOffCost, setWriteOffCost] = useState('')
-  const [toLocationId, setToLocationId] = useState('')
-  const [qty, setQty] = useState('')
   const [error, setError] = useState('')
 
-  const destinations = useMemo(
-    () => locations.filter((loc) => loc.id !== line.locationId),
-    [locations, line.locationId],
-  )
+  const selected = products.find((p) => String(p.id) === productId)
+  const per = perDozenOf(selected?.unitsPerDozen)
+  const totalPcs = pcsFromDozen(dozen || 0, per) + Math.round(Number(pcs) || 0)
 
-  const mutation = useMutation({
+  const resetForm = () => {
+    setProductId('')
+    setDozen('')
+    setPcs('')
+    setNotes('')
+    setError('')
+  }
+
+  const save = useMutation({
     mutationFn: async () => {
-      if (mode === 'adjust') {
-        await api.post('/inventory/adjustments', {
-          balanceId: line.id,
-          qtyDelta: Number(qtyDelta),
-          reasonCode,
-          notes,
-          writeOffCost: writeOffCost ? Number(writeOffCost) : 0,
-        })
-      } else {
-        await api.post('/inventory/transfers', {
-          balanceId: line.id,
-          toLocationId: Number(toLocationId),
-          qty: Number(qty),
-          notes,
-        })
-      }
+      const { data } = await api.post('/inventory/initial-stock', {
+        productId: Number(productId),
+        qty: totalPcs,
+        notes: notes.trim() || undefined,
+      })
+      return data
     },
-    onSuccess: onDone,
+    onSuccess: () => {
+      resetForm()
+      onDone()
+    },
     onError: (err: unknown) => {
-      const res = (err as { response?: { data?: { err?: string; errors?: Record<string, string> } } })
-        .response
-      if (res?.data?.errors) setError(Object.values(res.data.errors).join(' · '))
-      else setError(res?.data?.err || 'Could not save this change')
+      const e = err as {
+        response?: { data?: { err?: string; errors?: Record<string, string> } }
+      }
+      setError(
+        e.response?.data?.err ||
+          (e.response?.data?.errors
+            ? Object.values(e.response.data.errors).join(', ')
+            : null) ||
+          'Could not add initial stock',
+      )
     },
   })
 
-  const projected =
-    mode === 'adjust' && qtyDelta !== ''
-      ? line.qtyOnHand + Number(qtyDelta || 0)
-      : mode === 'transfer' && qty !== ''
-        ? line.qtyOnHand - Number(qty || 0)
-        : null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-      <div className="dgn-card w-full max-w-lg p-5 sm:p-6">
-        <div className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--accent-strong)]">
-            {mode === 'adjust' ? 'Stock adjustment' : 'Stock transfer'}
-          </p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight">
-            {line.batchNumber || line.materialName || line.productName}
-          </h2>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">
-            {fmt(line.qtyOnHand)} {line.uom} on hand at {line.locationName}
-          </p>
-        </div>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add initial stock</DialogTitle>
+          <DialogDescription>
+            Create opening finished-goods stock from a product in the system.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="space-y-4">
-          {mode === 'adjust' ? (
-            <>
-              <Field
-                label="Adjustment quantity"
-                hint="Use a negative number for a loss, positive for a gain"
-              >
-                <Input
-                  inputMode="decimal"
-                  placeholder="-8"
-                  value={qtyDelta}
-                  onChange={(e) => setQtyDelta(e.target.value)}
-                />
-              </Field>
-              <Field label="Reason">
-                <Select value={reasonCode} onValueChange={(val) => setReasonCode(val)}>
-                  <SelectTrigger className="w-full h-8 text-xs font-medium">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="w-full">
-                    {Object.entries(REASON_LABELS).map(([code, label]) => (
-                      <SelectItem key={code} value={code}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Explanation" hint="Required, minimum 5 characters">
-                <Textarea
-                  rows={3}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </Field>
-              <Field label="Write-off cost ₦" hint="Optional, charged to the batch as a loss">
-                <Input
-                  inputMode="decimal"
-                  value={writeOffCost}
-                  onChange={(e) => setWriteOffCost(e.target.value)}
-                />
-              </Field>
-            </>
-          ) : (
-            <>
-              <Field label="Destination location">
-                <Select value={toLocationId} onValueChange={(val) => setToLocationId(val)}>
-                  <SelectTrigger className="w-full h-8 text-xs font-medium">
-                    <SelectValue placeholder="Select destination" />
-                  </SelectTrigger>
-                  <SelectContent className="w-full">
-                    {destinations.map((loc) => (
-                      <SelectItem key={loc.id} value={String(loc.id)}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label={`Quantity to move (${line.uom})`}>
-                <Input
-                  inputMode="decimal"
-                  value={qty}
-                  onChange={(e) => setQty(e.target.value)}
-                />
-              </Field>
-              <Field label="Notes">
-                <Textarea
-                  rows={2}
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                />
-              </Field>
-            </>
-          )}
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setError('')
+            if (!productId) {
+              setError('Select a product')
+              return
+            }
+            if (!(totalPcs > 0)) {
+              setError('Enter dozen and/or pieces greater than zero')
+              return
+            }
+            save.mutate()
+          }}
+        >
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Product</Label>
+            <Select value={productId || undefined} onValueChange={setProductId}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Select product…" />
+              </SelectTrigger>
+              <SelectContent>
+                {products.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name}
+                    {p.code ? ` · ${p.code}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-          {projected != null && (
-            <StatPill
-              label="Balance at this location after saving"
-              value={`${fmt(projected)} ${line.uom}`}
-              tone={projected < 0 ? 'danger' : 'accent'}
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-emerald-950">Quantity</span>
+              <span className="text-xs font-black text-emerald-800 tabular-nums">
+                = {fmtDozenPcs(totalPcs, per)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Dozen (dz)</Label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  className="h-9 text-xs font-bold tabular-nums"
+                  placeholder="0"
+                  value={dozen}
+                  onChange={(e) => setDozen(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Pieces (pcs)</Label>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  step="1"
+                  min={0}
+                  className="h-9 text-xs font-bold tabular-nums"
+                  placeholder="0"
+                  value={pcs}
+                  onChange={(e) => setPcs(e.target.value)}
+                />
+              </div>
+            </div>
+            {selected ? (
+              <p className="text-[10px] text-emerald-800/80">
+                {per} pcs per dozen
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Notes (optional)</Label>
+            <Input
+              className="h-9 text-xs"
+              placeholder="e.g. Opening balance"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
             />
-          )}
+          </div>
 
-          {error && (
-            <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>
-          )}
+          {error ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              {error}
+            </p>
+          ) : null}
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 px-4 font-semibold"
-              onClick={onClose}
-            >
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              className="h-9 px-4 font-semibold"
-              disabled={mutation.isPending}
-              onClick={() => {
-                setError('')
-                mutation.mutate()
+            <Button type="submit" size="sm" className="h-8 text-xs font-semibold" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Add stock'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function InitialRmStockDialog({
+  open,
+  materials,
+  onClose,
+  onDone,
+}: {
+  open: boolean
+  materials: MaterialOption[]
+  onClose: () => void
+  onDone: () => void
+}) {
+  const [materialId, setMaterialId] = useState('')
+  const [stage, setStage] = useState<(typeof RM_STAGES)[number]['code']>('CRUSH')
+  const [sortColor, setSortColor] = useState('')
+  const [qty, setQty] = useState('')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState('')
+
+  const stageCfg = RM_STAGES.find((s) => s.code === stage) || RM_STAGES[2]
+  const amount = Number(qty) || 0
+
+  const resetForm = () => {
+    setMaterialId('')
+    setStage('CRUSH')
+    setSortColor('')
+    setQty('')
+    setNotes('')
+    setError('')
+  }
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/inventory/initial-stock-rm', {
+        materialId: Number(materialId),
+        qty: amount,
+        stage,
+        sortColor: stageCfg.needsColor ? sortColor : undefined,
+        notes: notes.trim() || undefined,
+      })
+      return data
+    },
+    onSuccess: () => {
+      resetForm()
+      onDone()
+    },
+    onError: (err: unknown) => {
+      const e = err as {
+        response?: { data?: { err?: string; errors?: Record<string, string> } }
+      }
+      setError(
+        e.response?.data?.err ||
+          (e.response?.data?.errors
+            ? Object.values(e.response.data.errors).join(', ')
+            : null) ||
+          'Could not add initial stock',
+      )
+    },
+  })
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add raw material stock</DialogTitle>
+          <DialogDescription>
+            Opening lot with material, colour, and the stage it is already at.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setError('')
+            if (!materialId) {
+              setError('Select a material')
+              return
+            }
+            if (!(amount > 0)) {
+              setError('Enter kg greater than zero')
+              return
+            }
+            if (stageCfg.needsColor && !sortColor) {
+              setError('Select a colour for this stage')
+              return
+            }
+            save.mutate()
+          }}
+        >
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Material</Label>
+            <Select value={materialId || undefined} onValueChange={setMaterialId}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Select material…" />
+              </SelectTrigger>
+              <SelectContent>
+                {materials.map((m) => (
+                  <SelectItem key={m.id} value={String(m.id)}>
+                    {m.name}
+                    {m.code ? ` · ${m.code}` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Stage right now</Label>
+            <Select
+              value={stage}
+              onValueChange={(v) => {
+                setStage(v as (typeof RM_STAGES)[number]['code'])
+                const next = RM_STAGES.find((s) => s.code === v)
+                if (next && !next.needsColor) setSortColor('')
               }}
             >
-              {mutation.isPending
-                ? 'Saving…'
-                : mode === 'adjust'
-                  ? 'Post adjustment'
-                  : 'Post transfer'}
-            </Button>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RM_STAGES.map((s) => (
+                  <SelectItem key={s.code} value={s.code}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-zinc-500">
+              Lands in <span className="font-mono font-semibold">{stageCfg.location}</span>
+            </p>
           </div>
-        </div>
-      </div>
-    </div>
+
+          {stageCfg.needsColor ? (
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold">Colour</Label>
+              <Select value={sortColor || undefined} onValueChange={setSortColor}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Select colour…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_COLORS.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-600">
+              Unsorted scrap has no colour yet — sort it later on the floor.
+            </p>
+          )}
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Quantity (kg)</Label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              step="any"
+              min={0}
+              className="h-9 text-xs font-bold tabular-nums"
+              placeholder="0"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-xs font-semibold">Notes (optional)</Label>
+            <Input
+              className="h-9 text-xs"
+              placeholder="e.g. Opening balance"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {error ? (
+            <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" size="sm" className="h-8 text-xs font-semibold" disabled={save.isPending}>
+              {save.isPending ? 'Saving…' : 'Add stock'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
