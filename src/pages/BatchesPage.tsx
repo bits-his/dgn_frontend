@@ -17,6 +17,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { SORT_COLORS } from '@/lib/sortColors'
+import { materialKindLabel, boughtAsBadgeClass } from '@/lib/materialLabels'
+import { cn } from '@/lib/utils'
 
 type BatchRow = {
   id: number
@@ -36,6 +38,9 @@ type BatchRow = {
   buyCost?: number | null
   buyPricePerKg?: number | null
   supplierName?: string | null
+  inboundForm?: string | null
+  materialKind?: string | null
+  scrapReceipt?: { inboundForm?: string | null } | null
 }
 
 const STAGE_FILTERS = [
@@ -178,19 +183,41 @@ export function BatchesPage() {
       },
       {
         id: 'material',
-        header: buying ? 'Bought' : 'Material / Product',
-        cell: ({ row }) => (
-          <div>
-            <span className="font-medium text-xs text-zinc-800">
-              {row.original.product?.name || row.original.material?.name || '—'}
-            </span>
-            {buying && Number(row.original.buyKg) > 0 && (
-              <p className="text-[11px] font-semibold text-emerald-700">
-                {Number(row.original.buyKg).toLocaleString()} kg
-              </p>
-            )}
-          </div>
-        ),
+        header: buying ? 'Bought as' : 'Material / Product',
+        cell: ({ row }) => {
+          const b = row.original
+          const form = b.inboundForm || b.scrapReceipt?.inboundForm || null
+          const label =
+            b.materialKind ||
+            materialKindLabel({
+              inboundForm: form,
+              batchType: b.batchType,
+              materialName: b.material?.name,
+              productName: b.product?.name,
+            })
+          return (
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-medium text-xs text-zinc-800">{label}</span>
+                {buying && form ? (
+                  <span
+                    className={cn(
+                      'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold border tracking-wide uppercase',
+                      boughtAsBadgeClass(form),
+                    )}
+                  >
+                    {String(form).toUpperCase()}
+                  </span>
+                ) : null}
+              </div>
+              {buying && Number(b.buyKg) > 0 && (
+                <p className="text-[11px] font-semibold text-emerald-700">
+                  {Number(b.buyKg).toLocaleString()} kg
+                </p>
+              )}
+            </div>
+          )
+        },
       },
       ...(buying
         ? [

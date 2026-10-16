@@ -26,6 +26,7 @@ type WorkRow = {
   batchNumber: string | null
   machineName: string | null
   productName: string | null
+  shiftName: string | null
   qtyGood: number | null
   qtyReject: number | null
   qtyInput: number | null
@@ -133,15 +134,6 @@ export function OperatorWorkPage() {
         ),
       },
       {
-        accessorKey: 'machineName',
-        header: 'Machine',
-        cell: ({ row }) => (
-          <span className="text-xs text-zinc-700 whitespace-nowrap">
-            {row.original.machineName || '—'}
-          </span>
-        ),
-      },
-      {
         id: 'output',
         header: 'Output',
         cell: ({ row }) => {
@@ -167,6 +159,24 @@ export function OperatorWorkPage() {
             </div>
           )
         },
+      },
+      {
+        accessorKey: 'machineName',
+        header: 'Machine',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-700 whitespace-nowrap">
+            {row.original.machineName || '—'}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'shiftName',
+        header: 'Shift',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-700 whitespace-nowrap">
+            {row.original.shiftName || '—'}
+          </span>
+        ),
       },
     ],
     [],

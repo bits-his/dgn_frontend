@@ -45,6 +45,7 @@ import { SaleInvoicePage, SaleReceiptPage } from '@/pages/SaleDocumentPage'
 import { DistributorsPage } from '@/pages/DistributorsPage'
 import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
 import { RecordOutletSalePage } from '@/pages/RecordOutletSalePage'
+import { ShopBuyerDetailPage } from '@/pages/ShopBuyerDetailPage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ProductPricingPage } from '@/pages/ProductPricingPage'
 import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
@@ -157,6 +158,7 @@ function App() {
                 <Route path="/distributors" element={<DistributorsPage />} />
                 <Route path="/distributors/:code" element={<DistributorDetailPage />} />
                 <Route path="/shop/sales/new" element={<RecordOutletSalePage />} />
+                <Route path="/shop/customers/:buyerId" element={<ShopBuyerDetailPage />} />
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />
                 <Route path="/expenses" element={<ExpensesPage />} />

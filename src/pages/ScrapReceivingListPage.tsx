@@ -9,6 +9,7 @@ import CustomTable1 from '@/components/CustomTable1'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { parsePhotoUrls, mediaUrl } from '@/lib/maintenanceForm'
+import { boughtAsLabel, boughtAsBadgeClass } from '@/lib/materialLabels'
 
 type ScrapReceiptRow = {
   id: number
@@ -156,14 +157,8 @@ export function ScrapReceivingListPage() {
         cell: ({ row }) => {
           const r = row.original
           const form = r.inboundForm || 'RAW'
-          const label =
-            form === 'RECYCLED' ? 'Recycled' : form === 'CRUSHED' ? 'Crushed scrap' : 'Raw scrap'
-          const badgeClass =
-            form === 'RECYCLED'
-              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-              : form === 'CRUSHED'
-                ? 'bg-indigo-50 text-indigo-800 border-indigo-300'
-                : 'bg-amber-50 text-amber-800 border-amber-300'
+          const label = boughtAsLabel(form)
+          const badgeClass = boughtAsBadgeClass(form)
           return (
             <div>
               <div className="flex items-center gap-2">

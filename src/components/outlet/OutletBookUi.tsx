@@ -24,26 +24,26 @@ export function CompactStat({
           : 'bg-zinc-100 text-zinc-600'
 
   return (
-    <div className="flex min-h-[4.25rem] flex-col justify-between rounded-lg border border-zinc-200/90 bg-white p-2.5 shadow-xs sm:rounded-xl sm:p-3">
+    <div className="flex min-h-[4.5rem] flex-col justify-between rounded-xl border border-zinc-200/80 bg-white p-3 sm:p-3.5">
       <div className="flex items-center justify-between gap-1">
         <span className="truncate text-[10px] font-bold uppercase tracking-wider text-zinc-500">
           {label}
         </span>
         {Icon ? (
-          <span className={cn('flex size-5 shrink-0 items-center justify-center rounded-md', iconWrap)}>
-            <Icon className="size-3" />
+          <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-lg', iconWrap)}>
+            <Icon className="size-3.5" />
           </span>
         ) : null}
       </div>
       <p
         className={cn(
-          'mt-1 truncate text-base font-black tabular-nums tracking-tight sm:text-lg',
+          'mt-1.5 truncate text-lg font-bold tabular-nums tracking-tight sm:text-xl',
           tone === 'warn' ? 'text-amber-800' : 'text-zinc-900',
         )}
       >
         {value}
       </p>
-      {hint ? <p className="mt-0.5 truncate text-[10px] text-zinc-400">{hint}</p> : null}
+      {hint ? <p className="mt-0.5 truncate text-[11px] text-zinc-500">{hint}</p> : null}
     </div>
   )
 }
@@ -60,9 +60,14 @@ export function BookPanel({
   className?: string
 }) {
   return (
-    <section className={cn('rounded-lg border border-zinc-200/90 bg-white p-2.5 sm:rounded-xl sm:p-3', className)}>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold tracking-tight text-zinc-900 sm:text-sm">{title}</h2>
+    <section
+      className={cn(
+        'rounded-2xl border border-zinc-200/80 bg-white p-3.5 sm:p-4',
+        className,
+      )}
+    >
+      <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-zinc-100 pb-2">
+        <h2 className="text-sm font-semibold tracking-tight text-zinc-900">{title}</h2>
         {action}
       </div>
       {children}
@@ -76,7 +81,7 @@ export function DataRow({
   value,
   hint,
 }: {
-  title: string
+  title: ReactNode
   meta?: string
   value: string
   hint?: string
@@ -84,7 +89,7 @@ export function DataRow({
   return (
     <div className="flex items-start justify-between gap-3 border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0">
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-zinc-900">{title}</p>
+        <div className="truncate text-xs font-medium text-zinc-900">{title}</div>
         {meta ? <p className="truncate text-[11px] text-zinc-500">{meta}</p> : null}
       </div>
       <div className="shrink-0 text-right">

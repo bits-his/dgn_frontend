@@ -8,12 +8,17 @@ import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped } from '@/lib/outlet'
+import { isOutletScoped, shopBuyerPath, shopRecordSalePath } from '@/lib/outlet'
 import { formatBusinessDate } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
 import { BookPanel, CompactStat, DataRow, StatusChip } from '@/components/outlet/OutletBookUi'
+import {
+  ShopCustomersBoard,
+  ShopDebtorsPanel,
+  type ShopBuyerRow,
+} from '@/components/outlet/ShopCustomersBoard'
 
 type SaleRow = {
   id: number
@@ -105,6 +110,7 @@ type DistributorDetail = {
     sales: {
       id: number
       saleNumber: string
+      outletBuyerId?: number | null
       buyerName: string | null
       saleType: string
       businessDate: string | null
@@ -234,6 +240,7 @@ export function DistributorDetailPage() {
   const user = useAuthStore((s) => s.user)
   const canEdit = hasPermission(user, 'sales.create') || hasPermission(user, 'masters.manage')
   const canSell = hasPermission(user, 'sales.create')
+  const canOutletSell = hasPermission(user, 'outlet.sell') || hasPermission(user, 'sales.create')
   const [editing, setEditing] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -265,6 +272,24 @@ export function DistributorDetailPage() {
     queryFn: async () => {
       const { data } = await api.get(`/distributors/${code}`)
       return data.data as DistributorDetail
+    },
+  })
+
+  const isShopKind =
+    String(detail.data?.distributorKind || '').toUpperCase() === 'SHOP'
+
+  const shopBuyers = useQuery({
+    queryKey: ['outlet-buyers', detail.data?.id],
+    enabled: Boolean(detail.data?.id) && isShopKind,
+    queryFn: async () => {
+      const { data } = await api.get('/outlet-sales/buyers', {
+        params: isOutletScoped(user) ? {} : { outletId: detail.data!.id },
+      })
+      return data.data as {
+        rows: ShopBuyerRow[]
+        debtors: ShopBuyerRow[]
+        totals: { customerCount: number; debtorCount: number; creditOutstanding: number }
+      }
     },
   })
 
@@ -418,14 +443,15 @@ export function DistributorDetailPage() {
               Record advance
             </Button>
           ) : null}
-          {isOutletScoped(user) ? (
+          {isShop && canOutletSell ? (
             <Button size="sm" className="h-8 gap-1 text-xs font-semibold" asChild>
-              <Link to="/shop/sales/new">
+              <Link to={shopRecordSalePath(isOutletScoped(user) ? null : d.id)}>
                 <Plus className="size-3.5" />
-                Record
+                Record sale
               </Link>
             </Button>
-          ) : canSell ? (
+          ) : null}
+          {!isOutletScoped(user) && canSell ? (
             <Button size="sm" className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap" asChild>
               <Link to={`/sales/new?customer=${d.id}`}>{isShop ? 'Issue stock' : 'New sale'}</Link>
             </Button>
@@ -453,7 +479,8 @@ export function DistributorDetailPage() {
 
         {isShop ? (
               <>
-                <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <div className="w-full space-y-4">
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                   <CompactStat
                     label="Stock left"
                     value={fmt(d.outlet?.remainingQty || 0)}
@@ -463,7 +490,7 @@ export function DistributorDetailPage() {
                   <CompactStat
                     label="Generated"
                     value={money(d.outlet?.money.generated || 0)}
-                    hint={`${d.outlet?.money.saleCount || 0} shop sales`}
+                    hint={`${d.outlet?.money.saleCount || 0} sales`}
                     icon={Banknote}
                     tone="ok"
                   />
@@ -474,16 +501,32 @@ export function DistributorDetailPage() {
                     tone="ok"
                   />
                   <CompactStat
-                    label="Credit sold"
+                    label="Credit out"
                     value={money(d.outlet?.money.creditOutstanding || 0)}
+                    hint={`${shopBuyers.data?.totals.debtorCount || 0} debtors`}
                     icon={CreditCard}
                     tone={(d.outlet?.money.creditOutstanding || 0) > 0.001 ? 'warn' : 'neutral'}
                   />
                 </div>
-                <div className="grid gap-2.5 lg:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ShopCustomersBoard
+                    buyers={shopBuyers.data?.rows || []}
+                    viewHref={(b) =>
+                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+                    }
+                    limit={12}
+                  />
+                  <ShopDebtorsPanel
+                    debtors={shopBuyers.data?.debtors || []}
+                    viewHref={(b) =>
+                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+                    }
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
                 <BookPanel title="Stock on hand">
                   {(d.outlet?.stock || []).length === 0 ? (
-                    <p className="text-xs text-zinc-500">No stock at this shop yet.</p>
+                    <p className="py-3 text-xs leading-relaxed text-zinc-500">No stock at this shop yet.</p>
                   ) : (
                     d.outlet!.stock.map((row) => (
                       <DataRow
@@ -497,12 +540,27 @@ export function DistributorDetailPage() {
                 </BookPanel>
                 <BookPanel title="Shop sales">
                   {(d.outlet?.sales || []).length === 0 ? (
-                    <p className="text-xs text-zinc-500">No sales recorded yet.</p>
+                    <p className="py-3 text-xs leading-relaxed text-zinc-500">No sales recorded yet.</p>
                   ) : (
                     d.outlet!.sales.map((sale) => (
                       <DataRow
                         key={sale.id}
-                        title={sale.buyerName || 'Walk-in'}
+                        title={
+                          sale.outletBuyerId ? (
+                            <Link
+                              to={shopBuyerPath(
+                                sale.outletBuyerId,
+                                isOutletScoped(user) ? null : d.id,
+                                d.code,
+                              )}
+                              className="hover:text-teal-800"
+                            >
+                              {sale.buyerName || 'Customer'}
+                            </Link>
+                          ) : (
+                            sale.buyerName || 'Walk-in'
+                          )
+                        }
                         meta={`${sale.saleNumber} · ${sale.saleType.toLowerCase()}`}
                         value={money(sale.totalAmount)}
                         hint={sale.balanceDue > 0.001 ? `Owes ${money(sale.balanceDue)}` : undefined}
@@ -510,6 +568,7 @@ export function DistributorDetailPage() {
                     ))
                   )}
                 </BookPanel>
+                </div>
                 </div>
               </>
             ) : (

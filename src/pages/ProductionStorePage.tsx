@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { SORT_COLORS } from '@/lib/sortColors'
+import { materialKindLabel } from '@/lib/materialLabels'
 
 type BatchColorItem = {
   id: number
@@ -287,7 +288,10 @@ export function ProductionStorePage() {
               batchId: b.id,
               batchNumber: b.batchNumber,
               batchType: b.batchType,
-              materialName: b.material?.name || b.batchType || 'Raw Material',
+              materialName: materialKindLabel({
+                batchType: b.batchType,
+                materialName: b.material?.name,
+              }),
               color: c.color,
               colorItemId: c.id,
               qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
@@ -310,7 +314,10 @@ export function ProductionStorePage() {
         batchId: b.id,
         batchNumber: b.batchNumber,
         batchType: b.batchType,
-        materialName: b.material?.name || b.batchType || 'Raw Material',
+        materialName: materialKindLabel({
+          batchType: b.batchType,
+          materialName: b.material?.name,
+        }),
         color: b.sortColor || 'Natural',
         qtyRemaining: Number(b.qtyRemaining || 0),
         uom: b.uom || 'kg',
@@ -333,7 +340,7 @@ export function ProductionStorePage() {
         batchId: b.id,
         batchNumber: b.batchNumber,
         batchType: b.batchType,
-        materialName: b.material?.name || kindLabel,
+        materialName: kindLabel,
         color: b.sortColor || name,
         qtyRemaining: Number(b.qtyRemaining || 0),
         uom: b.uom || 'kg',

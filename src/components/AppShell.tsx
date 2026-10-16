@@ -82,6 +82,14 @@ export function canAccessNavItem(
   if (user.menuAccess && Array.isArray(user.menuAccess) && user.menuAccess.length > 0) {
     if (item.menuKey) {
       if (userHasMenuKey(user.menuAccess, item.menuKey)) return true
+      // Shop staff are scoped to one stall — always allow their shop book / customers.
+      if (
+        item.menuKey === 'distributors' &&
+        isOutletScoped(user) &&
+        (hasPermission(user, 'sales.view') || hasPermission(user, 'outlet.sell'))
+      ) {
+        return true
+      }
       if (
         item.menuKey === 'processing_money' &&
         (hasPermission(user, 'float.give') || hasPermission(user, 'float.view') || hasPermission(user, 'float.spend'))
@@ -117,11 +125,15 @@ function resolveNavItem(
   item: NavItem,
   user: ReturnType<typeof useAuthStore.getState>['user'],
 ): NavItem {
+  // Factory Distributors link → this user's shop book when outlet-scoped.
+  // Keep an explicit label (e.g. "Customers & book") if the nav item already set one.
   if (item.menuKey !== 'distributors' || !isOutletScoped(user)) return item
+  const defaultLabel = outletNavLabel(user)
   return {
     ...item,
     to: outletHomePath(user),
-    label: outletNavLabel(user),
+    label:
+      item.label && item.label !== 'Distributors' ? item.label : defaultLabel,
   }
 }
 
@@ -360,9 +372,9 @@ export function AppShell() {
               { to: '/shop/sales/new', label: 'Record sale', icon: Truck, permission: 'outlet.sell' },
               {
                 to: outletHomePath(user),
-                label: outletNavLabel(user),
+                label: 'Customers & book',
                 icon: Store,
-                menuKey: 'distributors',
+                // Shop book always available to assigned sellers (menuAccess may omit distributors).
                 permission: 'sales.view',
               },
             ]}

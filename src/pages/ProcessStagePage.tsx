@@ -8,6 +8,7 @@ import { Card, Field, ErrorBanner, NairaAmountInput } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 
 import { SORT_COLORS } from '@/lib/sortColors'
+import { materialKindLabel } from '@/lib/materialLabels'
 import { formatApiErrors, type ErrorItem } from '@/lib/errors'
 import { ColorCombobox } from '@/components/ui/color-combobox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
@@ -191,6 +192,9 @@ export type InputBatch = {
   createdAt?: string
   material?: { name: string }
   location?: { name: string }
+  inboundForm?: string | null
+  materialKind?: string | null
+  scrapReceipt?: { inboundForm?: string | null } | null
   effectiveCostPerKg?: number | null
   pricePerKg?: number | null
   colorItems?: Array<{
@@ -456,10 +460,17 @@ export function ProcessStageForm({
   const batchOptions = useMemo(() => {
     return (inputs.data || []).map((b) => {
       const dateStr = formatBusinessDate(b.businessDate) || formatCreatedAt(b.createdAt)
+      const kind =
+        b.materialKind ||
+        materialKindLabel({
+          inboundForm: b.inboundForm || b.scrapReceipt?.inboundForm,
+          batchType: b.batchType,
+          materialName: b.material?.name,
+        })
       return {
         value: b.batchNumber,
         label: `${dateStr ? `${dateStr} · ` : ''}${b.batchNumber} - ${colorName(b.sortColor)} (${qtyLabel(b.qtyRemaining, b.uom)})`,
-        sublabel: b.material?.name || b.batchType,
+        sublabel: kind,
       }
     })
   }, [inputs.data])
@@ -1058,7 +1069,14 @@ export function ProcessStageForm({
       }
       description={
         selected
-          ? `${selected.material?.name || selected.batchType} · ${qtyLabel(selected.qtyRemaining, selected.uom)} in queue`
+          ? `${
+              selected.materialKind ||
+              materialKindLabel({
+                inboundForm: selected.inboundForm || selected.scrapReceipt?.inboundForm,
+                batchType: selected.batchType,
+                materialName: selected.material?.name,
+              })
+            } · ${qtyLabel(selected.qtyRemaining, selected.uom)} in queue`
           : `Select an input batch waiting for ${meta.title.toLowerCase()} to fill the run details.`
       }
       back={true}

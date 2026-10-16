@@ -80,6 +80,7 @@ export type DistributorRow = {
     remainingQty: number
     generated: number
     creditOutstanding: number
+    saleCount?: number
   }
   credit: DistributorCredit
 }
@@ -324,6 +325,20 @@ export function DistributorsPage() {
               : '—'}
           </span>
         ),
+      },
+      {
+        id: 'shopSales',
+        header: 'Shop sales',
+        cell: ({ row }) => {
+          const isShop = String(row.original.distributorKind || '').toUpperCase() === 'SHOP'
+          if (!isShop) return <span className="text-xs text-zinc-400">—</span>
+          const count = row.original.outletStock?.saleCount ?? row.original.credit.saleCount ?? 0
+          return (
+            <span className="text-xs tabular-nums text-zinc-700">
+              {count} · {money(row.original.outletStock?.generated || 0)}
+            </span>
+          )
+        },
       },
       {
         id: 'creditLimit',

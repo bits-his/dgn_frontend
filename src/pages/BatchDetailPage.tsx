@@ -6,6 +6,7 @@ import { Card } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { SORT_COLORS } from '@/lib/sortColors'
+import { boughtAsLabel, materialKindLabel } from '@/lib/materialLabels'
 import { formatBusinessDate, formatDateTime } from '@/lib/dates'
 import { ChevronDown, ChevronUp, Pencil, Wrench } from 'lucide-react'
 import { PhotoGallery } from '@/components/MaintenanceLogExtras'
@@ -496,12 +497,7 @@ export function BatchDetailPage() {
           ? [
               {
                 label: 'Bought as',
-                text:
-                  receipt.inboundForm === 'RECYCLED'
-                    ? 'Recycled (material store)'
-                    : receipt.inboundForm === 'CRUSHED'
-                      ? 'Already crushed'
-                      : 'Raw scrap',
+                text: boughtAsLabel(receipt.inboundForm),
               },
             ]
           : []),
@@ -858,7 +854,19 @@ export function BatchDetailPage() {
                 label="Date"
                 value={formatBusinessDate(batch.businessDate) || formatDateTime(batch.createdAt) || '—'}
               />
-              <Fact compact label="Material" value={batch.material?.name || '—'} />
+              <Fact
+                compact
+                label="Material"
+                value={
+                  receipt?.inboundForm
+                    ? boughtAsLabel(receipt.inboundForm)
+                    : materialKindLabel({
+                        inboundForm: receipt?.inboundForm,
+                        batchType: batch.batchType,
+                        materialName: batch.material?.name,
+                      })
+                }
+              />
               <Fact
                 compact
                 label="Quantity purchased"

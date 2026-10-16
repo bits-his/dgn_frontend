@@ -20,3 +20,26 @@ export function outletNavLabel(user: AuthUser | null | undefined) {
   if (!isOutletScoped(user)) return 'Distributors'
   return String(user?.outlet?.kind || '').toUpperCase() === 'SHOP' ? 'My shop' : 'My outlet'
 }
+
+/** Query params for unscoped admin viewing a specific shop. */
+export function outletQuery(outletId?: number | null) {
+  if (!outletId) return {}
+  return { outletId }
+}
+
+export function shopBuyerPath(
+  buyerId: number,
+  outletId?: number | null,
+  shopCode?: string | null,
+) {
+  const params = new URLSearchParams()
+  if (outletId) params.set('outletId', String(outletId))
+  if (shopCode) params.set('shopCode', shopCode)
+  const q = params.toString()
+  return q ? `/shop/customers/${buyerId}?${q}` : `/shop/customers/${buyerId}`
+}
+
+export function shopRecordSalePath(outletId?: number | null) {
+  if (!outletId) return '/shop/sales/new'
+  return `/shop/sales/new?outletId=${outletId}`
+}

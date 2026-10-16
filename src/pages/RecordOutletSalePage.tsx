@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Search } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -7,8 +7,9 @@ import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, outletHomePath } from '@/lib/outlet'
+import { isOutletScoped, outletHomePath, outletQuery } from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
+import type { ShopBuyerRow } from '@/components/outlet/ShopCustomersBoard'
 
 type StockRow = {
   productId: number
@@ -24,6 +25,12 @@ type LineInput = {
   unitPrice: string
 }
 
+type OverviewPayload = {
+  outlet?: { id: number; code: string; name: string }
+  stock: StockRow[]
+  buyers?: ShopBuyerRow[]
+}
+
 function fmt(n: number) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
 }
@@ -31,23 +38,33 @@ function fmt(n: number) {
 export function RecordOutletSalePage() {
   const user = useAuthStore((s) => s.user)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const qc = useQueryClient()
+  const outletIdParam = Number(searchParams.get('outletId') || 0) || null
+  const scoped = isOutletScoped(user)
+  const effectiveOutletId = scoped ? Number(user?.outletCustomerId) : outletIdParam
+
   const [itemSearch, setItemSearch] = useState('')
   const [lineInputs, setLineInputs] = useState<Record<string, LineInput>>({})
   const [saleType, setSaleType] = useState<'CASH' | 'CREDIT' | 'TRANSFER'>('CASH')
   const [buyerName, setBuyerName] = useState('')
+  const [selectedBuyerId, setSelectedBuyerId] = useState<number | null>(null)
+  const [buyerPickerOpen, setBuyerPickerOpen] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ saleNumber: string; totalAmount: number } | null>(null)
 
   const overview = useQuery({
-    queryKey: ['outlet-overview', user?.outletCustomerId],
-    enabled: isOutletScoped(user),
+    queryKey: ['outlet-overview', effectiveOutletId],
+    enabled: Boolean(effectiveOutletId),
     queryFn: async () => {
-      const { data } = await api.get('/outlet-sales/overview')
-      return data.data as { stock: StockRow[] }
+      const { data } = await api.get('/outlet-sales/overview', {
+        params: outletQuery(scoped ? null : effectiveOutletId),
+      })
+      return data.data as OverviewPayload
     },
   })
 
+  const buyers = overview.data?.buyers || []
   const stock = useMemo(
     () => (overview.data?.stock || []).filter((row) => row.remaining > 0.0001),
     [overview.data],
@@ -58,6 +75,12 @@ export function RecordOutletSalePage() {
     if (!q) return stock
     return stock.filter((row) => row.productName.toLowerCase().includes(q))
   }, [stock, itemSearch])
+
+  const buyerSuggestions = useMemo(() => {
+    const q = buyerName.trim().toLowerCase()
+    if (!q) return buyers.slice(0, 8)
+    return buyers.filter((b) => b.name.toLowerCase().includes(q)).slice(0, 8)
+  }, [buyers, buyerName])
 
   useEffect(() => {
     if (!stock.length) return
@@ -98,7 +121,12 @@ export function RecordOutletSalePage() {
   const qtyTotal = activeLines.reduce((sum, row) => sum + row.qty, 0)
   const hasExceeded = activeLines.some((row) => row.exceeded)
   const missingPrice = activeLines.some((row) => !(row.unitPrice > 0))
-  const canSubmit = activeLines.length > 0 && !hasExceeded && !missingPrice && !overview.isLoading
+  const canSubmit =
+    Boolean(effectiveOutletId) &&
+    activeLines.length > 0 &&
+    !hasExceeded &&
+    !missingPrice &&
+    !overview.isLoading
 
   const setLine = (productId: number, patch: Partial<LineInput>) => {
     const key = String(productId)
@@ -111,13 +139,27 @@ export function RecordOutletSalePage() {
     }))
   }
 
+  const pickBuyer = (buyer: ShopBuyerRow) => {
+    setSelectedBuyerId(buyer.id)
+    setBuyerName(buyer.name)
+    setBuyerPickerOpen(false)
+  }
+
+  const clearBuyer = () => {
+    setSelectedBuyerId(null)
+    setBuyerName('')
+  }
+
   const save = useMutation({
     mutationFn: async () => {
+      if (!effectiveOutletId) throw new Error('Pick a shop first')
       if (!activeLines.length) throw new Error('Enter quantity on at least one product')
       if (hasExceeded) throw new Error('One of the quantities is more than stock left')
       if (missingPrice) throw new Error('Enter a unit price on every item in the sale')
       const { data } = await api.post('/outlet-sales', {
+        outletCustomerId: effectiveOutletId,
         saleType,
+        outletBuyerId: selectedBuyerId,
         buyerName: buyerName.trim() || null,
         amountPaid: saleType === 'CREDIT' ? 0 : subtotal,
         lines: activeLines.map((row) => ({
@@ -138,8 +180,9 @@ export function RecordOutletSalePage() {
         totalAmount: body.data?.totalAmount || subtotal,
       })
       setLineInputs({})
-      setBuyerName('')
+      clearBuyer()
       await qc.invalidateQueries({ queryKey: ['outlet-overview'] })
+      await qc.invalidateQueries({ queryKey: ['outlet-buyers'] })
       await qc.invalidateQueries({ queryKey: ['distributor'] })
       await qc.invalidateQueries({ queryKey: ['distributors'] })
     },
@@ -149,14 +192,31 @@ export function RecordOutletSalePage() {
     },
   })
 
+  const shopName = overview.data?.outlet?.name || user?.outlet?.name || 'Shop'
+  const backTo = scoped
+    ? '/'
+    : overview.data?.outlet?.code
+      ? `/distributors/${overview.data.outlet.code}`
+      : '/distributors'
+
+  if (!effectiveOutletId) {
+    return (
+      <PageLayout title="Record sale" description="Choose a market shop first" back backTo="/distributors">
+        <div className="rounded-xl border border-dashed border-zinc-200 bg-white p-8 text-center text-sm text-zinc-600">
+          Open a market shop, then use <strong>Record sale</strong> from the shop book.
+        </div>
+      </PageLayout>
+    )
+  }
+
   if (result) {
     return (
       <PageLayout
         title="Sale recorded"
         description={`${result.saleNumber} saved`}
         back
-        backTo="/"
-        backLabel="Dashboard"
+        backTo={backTo}
+        backLabel={scoped ? 'Dashboard' : 'Shop book'}
       >
         <div className="mx-auto max-w-xl rounded-2xl border border-zinc-200/80 bg-white p-6 text-center shadow-xs">
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
@@ -181,10 +241,10 @@ export function RecordOutletSalePage() {
               Record another
             </Button>
             <Button variant="outline" size="sm" className="h-8 font-semibold" asChild>
-              <Link to={outletHomePath(user)}>Shop book</Link>
+              <Link to={scoped ? outletHomePath(user) : backTo}>Shop book</Link>
             </Button>
             <Button variant="ghost" size="sm" className="h-8 font-semibold" asChild>
-              <Link to="/">Dashboard</Link>
+              <Link to={scoped ? '/' : backTo}>{scoped ? 'Dashboard' : 'Back'}</Link>
             </Button>
           </div>
         </div>
@@ -195,10 +255,10 @@ export function RecordOutletSalePage() {
   return (
     <PageLayout
       title="Record sale"
-      description={user?.outlet?.name ? `Selling from ${user.outlet.name}` : 'Shop sale'}
+      description={`Selling from ${shopName}`}
       back
-      backTo="/"
-      backLabel="Dashboard"
+      backTo={backTo}
+      backLabel={scoped ? 'Dashboard' : 'Shop book'}
     >
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
         <div className="space-y-4 lg:col-span-7 xl:col-span-8">
@@ -365,14 +425,60 @@ export function RecordOutletSalePage() {
               Customer & checkout
             </h2>
 
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-zinc-700">Buyer name</label>
+            <div className="relative">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <label className="block text-xs font-medium text-zinc-700">Customer</label>
+                {(selectedBuyerId || buyerName) && (
+                  <button
+                    type="button"
+                    onClick={clearBuyer}
+                    className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-800"
+                  >
+                    Walk-in
+                  </button>
+                )}
+              </div>
               <Input
                 value={buyerName}
-                onChange={(e) => setBuyerName(e.target.value)}
-                placeholder="Walk-in customer"
+                onChange={(e) => {
+                  setBuyerName(e.target.value)
+                  setSelectedBuyerId(null)
+                  setBuyerPickerOpen(true)
+                }}
+                onFocus={() => setBuyerPickerOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setBuyerPickerOpen(false), 150)
+                }}
+                placeholder="Walk-in or pick a returning customer"
                 className="h-9 text-xs"
               />
+              {selectedBuyerId ? (
+                <p className="mt-1 text-[10px] font-medium text-teal-700">Returning customer selected</p>
+              ) : buyerName.trim() ? (
+                <p className="mt-1 text-[10px] text-zinc-500">Will save as a new / matching customer</p>
+              ) : (
+                <p className="mt-1 text-[10px] text-zinc-500">Leave blank for walk-in</p>
+              )}
+              {buyerPickerOpen && buyerSuggestions.length > 0 && (
+                <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-md">
+                  {buyerSuggestions.map((b) => (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-zinc-50"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => pickBuyer(b)}
+                      >
+                        <span className="truncate font-medium text-zinc-900">{b.name}</span>
+                        <span className="shrink-0 tabular-nums text-[10px] text-zinc-500">
+                          {b.saleCount}×
+                          {b.balanceDue > 0.001 ? ` · owes ${money(b.balanceDue)}` : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div>
@@ -403,7 +509,9 @@ export function RecordOutletSalePage() {
                 })}
               </div>
               {saleType === 'CREDIT' && (
-                <p className="mt-1.5 text-[10px] text-zinc-500">They will pay later. This sits on credit sold.</p>
+                <p className="mt-1.5 text-[10px] text-zinc-500">
+                  They will pay later. Name the customer so debtors stay clear.
+                </p>
               )}
             </div>
 
@@ -443,7 +551,7 @@ export function RecordOutletSalePage() {
                   variant="outline"
                   size="sm"
                   className="h-9 px-4 text-xs font-semibold"
-                  onClick={() => navigate('/')}
+                  onClick={() => navigate(backTo)}
                 >
                   Cancel
                 </Button>

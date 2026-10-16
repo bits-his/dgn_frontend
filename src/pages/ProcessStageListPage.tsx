@@ -15,6 +15,7 @@ import {
   formatCreatedAt,
   qtyLabel,
 } from '@/pages/ProcessStagePage'
+import { materialKindLabel } from '@/lib/materialLabels'
 
 export function ProcessStageListPage() {
   const navigate = useNavigate()
@@ -124,19 +125,32 @@ export function ProcessStageListPage() {
         ]
       : []),
     {
-      accessorFn: (row) => row.material?.name ?? '',
+      accessorFn: (row) =>
+        row.materialKind ||
+        materialKindLabel({
+          inboundForm: row.inboundForm || row.scrapReceipt?.inboundForm,
+          batchType: row.batchType,
+          materialName: row.material?.name,
+        }),
       id: 'material',
       header: 'Material',
-      cell: ({ row }) => (
-        <div>
-          <span className="text-sm font-medium text-foreground block">
-            {row.original.material?.name || '—'}
-          </span>
-          <span className="text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 block">
-            {qtyLabel(row.original.qtyRemaining, row.original.uom)}
-          </span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const kind =
+          row.original.materialKind ||
+          materialKindLabel({
+            inboundForm: row.original.inboundForm || row.original.scrapReceipt?.inboundForm,
+            batchType: row.original.batchType,
+            materialName: row.original.material?.name,
+          })
+        return (
+          <div>
+            <span className="text-sm font-medium text-foreground block">{kind}</span>
+            <span className="text-xs font-semibold tabular-nums text-emerald-700 dark:text-emerald-400 block">
+              {qtyLabel(row.original.qtyRemaining, row.original.uom)}
+            </span>
+          </div>
+        )
+      },
     },
     {
       id: 'actions',

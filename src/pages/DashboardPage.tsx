@@ -108,7 +108,27 @@ type Dashboard = {
   }
   sales: { saleCount: number; revenue: number }
   spend: { approvedExpenses: number; wagesOutstanding: number }
-  money: { cashIn: number; cashOut: number; netCash: number; receivables: number }
+  money: {
+    cashIn: number
+    cashOut: number
+    netCash: number
+    receivables: number
+    payables?: number
+  }
+  customerBalances?: {
+    totalReceivable: number
+    totalPayable: number
+    count: number
+    rows: {
+      customerId: number
+      customerName: string
+      customerCode: string | null
+      customerType: string | null
+      receivable: number
+      payable: number
+      net: number
+    }[]
+  }
   costTruth: {
     overheadAllocated: boolean
     marginRestatement: {
@@ -128,7 +148,16 @@ type Dashboard = {
   inventory: {
     rawKg: number
     boughtKg?: number
+    boughtRawKg?: number
+    boughtCrushedKg?: number
+    boughtRecycledKg?: number
     availableKg?: number
+    availableRawScrapKg?: number
+    availableCrushedKg?: number
+    availableWashedKg?: number
+    availableStoreReadyKg?: number
+    availableRecycledKg?: number
+    availableOtherKg?: number
     wasteKg?: number
     secondGradeKg?: number
     damagedRecrushKg?: number
@@ -154,9 +183,18 @@ type Dashboard = {
   operators?: OperatorRow[]
   materialFlow: {
     receivedKg: number
+    boughtRawKg?: number
+    boughtCrushedKg?: number
+    boughtRecycledKg?: number
     wasteKg?: number
     secondGradeKg?: number
     availableKg?: number
+    availableRawScrapKg?: number
+    availableCrushedKg?: number
+    availableWashedKg?: number
+    availableStoreReadyKg?: number
+    availableRecycledKg?: number
+    availableOtherKg?: number
     sortedKg?: number | null
     crushedKg?: number | null
     washedKg?: number | null
@@ -472,7 +510,7 @@ export function DashboardPage() {
 
               {/* Operational KPI scorecards */}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {/* Card 1: Raw Material — scrap bought / second grade / waste */}
+                {/* Card 1: Raw Material — bought + available by buy type */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -481,48 +519,97 @@ export function DashboardPage() {
                   className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-emerald-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">
                       Raw Material
                     </span>
-                    <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
-                      <Recycle className="size-3" />
+                    <div className="flex size-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
+                      <Recycle className="size-3.5" />
                     </div>
                   </div>
-                  <div className="mt-2 space-y-1.5 text-[11px]">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Scrap bought</span>
-                      <span className="font-bold tabular-nums text-foreground">
-                        {fmt(d.materialFlow.receivedKg || 0)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Material available</span>
-                      <span className="font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                        {fmt(d.inventory.rawKg || 0)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Waste</span>
-                      <span className="font-semibold tabular-nums text-rose-600">
-                        {fmt(d.materialFlow.wasteKg || 0)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Second grade</span>
-                      <span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-                        {fmt(d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0)} kg
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Damaged recrushed</span>
-                      <span className="font-semibold tabular-nums text-sky-700 dark:text-sky-400">
-                        {fmt(
-                          d.materialFlow.damagedRecrushKg ||
-                            d.inventory.damagedRecrushKg ||
+                  <div className="mt-2 space-y-2 text-xs leading-snug">
+                    {(
+                      [
+                        {
+                          boughtLabel: 'Raw scrap bought',
+                          availLabel: 'Scrap available',
+                          bought:
+                            d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
+                          available:
+                            d.materialFlow.availableRawScrapKg ??
+                            d.inventory.availableRawScrapKg ??
                             0,
-                        )}{' '}
-                        kg
-                      </span>
+                        },
+                        {
+                          boughtLabel: 'Crushed bought',
+                          availLabel: 'Crushed available',
+                          bought:
+                            d.materialFlow.boughtCrushedKg ??
+                            d.inventory.boughtCrushedKg ??
+                            0,
+                          available:
+                            d.materialFlow.availableCrushedKg ??
+                            d.inventory.availableCrushedKg ??
+                            0,
+                        },
+                        {
+                          boughtLabel: 'Recycled bought',
+                          availLabel: 'Recycled available',
+                          bought:
+                            d.materialFlow.boughtRecycledKg ??
+                            d.inventory.boughtRecycledKg ??
+                            0,
+                          available:
+                            d.materialFlow.availableRecycledKg ??
+                            d.inventory.availableRecycledKg ??
+                            0,
+                        },
+                      ] as const
+                    ).map((row) => (
+                      <div key={row.boughtLabel} className="space-y-0.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground truncate">{row.boughtLabel}</span>
+                          <span className="tabular-nums text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 shrink-0">
+                            {fmt(row.bought)} kg
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-muted-foreground truncate">{row.availLabel}</span>
+                          <span className="tabular-nums text-[13px] font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
+                            {fmt(row.available)} kg
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="space-y-0.5 border-t border-zinc-100 dark:border-zinc-800 pt-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground truncate">Washed / store</span>
+                        <span className="tabular-nums text-[13px] font-semibold text-foreground shrink-0">
+                          {fmt(
+                            (d.materialFlow.availableWashedKg ??
+                              d.inventory.availableWashedKg ??
+                              0) +
+                              (d.materialFlow.availableStoreReadyKg ??
+                                d.inventory.availableStoreReadyKg ??
+                                0),
+                          )}{' '}
+                          kg
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Waste</span>
+                        <span className="tabular-nums text-[13px] font-semibold text-rose-600 shrink-0">
+                          {fmt(d.materialFlow.wasteKg || 0)} kg
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">2nd grade</span>
+                        <span className="tabular-nums text-[13px] font-semibold text-amber-700 dark:text-amber-400 shrink-0">
+                          {fmt(
+                            d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0,
+                          )}{' '}
+                          kg
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -536,35 +623,35 @@ export function DashboardPage() {
                   className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-indigo-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
                       Production
                     </span>
-                    <div className="flex size-5 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
-                      <Factory className="size-3" />
+                    <div className="flex size-6 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
+                      <Factory className="size-3.5" />
                     </div>
                   </div>
-                  <p className="mt-1 text-sm font-bold tabular-nums text-foreground">
+                  <p className="mt-1.5 text-base font-bold tabular-nums text-foreground">
                     {fmtDozenPcs(d.production.unitsGood)}
-                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">good</span>
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">good</span>
                   </p>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-1.5">
                     {(d.productionByProduct || []).length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground">No production in this period</p>
+                      <p className="text-xs text-muted-foreground">No production in this period</p>
                     ) : (
                       (d.productionByProduct || []).slice(0, 4).map((row) => (
                         <div
                           key={row.productId ?? row.productName}
-                          className="flex items-center justify-between gap-2 text-[11px]"
+                          className="flex items-center justify-between gap-2 text-xs"
                         >
                           <span className="truncate text-muted-foreground">{row.productName}</span>
-                          <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                          <span className="shrink-0 text-[13px] font-semibold tabular-nums text-foreground">
                             {fmtDozenPcs(row.qtyGood)}
                           </span>
                         </div>
                       ))
                     )}
                     {(d.productionByProduct || []).length > 4 ? (
-                      <p className="text-[10px] text-indigo-600 font-medium">
+                      <p className="text-xs text-indigo-600 font-medium">
                         +{(d.productionByProduct || []).length - 4} more
                       </p>
                     ) : null}
@@ -580,34 +667,34 @@ export function DashboardPage() {
                   className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-teal-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors">
                       Finished Goods
                     </span>
-                    <div className="flex size-5 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
-                      <PackageCheck className="size-3" />
+                    <div className="flex size-6 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
+                      <PackageCheck className="size-3.5" />
                     </div>
                   </div>
-                  <div className="mt-1 flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-bold tabular-nums text-foreground">
+                  <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-base font-bold tabular-nums text-foreground">
                       {fmtDozenPcs(d.inventory.fgUnits)}
                     </span>
-                    <span className="text-sm font-bold tabular-nums text-foreground text-right">
+                    <span className="text-base font-bold tabular-nums text-foreground text-right">
                       {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-1.5">
                     {(d.finishedGoodsStock || []).length === 0 ? (
-                      <p className="text-[10px] text-muted-foreground">No finished goods in store</p>
+                      <p className="text-xs text-muted-foreground">No finished goods in store</p>
                     ) : (
                       (d.finishedGoodsStock || []).slice(0, 4).map((row) => (
                         <div
                           key={row.productId}
-                          className="flex items-center justify-between gap-2 text-[11px]"
+                          className="flex items-center justify-between gap-2 text-xs"
                         >
                           <span className="min-w-0 truncate text-muted-foreground">
                             {row.productName}
                           </span>
-                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right">
+                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
                             <span className="font-semibold text-foreground">
                               {fmtDozenPcs(row.qtyOnHand)}
                             </span>
@@ -619,7 +706,7 @@ export function DashboardPage() {
                       ))
                     )}
                     {(d.finishedGoodsStock || []).length > 4 ? (
-                      <p className="text-[10px] text-teal-600 font-medium">
+                      <p className="text-xs text-teal-600 font-medium">
                         +{(d.finishedGoodsStock || []).length - 4} more
                       </p>
                     ) : null}
@@ -635,32 +722,170 @@ export function DashboardPage() {
                   className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-amber-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors truncate">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-amber-700 dark:group-hover:text-amber-400 transition-colors truncate">
                       Sales
                     </span>
-                    <div className="flex size-5 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
-                      <Banknote className="size-3" />
+                    <div className="flex size-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 shrink-0">
+                      <Banknote className="size-3.5" />
                     </div>
                   </div>
-                  <p className="mt-1 text-sm sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                  <p className="mt-1.5 text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
                     ₦{fmt(d.sales.revenue, 0)}
                   </p>
-                  <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
+                  <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
                       <span>Orders</span>
-                      <span className="font-semibold tabular-nums text-foreground">
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
                         {d.sales.saleCount}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span>Receivables</span>
-                      <span className="font-semibold tabular-nums text-amber-600">
+                      <span className="text-[13px] font-semibold tabular-nums text-amber-600">
                         ₦{fmt(d.money.receivables)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Payables</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-sky-600">
+                        ₦{fmt(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Customers board — receivable vs advance payable */}
+            <div className="space-y-3 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200/60 pt-4 dark:border-zinc-800">
+                <div>
+                  <h2 className="text-base font-semibold tracking-tight text-foreground">
+                    Customers
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Receivable (they owe) · Payable (advance on account)
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
+                  <Link to="/distributors">All customers →</Link>
+                </Button>
+              </div>
+
+              {(() => {
+                const board = (d.customerBalances?.rows || []).slice(0, 8)
+                const topAbs = Math.max(
+                  1,
+                  ...board.map((c) => Math.max(Number(c.receivable || 0), Number(c.payable || 0))),
+                )
+                if (!board.length) {
+                  return (
+                    <Card className="p-4 text-xs text-muted-foreground">
+                      No open receivables or customer advances.
+                    </Card>
+                  )
+                }
+                return (
+                  <Card className="!p-3 sm:!p-4">
+                    <div className="mb-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-amber-200/70 bg-amber-50/50 px-2.5 py-2 dark:border-amber-900/40 dark:bg-amber-950/30">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700/80 dark:text-amber-400/80">
+                          Receivables
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                          {money(d.customerBalances?.totalReceivable ?? d.money.receivables)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-sky-200/70 bg-sky-50/50 px-2.5 py-2 dark:border-sky-900/40 dark:bg-sky-950/30">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-sky-700/80 dark:text-sky-400/80">
+                          Payables
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums text-sky-700 dark:text-sky-400">
+                          {money(d.customerBalances?.totalPayable ?? d.money.payables ?? 0)}
+                        </p>
+                      </div>
+                    </div>
+                    <ol className="space-y-2.5">
+                      {board.map((c, idx) => {
+                        const recv = Number(c.receivable || 0)
+                        const pay = Number(c.payable || 0)
+                        const recvW = Math.max(4, Math.round((recv / topAbs) * 100))
+                        const payW = Math.max(pay > 0 ? 4 : 0, Math.round((pay / topAbs) * 100))
+                        const href = c.customerCode
+                          ? `/distributors/${c.customerCode}`
+                          : '/distributors'
+                        return (
+                          <li key={c.customerId}>
+                            <Link
+                              to={href}
+                              className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-emerald-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-emerald-900"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className={cn(
+                                    'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
+                                    idx === 0
+                                      ? 'bg-amber-400 text-amber-950'
+                                      : idx === 1
+                                        ? 'bg-zinc-300 text-zinc-800'
+                                        : idx === 2
+                                          ? 'bg-orange-200 text-orange-900'
+                                          : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
+                                  )}
+                                >
+                                  {idx + 1}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <p className="truncate text-sm font-semibold text-foreground group-hover:text-emerald-700">
+                                      {c.customerName}
+                                    </p>
+                                    <p
+                                      className={cn(
+                                        'shrink-0 text-xs font-bold tabular-nums',
+                                        c.net >= 0 ? 'text-amber-700' : 'text-sky-700',
+                                      )}
+                                    >
+                                      {c.net >= 0 ? '+' : '−'}
+                                      {money(Math.abs(c.net))}
+                                    </p>
+                                  </div>
+                                  <div className="mt-1.5 space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Recv</span>
+                                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+                                        <div
+                                          className="h-full rounded-full bg-amber-500"
+                                          style={{ width: `${recvW}%` }}
+                                        />
+                                      </div>
+                                      <span className="w-[4.5rem] shrink-0 text-right text-[10px] font-semibold tabular-nums text-amber-700">
+                                        {money(recv)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Pay</span>
+                                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
+                                        <div
+                                          className="h-full rounded-full bg-sky-500"
+                                          style={{ width: `${payW}%` }}
+                                        />
+                                      </div>
+                                      <span className="w-[4.5rem] shrink-0 text-right text-[10px] font-semibold tabular-nums text-sky-700">
+                                        {money(pay)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </Link>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  </Card>
+                )
+              })()}
             </div>
 
             {/* Operator Leaderboard under KPI cards */}
@@ -1000,9 +1225,9 @@ export function DashboardPage() {
 
         {/* Full Details Modal for the 4 Top KPI Cards */}
         <Dialog open={!!activeKpiModal} onOpenChange={(open) => !open && setActiveKpiModal(null)}>
-          <DialogContent className="max-h-[92vh] w-[min(90vw,70rem)] max-w-[min(90vw,70rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))] [&_table_th]:px-2.5 [&_table_th]:py-1.5 [&_table_td]:px-2.5 [&_table_td]:py-1.5">
+          <DialogContent className="max-h-[94vh] w-[min(98vw,96rem)] !max-w-[96rem] overflow-y-auto p-4 sm:p-6 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:!max-w-none max-sm:rounded-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))] [&_table_th]:px-2.5 [&_table_th]:py-1.5 [&_table_td]:px-2.5 [&_table_td]:py-1.5">
             {activeKpiModal === 'raw_material' && d && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
                   <div className="flex items-center gap-2.5">
                     <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
@@ -1013,150 +1238,200 @@ export function DashboardPage() {
                         Raw Material
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Scrap bought, material available, and process flow for {d.range.label}
+                        {d.range.label}
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Scrap bought</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.materialFlow.receivedKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-emerald-200/80 bg-emerald-50/60 p-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Material available</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
-                      {fmt(d.inventory.rawKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Waste</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-rose-600">
-                      {fmt(d.materialFlow.wasteKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-amber-200/80 bg-amber-50/60 p-2.5 dark:border-amber-900 dark:bg-amber-950/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Second grade</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-800 dark:text-amber-300">
-                      {fmt(d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-sky-200/80 bg-sky-50/60 p-2.5 dark:border-sky-900 dark:bg-sky-950/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Damaged recrushed</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-sky-800 dark:text-sky-300">
-                      {fmt(
-                        d.materialFlow.damagedRecrushKg ||
+                <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+                  {(
+                    [
+                      {
+                        boughtLabel: 'Raw scrap bought',
+                        availLabel: 'Scrap available',
+                        bought:
+                          d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
+                        available:
+                          d.materialFlow.availableRawScrapKg ??
+                          d.inventory.availableRawScrapKg ??
+                          0,
+                      },
+                      {
+                        boughtLabel: 'Crushed bought',
+                        availLabel: 'Crushed available',
+                        bought:
+                          d.materialFlow.boughtCrushedKg ??
+                          d.inventory.boughtCrushedKg ??
+                          0,
+                        available:
+                          d.materialFlow.availableCrushedKg ??
+                          d.inventory.availableCrushedKg ??
+                          0,
+                      },
+                      {
+                        boughtLabel: 'Recycled bought',
+                        availLabel: 'Recycled available',
+                        bought:
+                          d.materialFlow.boughtRecycledKg ??
+                          d.inventory.boughtRecycledKg ??
+                          0,
+                        available:
+                          d.materialFlow.availableRecycledKg ??
+                          d.inventory.availableRecycledKg ??
+                          0,
+                      },
+                    ] as const
+                  ).map((row) => (
+                    <div key={row.boughtLabel} className="space-y-0.5 py-1 border-b border-zinc-100 dark:border-zinc-800 sm:border-0">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">{row.boughtLabel}</span>
+                        <span className="tabular-nums font-semibold text-foreground">
+                          {fmt(row.bought)} kg
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-muted-foreground">{row.availLabel}</span>
+                        <span className="tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
+                          {fmt(row.available)} kg
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {(
+                    [
+                      {
+                        label: 'Washed available',
+                        value:
+                          d.materialFlow.availableWashedKg ??
+                          d.inventory.availableWashedKg ??
+                          0,
+                      },
+                      {
+                        label: 'Store-ready available',
+                        value:
+                          d.materialFlow.availableStoreReadyKg ??
+                          d.inventory.availableStoreReadyKg ??
+                          0,
+                      },
+                      {
+                        label: 'Waste',
+                        value: d.materialFlow.wasteKg || 0,
+                        tone: 'waste' as const,
+                      },
+                      {
+                        label: 'Second grade',
+                        value:
+                          d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0,
+                        tone: 'second' as const,
+                      },
+                      {
+                        label: 'Damaged re-crushed',
+                        value:
+                          d.materialFlow.damagedRecrushKg ||
                           d.inventory.damagedRecrushKg ||
                           0,
-                      )}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sorted</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.materialFlow.sortedKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Crushed</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.materialFlow.crushedKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Washed</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.materialFlow.washedKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  {/* Dried KPI retired with drying stage
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dried</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmt(d.materialFlow.driedKg || 0)}{' '}
-                      <span className="text-[11px] font-normal text-muted-foreground">kg</span>
-                    </p>
-                  </div>
-                  */}
+                        tone: 'damage' as const,
+                      },
+                    ] as const
+                  ).map((row) => (
+                    <div
+                      key={row.label}
+                      className="flex items-center justify-between gap-3 py-1 border-b border-zinc-100 dark:border-zinc-800 sm:border-0"
+                    >
+                      <span className="text-muted-foreground">{row.label}</span>
+                      <span
+                        className={`tabular-nums font-bold ${
+                          'tone' in row && row.tone === 'waste'
+                            ? 'text-rose-600'
+                            : 'tone' in row && row.tone === 'second'
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : 'tone' in row && row.tone === 'damage'
+                                ? 'text-sky-700 dark:text-sky-400'
+                                : 'text-emerald-700 dark:text-emerald-400'
+                        }`}
+                      >
+                        {fmt(row.value)} kg
+                      </span>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 pt-1 border-t border-zinc-100 dark:border-zinc-800">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Scrap bought · {d.range.label}
+                    Buys · {d.range.label}
                   </h4>
                   {(d.scrapPurchases || []).length === 0 ? (
-                    <p className="rounded-lg border border-zinc-200 px-3 py-4 text-xs text-muted-foreground dark:border-zinc-800">
+                    <p className="py-2 text-xs text-muted-foreground">
                       No scrap buys in this period.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full min-w-[36rem] text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
                           <tr>
-                            <th className="w-[1%] whitespace-nowrap py-1.5 px-2">Buy</th>
-                            <th className="py-1.5 px-2 text-right">Bought</th>
-                            <th className="py-1.5 px-2 text-right">Available</th>
-                            <th className="py-1.5 px-2 text-right">Waste</th>
-                            <th className="py-1.5 px-2 text-right">2nd grade</th>
-                            <th className="py-1.5 px-2 text-right">Crushed</th>
-                            <th className="py-1.5 px-2 text-right">Washed</th>
-                            {/* <th className="py-1.5 px-2 text-right">Dried</th> */}
+                            <th className="whitespace-nowrap py-2 pr-3">Buy</th>
+                            <th className="py-2 px-3 whitespace-nowrap">Bought as</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Bought</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Available</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Waste</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">2nd grade</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Crushed</th>
+                            <th className="py-2 pl-3 text-right whitespace-nowrap">Washed</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {(d.scrapPurchases || []).map((row) => (
-                            <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="w-[1%] whitespace-nowrap py-1.5 px-2 align-middle">
-                                <div className="flex flex-col gap-0.5">
-                                  <Link
-                                    to={`/receiving/${row.id}`}
-                                    onClick={() => setActiveKpiModal(null)}
-                                    className="font-mono text-[11px] font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
-                                    title={[row.supplierName, row.inboundForm].filter(Boolean).join(' · ')}
-                                  >
-                                    {row.batchNumber || `REC-${row.id}`}
-                                  </Link>
-                                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                                    {row.businessDate
-                                      ? formatBusinessDate(row.businessDate)
-                                      : formatDate(row.receivedAt)}
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
-                                {fmt(row.kg)}
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 align-middle">
-                                {fmt(row.availableKg ?? 0)}
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums text-rose-600 align-middle">
-                                {fmt(row.wasteKg ?? 0)}
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums text-amber-700 dark:text-amber-400 align-middle">
-                                {fmt(row.secondGradeKg ?? 0)}
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
-                                {fmt(row.crushedKg ?? 0)}
-                              </td>
-                              <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
-                                {fmt(row.washedKg ?? 0)}
-                              </td>
-                              {/* <td className="py-1.5 px-2 text-right font-mono tabular-nums align-middle">
-                                {fmt(row.driedKg ?? 0)}
-                              </td> */}
-                            </tr>
-                          ))}
+                          {(d.scrapPurchases || []).map((row) => {
+                            const form = String(row.inboundForm || 'RAW').toUpperCase()
+                            const boughtAs =
+                              form === 'RECYCLED'
+                                ? 'Recycled'
+                                : form === 'CRUSHED'
+                                  ? 'Crushed scrap'
+                                  : 'Raw scrap'
+                            return (
+                              <tr key={row.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
+                                <td className="whitespace-nowrap py-2 pr-3 align-middle">
+                                  <div className="flex flex-col gap-0.5">
+                                    <Link
+                                      to={`/receiving/${row.id}`}
+                                      onClick={() => setActiveKpiModal(null)}
+                                      className="font-mono text-[11px] font-semibold text-foreground hover:underline hover:text-[var(--accent-strong)]"
+                                      title={[row.supplierName, boughtAs].filter(Boolean).join(' · ')}
+                                    >
+                                      {row.batchNumber || `REC-${row.id}`}
+                                    </Link>
+                                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                                      {row.businessDate
+                                        ? formatBusinessDate(row.businessDate)
+                                        : formatDate(row.receivedAt)}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3 align-middle font-medium text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
+                                  {boughtAs}
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums align-middle whitespace-nowrap">
+                                  {fmt(row.kg)} kg
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 align-middle whitespace-nowrap">
+                                  {fmt(row.availableKg ?? 0)} kg
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums text-rose-600 align-middle whitespace-nowrap">
+                                  {fmt(row.wasteKg ?? 0)} kg
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums text-amber-700 dark:text-amber-400 align-middle whitespace-nowrap">
+                                  {fmt(row.secondGradeKg ?? 0)} kg
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums align-middle whitespace-nowrap">
+                                  {fmt(row.crushedKg ?? 0)} kg
+                                </td>
+                                <td className="py-2 pl-3 text-right font-mono tabular-nums align-middle whitespace-nowrap">
+                                  {fmt(row.washedKg ?? 0)} kg
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1306,17 +1581,20 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Stock qty</span>
-                    <div className="mt-0.5 flex items-baseline justify-between gap-2">
-                      <span className="text-lg font-bold tabular-nums text-teal-600">
-                        {fmtDozenPcs(d.inventory.fgUnits)}
-                      </span>
-                      <span className="text-lg font-bold tabular-nums text-teal-600 text-right">
-                        {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
-                      </span>
-                    </div>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-600">
+                      {fmtDozenPcs(d.inventory.fgUnits)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">On hand</span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Stock value</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-teal-700">
+                      {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">At list price</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Products</span>
@@ -1325,7 +1603,7 @@ export function DashboardPage() {
                     </p>
                     <span className="text-[10px] text-muted-foreground">With stock on hand</span>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60 col-span-2 sm:col-span-1">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Low stock</span>
                     <p
                       className={cn(
@@ -1443,13 +1721,13 @@ export function DashboardPage() {
                         Sales &amp; Financial Commercials
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Revenue, cash, spend, and receivables for {d.periodLabel}
+                        Revenue, cash, receivables, and customer advances for {d.periodLabel}
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Gross Revenue</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
@@ -1470,6 +1748,13 @@ export function DashboardPage() {
                       ₦{fmt(d.money.receivables || 0)}
                     </p>
                     <span className="text-[10px] text-muted-foreground">Customer balances</span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payables</span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-sky-600">
+                      ₦{fmt(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">Customer advances</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Net Cash Flow</span>
