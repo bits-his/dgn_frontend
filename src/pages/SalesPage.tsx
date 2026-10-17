@@ -147,7 +147,12 @@ export function SalesPage() {
                 {sale.saleNumber}
               </Link>
               <p className="text-[11px] text-zinc-500 capitalize">
-                {sale.saleType.toLowerCase()} · {sale.status.replace('_', ' ').toLowerCase()}
+                {String(sale.saleType || '').toUpperCase() === 'SHOP_TRANSFER'
+                  ? 'shop transfer'
+                  : String(sale.saleType || '').toUpperCase() === 'OPENING_BALANCE'
+                    ? 'opening balance'
+                    : sale.saleType.toLowerCase()}{' '}
+                · {sale.status.replace('_', ' ').toLowerCase()}
               </p>
             </div>
           )

@@ -406,7 +406,9 @@ export function DistributorsPage() {
                 className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
               >
                 <Link to={`/sales/new?distributor=${encodeURIComponent(row.original.code)}`}>
-                  Sell
+                  {String(row.original.distributorKind || '').toUpperCase() === 'SHOP'
+                    ? 'Issue'
+                    : 'Sell'}
                 </Link>
               </Button>
             )}

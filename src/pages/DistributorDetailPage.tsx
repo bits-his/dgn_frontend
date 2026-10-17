@@ -246,10 +246,16 @@ export function DistributorDetailPage() {
   const [error, setError] = useState('')
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
   const [advanceOpen, setAdvanceOpen] = useState(false)
+  const [openingOpen, setOpeningOpen] = useState(false)
   const [advanceForm, setAdvanceForm] = useState({
     amount: '',
     paymentMethod: 'TRANSFER',
     reference: '',
+    notes: '',
+  })
+  const [openingForm, setOpeningForm] = useState({
+    receivableAmount: '',
+    advanceAmount: '',
     notes: '',
   })
   const [form, setForm] = useState({
@@ -383,6 +389,43 @@ export function DistributorDetailPage() {
     },
   })
 
+  const openingMutation = useMutation({
+    mutationFn: async () => {
+      if (!detail.data) throw new Error('Missing distributor')
+      const { data } = await api.post(`/distributors/${detail.data.code}/opening-balance`, {
+        receivableAmount: Number(openingForm.receivableAmount) || 0,
+        advanceAmount: Number(openingForm.advanceAmount) || 0,
+        notes: openingForm.notes.trim() || null,
+      })
+      return data as { message?: string; data?: unknown }
+    },
+    onSuccess: async (body) => {
+      setMessage(body.message || 'Opening balance recorded')
+      setError('')
+      setOpeningOpen(false)
+      setOpeningForm({ receivableAmount: '', advanceAmount: '', notes: '' })
+      await qc.invalidateQueries({ queryKey: ['distributor', code] })
+      await qc.invalidateQueries({ queryKey: ['distributors'] })
+      await qc.invalidateQueries({ queryKey: ['distributor-credit'] })
+      await qc.invalidateQueries({ queryKey: ['sales'] })
+      await qc.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as {
+        response?: { data?: { err?: string; errors?: Record<string, string> } }
+        message?: string
+      }
+      const errors = axiosErr.response?.data?.errors
+      setMessage('')
+      setError(
+        (errors && Object.values(errors).join(' · ')) ||
+          axiosErr.response?.data?.err ||
+          axiosErr.message ||
+          'Could not save opening balance',
+      )
+    },
+  })
+
   const d = detail.data
   const isShop = String(d?.distributorKind || '').toUpperCase() === 'SHOP'
   const ledger = useMemo(
@@ -431,17 +474,30 @@ export function DistributorDetailPage() {
       backLabel="All"
       actions={
         <div className="flex items-center gap-1.5">
-          {canEdit && !isOutletScoped(user) ? (
-            <Button
-              size="sm"
-              className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
-              onClick={() => {
-                setError('')
-                setAdvanceOpen(true)
-              }}
-            >
-              Record advance
-            </Button>
+          {canEdit && !isOutletScoped(user) && !isShop ? (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
+                onClick={() => {
+                  setError('')
+                  setOpeningOpen(true)
+                }}
+              >
+                Opening balance
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
+                onClick={() => {
+                  setError('')
+                  setAdvanceOpen(true)
+                }}
+              >
+                Record advance
+              </Button>
+            </>
           ) : null}
           {isShop && canOutletSell ? (
             <Button size="sm" className="h-8 gap-1 text-xs font-semibold" asChild>
@@ -1170,6 +1226,74 @@ export function DistributorDetailPage() {
                   type="button"
                   className="dgn-btn dgn-btn-ghost"
                   onClick={() => setAdvanceOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </Dialog>
+        )}
+
+        {openingOpen && (
+          <Dialog title="Opening balance" onClose={() => setOpeningOpen(false)}>
+            <p className="mb-4 text-sm text-zinc-700">
+              For distributors you already traded with before this system. Enter what they{' '}
+              <strong>already owe</strong> and/or any <strong>advance already held</strong>. You can
+              fill one or both.
+            </p>
+            <form
+              className="grid gap-3"
+              onSubmit={(e) => {
+                e.preventDefault()
+                openingMutation.mutate()
+              }}
+            >
+              <Field label="They already owe (receivable)">
+                <NairaAmountInput
+                  value={openingForm.receivableAmount}
+                  onChange={(value) =>
+                    setOpeningForm((f) => ({ ...f, receivableAmount: value }))
+                  }
+                />
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Creates an unpaid opening invoice you can collect later.
+                </p>
+              </Field>
+              <Field label="Advance already held">
+                <NairaAmountInput
+                  value={openingForm.advanceAmount}
+                  onChange={(value) => setOpeningForm((f) => ({ ...f, advanceAmount: value }))}
+                />
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Money they paid ahead — can be used on the next sale.
+                </p>
+              </Field>
+              <Field label="Notes">
+                <textarea
+                  className="dgn-input"
+                  rows={2}
+                  value={openingForm.notes}
+                  onChange={(e) => setOpeningForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="e.g. Balance brought forward from old books"
+                />
+              </Field>
+              {error && <p className="text-sm text-red-700">{error}</p>}
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="submit"
+                  className="dgn-btn dgn-btn-primary"
+                  disabled={
+                    openingMutation.isPending ||
+                    (!(Number(openingForm.receivableAmount) > 0) &&
+                      !(Number(openingForm.advanceAmount) > 0))
+                  }
+                >
+                  {openingMutation.isPending ? 'Saving…' : 'Save opening balance'}
+                </button>
+                <button
+                  type="button"
+                  className="dgn-btn dgn-btn-ghost"
+                  onClick={() => setOpeningOpen(false)}
                 >
                   Cancel
                 </button>

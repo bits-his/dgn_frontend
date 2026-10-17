@@ -70,6 +70,7 @@ type Customer = {
   priceTier?: string
   creditLimit?: number
   paymentTermsDays?: number
+  distributorKind?: string | null
 }
 
 type DistributorCreditView = {
@@ -169,7 +170,11 @@ export function NewSalePage() {
   const [itemSearch, setItemSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
-  const [result, setResult] = useState<{ saleNumber: string; amountPaid: number } | null>(null)
+  const [result, setResult] = useState<{
+    saleNumber: string
+    amountPaid: number
+    shopTransfer?: boolean
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const customerPickerRef = useRef<HTMLDivElement>(null)
 
@@ -399,10 +404,15 @@ export function NewSalePage() {
   }, [products, itemSearch])
 
   const credit = distributorCredit.data
-  const thisSaleDue = Math.max(0, computed.balance)
+  const isShopIssue =
+    String(
+      selectedCustomer?.distributorKind || credit?.distributorKind || '',
+    ).toUpperCase() === 'SHOP'
+  const thisSaleDue = isShopIssue ? 0 : Math.max(0, computed.balance)
   const projectedOutstanding = (credit?.outstanding || 0) + thisSaleDue
   const creditBlocked = Boolean(
-    selectedIsDistributor &&
+    !isShopIssue &&
+      selectedIsDistributor &&
       credit &&
       thisSaleDue > 0.001 &&
       projectedOutstanding > credit.creditLimit + 0.001,
@@ -411,7 +421,10 @@ export function NewSalePage() {
     credit?.minOrderQty ?? selectedCustomer?.minOrderQty ?? 0,
   )
   const belowMin = Boolean(
-    selectedIsDistributor && minOrderQty > 0 && computed.qty + 0.0001 < minOrderQty,
+    !isShopIssue &&
+      selectedIsDistributor &&
+      minOrderQty > 0 &&
+      computed.qty + 0.0001 < minOrderQty,
   )
   const canSubmit = Boolean(
     customerId && activeLines.length > 0 && !saving && !creditBlocked && !belowMin,
@@ -425,7 +438,9 @@ export function NewSalePage() {
         : creditBlocked
           ? 'This sale would exceed their credit limit. Collect more payment or reduce the order.'
           : saving
-            ? 'Recording sale…'
+            ? isShopIssue
+              ? 'Transferring stock…'
+              : 'Recording sale…'
             : null
 
   const submit = async (confirmLowMargin: boolean) => {
@@ -436,8 +451,9 @@ export function NewSalePage() {
       const termsDays = Number(
         credit?.paymentTermsDays ?? selectedCustomer?.paymentTermsDays ?? 14,
       )
-      const saleType =
-        computed.balance <= 0.001
+      const saleType = isShopIssue
+        ? 'SHOP_TRANSFER'
+        : computed.balance <= 0.001
           ? 'CASH'
           : selectedIsDistributor
             ? `NET_${termsDays}`
@@ -445,7 +461,11 @@ export function NewSalePage() {
 
       const saleLines = []
       for (const line of activeLines) {
-        const allocated = allocateQtyToBatches(line.product, line.qty, line.unitPrice)
+        const allocated = allocateQtyToBatches(
+          line.product,
+          line.qty,
+          isShopIssue ? 0 : line.unitPrice,
+        )
         if (allocated.remaining > 0.0001) {
           setError(
             `Only ${qtyDozenLabel(line.qty - allocated.remaining, line.product.uom, line.product.unitsPerDozen)} of ${line.product.productName} is available.`,
@@ -460,15 +480,18 @@ export function NewSalePage() {
         customerId: Number(customerId),
         saleType,
         lines: saleLines,
-        discount: Number(discount) || 0,
-        amountPaid: Number(amountPaid) || 0,
-        advanceApplied: Number(advanceApplied) || 0,
+        discount: isShopIssue ? 0 : Number(discount) || 0,
+        amountPaid: isShopIssue ? 0 : Number(amountPaid) || 0,
+        advanceApplied: isShopIssue ? 0 : Number(advanceApplied) || 0,
         notes,
-        confirmLowMargin,
+        confirmLowMargin: isShopIssue ? true : confirmLowMargin,
       })
       setResult({
         saleNumber: data.saleNumber,
-        amountPaid: (Number(amountPaid) || 0) + (Number(advanceApplied) || 0),
+        amountPaid: isShopIssue
+          ? 0
+          : (Number(amountPaid) || 0) + (Number(advanceApplied) || 0),
+        shopTransfer: Boolean(data.shopTransfer) || isShopIssue,
       })
       queryClient.invalidateQueries({ queryKey: ['sales'] })
       queryClient.invalidateQueries({ queryKey: ['sales-overview'] })
@@ -498,10 +521,15 @@ export function NewSalePage() {
   }
 
   if (result) {
+    const transferDone = Boolean(result.shopTransfer)
     return (
       <PageLayout
-        title="Sale recorded"
-        description={`Invoice #${result.saleNumber} created successfully`}
+        title={transferDone ? 'Stock transferred' : 'Sale recorded'}
+        description={
+          transferDone
+            ? `Transfer #${result.saleNumber} — goods moved to the shop`
+            : `Invoice #${result.saleNumber} created successfully`
+        }
         back={true}
         backLabel="Back to sales"
         onBack={() => navigate('/sales')}
@@ -510,20 +538,26 @@ export function NewSalePage() {
           <div className="mx-auto size-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3">
             <Check className="size-6" />
           </div>
-          <h2 className="text-xl font-bold tracking-tight text-zinc-900">Sale Confirmed</h2>
+          <h2 className="text-xl font-bold tracking-tight text-zinc-900">
+            {transferDone ? 'Transfer confirmed' : 'Sale Confirmed'}
+          </h2>
           <p className="font-mono text-sm font-semibold text-[var(--accent-strong)] mt-1">
             {result.saleNumber}
           </p>
           <p className="text-xs text-zinc-500 mt-2">
-            The finished goods inventory balances have been deducted and customer ledger updated.
+            {transferDone
+              ? 'Factory stock was reduced. No money was recorded here — the shop seller will record the sale at the stall.'
+              : 'The finished goods inventory balances have been deducted and customer ledger updated.'}
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-            <Button size="sm" className="h-8 font-semibold gap-1.5" asChild>
-              <Link to={`/sales/${result.saleNumber}/invoice`}>
-                <Printer className="size-3.5" /> Print invoice
-              </Link>
-            </Button>
-            {result.amountPaid > 0.001 && (
+            {!transferDone && (
+              <Button size="sm" className="h-8 font-semibold gap-1.5" asChild>
+                <Link to={`/sales/${result.saleNumber}/invoice`}>
+                  <Printer className="size-3.5" /> Print invoice
+                </Link>
+              </Button>
+            )}
+            {!transferDone && result.amountPaid > 0.001 && (
               <Button variant="outline" size="sm" className="h-8 font-semibold gap-1.5" asChild>
                 <Link to={`/sales/${result.saleNumber}/receipt`}>
                   <Printer className="size-3.5" /> Print receipt
@@ -532,7 +566,7 @@ export function NewSalePage() {
             )}
             <Button variant="outline" size="sm" className="h-8 font-semibold gap-1.5" asChild>
               <Link to={`/sales/${result.saleNumber}`}>
-                <FileText className="size-3.5" /> Open sale
+                <FileText className="size-3.5" /> {transferDone ? 'Open transfer' : 'Open sale'}
               </Link>
             </Button>
             <Button variant="ghost" size="sm" className="h-8 font-semibold" onClick={() => navigate('/sales')}>
@@ -546,8 +580,12 @@ export function NewSalePage() {
 
   return (
     <PageLayout
-      title="New sale"
-      description="Select products and enter quantity & price — stock is the total of that product, not each production lot"
+      title={isShopIssue ? 'Issue stock to shop' : 'New sale'}
+      description={
+        isShopIssue
+          ? 'Move finished goods to the market shop — no invoice or payment. The stall records sales.'
+          : 'Select products and enter quantity & price — stock is the total of that product, not each production lot'
+      }
       back={true}
       backLabel="Back to sales"
       onBack={() => navigate('/sales')}
@@ -727,22 +765,26 @@ export function NewSalePage() {
                       </div>
                       <div>
                         <label className="block text-[10px] font-medium text-zinc-500 mb-1">
-                          {pieceUom ? 'Price / dz' : 'Unit price'}
+                          {isShopIssue ? 'Type' : pieceUom ? 'Price / dz' : 'Unit price'}
                         </label>
                         <div
                           className={`h-8 px-2.5 flex items-center rounded-md border text-xs font-semibold tabular-nums ${
-                            dozenPrice > 0 || unitPriceNum > 0
-                              ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
-                              : 'border-amber-200 bg-amber-50 text-amber-800'
+                            isShopIssue
+                              ? 'border-sky-200 bg-sky-50 text-sky-900'
+                              : dozenPrice > 0 || unitPriceNum > 0
+                                ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
+                                : 'border-amber-200 bg-amber-50 text-amber-800'
                           }`}
                         >
-                          {pieceUom
-                            ? dozenPrice > 0
-                              ? money(dozenPrice)
-                              : 'No price'
-                            : unitPriceNum > 0
-                              ? money(unitPriceNum)
-                              : 'No price'}
+                          {isShopIssue
+                            ? 'Transfer'
+                            : pieceUom
+                              ? dozenPrice > 0
+                                ? money(dozenPrice)
+                                : 'No price'
+                              : unitPriceNum > 0
+                                ? money(unitPriceNum)
+                                : 'No price'}
                         </div>
                       </div>
                     </div>
@@ -751,7 +793,7 @@ export function NewSalePage() {
                         Exceeds stock ({qtyDozenLabel(product.qtyAvailable, product.uom, per)})
                       </p>
                     )}
-                    {unitPriceNum <= 0 && (
+                    {!isShopIssue && unitPriceNum <= 0 && (
                       <p className="text-[10px] text-amber-700 mt-0.5">
                         Set this on Product pricing first
                       </p>
@@ -761,10 +803,12 @@ export function NewSalePage() {
                     {isSelected && (
                       <div className="mt-2.5 pt-2 border-t border-emerald-200/50 flex items-center justify-between text-[11px]">
                         <span className="font-bold text-emerald-800">
-                          {money(lineTotal)}
+                          {isShopIssue
+                            ? qtyDozenLabel(enteredQty, product.uom, per)
+                            : money(lineTotal)}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          {unitPriceNum > 0 && product.unitCost != null && (
+                          {!isShopIssue && unitPriceNum > 0 && product.unitCost != null && (
                             <span
                               className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
                                 lineMargin >= 0
@@ -789,8 +833,14 @@ export function NewSalePage() {
         <div className="order-1 lg:order-2 lg:col-span-5 xl:col-span-4 space-y-4">
           <div className="rounded-2xl border border-zinc-200/80 bg-white p-4 sm:p-5 shadow-xs space-y-4 lg:sticky lg:top-20">
             <h2 className="text-sm font-semibold text-zinc-900 border-b border-zinc-100 pb-2.5">
-              Customer & Checkout
+              {isShopIssue ? 'Shop & transfer' : 'Customer & Checkout'}
             </h2>
+            {isShopIssue && (
+              <p className="rounded-xl border border-sky-200/80 bg-sky-50/80 px-3 py-2 text-[11px] leading-relaxed text-sky-900">
+                This is a <strong>stock transfer</strong> to the market shop — no price, invoice, or payment.
+                The person at the stall records the sale when a customer buys.
+              </p>
+            )}
 
             {/* Customer combobox: search + select in one field */}
             <div ref={customerPickerRef}>
@@ -884,8 +934,8 @@ export function NewSalePage() {
               )}
             </div>
 
-            {/* Distributor Credit + Advance */}
-            {selectedIsDistributor && credit && (
+            {/* Distributor Credit + Advance — not for market shop transfers */}
+            {!isShopIssue && selectedIsDistributor && credit && (
               <div className="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3 space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-500">Credit utilization</span>
@@ -917,43 +967,46 @@ export function NewSalePage() {
               </div>
             )}
 
-            {/* Discount, Paid Now, Advance */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-zinc-700 mb-1.5">
-                  Discount (₦)
-                </label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="0"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
-                  className="h-8 text-xs tabular-nums"
-                />
-                <p className="mt-1 text-[10px] text-zinc-400">
-                  Use this to reduce the total — unit prices stay fixed
-                </p>
+            {!isShopIssue && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+                    Discount (₦)
+                  </label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0"
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-400">
+                    Use this to reduce the total — unit prices stay fixed
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-zinc-700 mb-1.5">
+                    Paid Now (₦)
+                  </label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0"
+                    value={amountPaid}
+                    onChange={(e) => setAmountPaid(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-400">Cash / transfer collected today</p>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-700 mb-1.5">
-                  Paid Now (₦)
-                </label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="0"
-                  value={amountPaid}
-                  onChange={(e) => setAmountPaid(e.target.value)}
-                  className="h-8 text-xs tabular-nums"
-                />
-                <p className="mt-1 text-[10px] text-zinc-400">Cash / transfer collected today</p>
-              </div>
-            </div>
+            )}
 
-            {selectedIsDistributor && Number(credit?.advanceBalance || 0) > 0.001 && (
+            {!isShopIssue &&
+              selectedIsDistributor &&
+              Number(credit?.advanceBalance || 0) > 0.001 && (
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-medium text-zinc-700">
@@ -993,59 +1046,76 @@ export function NewSalePage() {
               </label>
               <Textarea
                 rows={2}
-                placeholder="Delivery address, driver contact, truck plate..."
+                placeholder={
+                  isShopIssue
+                    ? 'Driver, vehicle, or delivery note…'
+                    : 'Delivery address, driver contact, truck plate...'
+                }
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="text-xs"
               />
             </div>
 
-            {/* Financial Summary */}
+            {/* Summary */}
             <div className="rounded-xl border border-zinc-100 bg-zinc-50/70 p-3.5 space-y-2 text-xs">
               <div className="flex justify-between text-zinc-600">
-                <span>Gross value ({activeLines.length} products)</span>
-                <span className="tabular-nums font-medium">{money(computed.subtotal)}</span>
-              </div>
-              {Number(discount) > 0 && (
-                <div className="flex justify-between text-zinc-600">
-                  <span>Discount</span>
-                  <span className="tabular-nums text-rose-600">- {money(Number(discount))}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-zinc-900 font-bold border-t border-zinc-200/80 pt-2">
-                <span>Net Payable</span>
-                <span className="tabular-nums text-sm">{money(computed.total)}</span>
-              </div>
-              <div className="flex justify-between text-zinc-600 text-[11px]">
-                <span>Estimated Margin</span>
-                <span
-                  className={`tabular-nums font-semibold ${
-                    computed.margin >= 0 ? 'text-emerald-700' : 'text-red-600'
-                  }`}
-                >
-                  {money(computed.margin)} ({computed.marginPercent.toFixed(1)}%)
+                <span>{isShopIssue ? 'Products' : `Gross value (${activeLines.length} products)`}</span>
+                <span className="tabular-nums font-medium">
+                  {isShopIssue
+                    ? `${activeLines.length} · ${qtyDozenLabel(computed.qty, 'pcs')}`
+                    : money(computed.subtotal)}
                 </span>
               </div>
-              <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-semibold">
-                <span className="text-zinc-700">Cash paid now</span>
-                <span className="tabular-nums text-teal-700">{money(computed.cash)}</span>
-              </div>
-              {computed.advance > 0.001 && (
-                <div className="flex justify-between font-semibold">
-                  <span className="text-zinc-700">From advance</span>
-                  <span className="tabular-nums text-teal-700">{money(computed.advance)}</span>
+              {isShopIssue ? (
+                <div className="flex justify-between text-zinc-900 font-bold border-t border-zinc-200/80 pt-2">
+                  <span>Factory invoice</span>
+                  <span className="tabular-nums text-sm text-teal-800">None · transfer only</span>
                 </div>
+              ) : (
+                <>
+                  {Number(discount) > 0 && (
+                    <div className="flex justify-between text-zinc-600">
+                      <span>Discount</span>
+                      <span className="tabular-nums text-rose-600">- {money(Number(discount))}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-zinc-900 font-bold border-t border-zinc-200/80 pt-2">
+                    <span>Net Payable</span>
+                    <span className="tabular-nums text-sm">{money(computed.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-zinc-600 text-[11px]">
+                    <span>Estimated Margin</span>
+                    <span
+                      className={`tabular-nums font-semibold ${
+                        computed.margin >= 0 ? 'text-emerald-700' : 'text-red-600'
+                      }`}
+                    >
+                      {money(computed.margin)} ({computed.marginPercent.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-semibold">
+                    <span className="text-zinc-700">Cash paid now</span>
+                    <span className="tabular-nums text-teal-700">{money(computed.cash)}</span>
+                  </div>
+                  {computed.advance > 0.001 && (
+                    <div className="flex justify-between font-semibold">
+                      <span className="text-zinc-700">From advance</span>
+                      <span className="tabular-nums text-teal-700">{money(computed.advance)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold">
+                    <span className="text-zinc-900">Balance Due</span>
+                    <span
+                      className={`tabular-nums ${
+                        computed.balance > 0 ? 'text-rose-700 font-bold' : 'text-zinc-800'
+                      }`}
+                    >
+                      {money(Math.max(0, computed.balance))}
+                    </span>
+                  </div>
+                </>
               )}
-              <div className="flex justify-between font-bold">
-                <span className="text-zinc-900">Balance Due</span>
-                <span
-                  className={`tabular-nums ${
-                    computed.balance > 0 ? 'text-rose-700 font-bold' : 'text-zinc-800'
-                  }`}
-                >
-                  {money(Math.max(0, computed.balance))}
-                </span>
-              </div>
             </div>
 
             {/* Error & Warning Messages */}
@@ -1087,7 +1157,13 @@ export function NewSalePage() {
                   disabled={!canSubmit}
                   onClick={() => submit(false)}
                 >
-                  {saving ? 'Recording sale…' : 'Record sale'}
+                  {saving
+                    ? isShopIssue
+                      ? 'Transferring…'
+                      : 'Recording sale…'
+                    : isShopIssue
+                      ? 'Issue stock'
+                      : 'Record sale'}
                 </Button>
               </div>
               {!canSubmit && submitBlockedReason && (
