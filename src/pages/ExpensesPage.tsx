@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, X, Search, Wallet } from 'lucide-react'
+import { Check, Pencil, Plus, X, Search, Wallet } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
@@ -38,6 +38,7 @@ type Category = {
 type ExpenseRow = {
   id: number
   expenseNumber: string
+  costCategoryId?: number
   description: string
   categoryName: string | null
   costClass: string
@@ -51,6 +52,7 @@ type ExpenseRow = {
   businessDate: string | null
   notes: string | null
   decisionReason: string | null
+  createdById?: number | null
   recordedBy: string | null
   approvedBy: string | null
 }
@@ -83,14 +85,34 @@ export function ExpensesPage() {
   const canCreate =
     hasPermission(user, 'expense.create') || hasPermission(user, 'float.spend')
   const canApprove = hasPermission(user, 'expense.approve')
+  const canSeeAll =
+    hasPermission(user, 'expense.approve') ||
+    hasPermission(user, 'float.view') ||
+    hasPermission(user, 'float.give') ||
+    hasPermission(user, 'users.manage')
   const queryClient = useQueryClient()
   const [composing, setComposing] = useState(false)
+  const [editing, setEditing] = useState<ExpenseRow | null>(null)
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [search, setSearch] = useState('')
   const [rejectingExpense, setRejectingExpense] = useState<ExpenseRow | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [rejectBusy, setRejectBusy] = useState(false)
   const [rejectError, setRejectError] = useState<string | null>(null)
+
+  const isWalletExpense = (row: ExpenseRow) => {
+    const method = String(row.paymentMethod || '').toUpperCase()
+    return method === 'WALLET' || method === 'CASH'
+  }
+
+  const canEditRow = (row: ExpenseRow) => {
+    const walletOk =
+      row.status === 'PENDING' || (isWalletExpense(row) && row.status === 'APPROVED')
+    if (!walletOk || row.status === 'REJECTED') return false
+    if (canSeeAll) return true
+    if (!canCreate) return false
+    return Number(row.createdById) === Number(user?.id)
+  }
 
   const wallet = useQuery({
     queryKey: ['processing-wallet-me'],
@@ -185,6 +207,9 @@ export function ExpensesPage() {
               {formatBusinessDate(row.original.businessDate)}
               <span className="font-mono"> · {row.original.expenseNumber}</span>
               {row.original.categoryName ? ` · ${row.original.categoryName}` : ''}
+              {canSeeAll && row.original.recordedBy
+                ? ` · ${row.original.recordedBy}`
+                : ''}
             </p>
             {row.original.decisionReason ? (
               <p className="mt-0.5 text-[10px] text-red-600">{row.original.decisionReason}</p>
@@ -220,31 +245,52 @@ export function ExpensesPage() {
         id: 'actions',
         header: '',
         cell: ({ row }) => {
-          if (!(canApprove && row.original.status === 'PENDING')) return null
+          const editable = canEditRow(row.original)
+          // Wallet expenses auto-approve — only non-wallet pending need a decision
+          const approvable =
+            canApprove &&
+            row.original.status === 'PENDING' &&
+            !isWalletExpense(row.original)
+          if (!editable && !approvable) return null
           return (
             <div className="flex items-center justify-end gap-1">
-              <Button
-                size="sm"
-                className="h-7 px-2 text-[11px] font-semibold gap-1"
-                onClick={() => handleApprove(row.original)}
-              >
-                <Check className="size-3" />
-                Approve
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px] font-semibold text-red-600"
-                onClick={() => setRejectingExpense(row.original)}
-              >
-                <X className="size-3" />
-              </Button>
+              {editable ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[11px] font-semibold gap-1"
+                  onClick={() => setEditing(row.original)}
+                >
+                  <Pencil className="size-3" />
+                  Edit
+                </Button>
+              ) : null}
+              {approvable ? (
+                <>
+                  <Button
+                    size="sm"
+                    className="h-7 px-2 text-[11px] font-semibold gap-1"
+                    onClick={() => handleApprove(row.original)}
+                  >
+                    <Check className="size-3" />
+                    Approve
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-[11px] font-semibold text-red-600"
+                    onClick={() => setRejectingExpense(row.original)}
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </>
+              ) : null}
             </div>
           )
         },
       },
     ],
-    [canApprove],
+    [canApprove, canSeeAll, canCreate, user?.id],
   )
 
   const s = summary.data
@@ -254,7 +300,11 @@ export function ExpensesPage() {
   return (
     <PageLayout
       title="Factory Expenses"
-      description="Spend from wallet · approve into overhead or batch cost"
+      description={
+        canSeeAll
+          ? 'Wallet spends post immediately · non-wallet items still need approval'
+          : 'Pay from your wallet — recorded straight into costs'
+      }
       actions={
         <div className="flex items-center gap-1.5">
           <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs font-semibold" asChild>
@@ -294,12 +344,14 @@ export function ExpensesPage() {
           </div>
           <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-              Pending
+              Pending approval
             </p>
             <p className="mt-0.5 text-base font-black tabular-nums text-amber-700">
               {money(s?.pendingTotal || 0)}
             </p>
-            <p className="text-[10px] text-zinc-400">{s?.pendingCount || 0} waiting</p>
+            <p className="text-[10px] text-zinc-400">
+              {s?.pendingCount || 0} non-wallet
+            </p>
           </div>
           <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
             <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
@@ -362,10 +414,11 @@ export function ExpensesPage() {
             <DialogHeader>
               <DialogTitle>Log expense</DialogTitle>
               <DialogDescription>
-                Pays from your wallet now. Approval posts it to factory cost.
+                Pays from your wallet and posts to cost now — no admin approval.
               </DialogDescription>
             </DialogHeader>
-            <NewExpenseModalForm
+            <ExpenseModalForm
+              mode="create"
               walletRemaining={remaining}
               hasWallet={hasWallet}
               onDone={async () => {
@@ -373,6 +426,34 @@ export function ExpensesPage() {
                 await refreshAll()
               }}
             />
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(editing)}
+          onOpenChange={(open) => !open && setEditing(null)}
+        >
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit expense</DialogTitle>
+              <DialogDescription>
+                {editing
+                  ? `${editing.expenseNumber} · wallet adjusts if the amount changes.`
+                  : 'Update expense'}
+              </DialogDescription>
+            </DialogHeader>
+            {editing ? (
+              <ExpenseModalForm
+                mode="edit"
+                expense={editing}
+                walletRemaining={remaining}
+                hasWallet={hasWallet}
+                onDone={async () => {
+                  setEditing(null)
+                  await refreshAll()
+                }}
+              />
+            ) : null}
           </DialogContent>
         </Dialog>
 
@@ -426,22 +507,34 @@ export function ExpensesPage() {
   )
 }
 
-function NewExpenseModalForm({
+function ExpenseModalForm({
+  mode,
+  expense,
   onDone,
   walletRemaining,
   hasWallet,
 }: {
+  mode: 'create' | 'edit'
+  expense?: ExpenseRow
   onDone: () => void
   walletRemaining: number
   hasWallet: boolean
 }) {
-  const [costCategoryId, setCostCategoryId] = useState('')
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState('')
-  const [vendorName, setVendorName] = useState('')
-  const [allocationScope, setAllocationScope] = useState('FACTORY')
-  const [batchNumber, setBatchNumber] = useState('')
-  const [notes, setNotes] = useState('')
+  const user = useAuthStore((s) => s.user)
+  const isEdit = mode === 'edit'
+  const editingOwn =
+    !isEdit || Number(expense?.createdById) === Number(user?.id)
+  const [costCategoryId, setCostCategoryId] = useState(
+    expense?.costCategoryId ? String(expense.costCategoryId) : '',
+  )
+  const [description, setDescription] = useState(expense?.description || '')
+  const [amount, setAmount] = useState(expense ? String(expense.amount) : '')
+  const [vendorName, setVendorName] = useState(expense?.vendorName || '')
+  const [allocationScope, setAllocationScope] = useState(
+    expense?.allocationScope || 'FACTORY',
+  )
+  const [batchNumber, setBatchNumber] = useState(expense?.batchNumber || '')
+  const [notes, setNotes] = useState(expense?.notes || '')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -463,39 +556,58 @@ function NewExpenseModalForm({
   }, [categories.data])
 
   const amountNum = Number(amount) || 0
-  const overBalance = hasWallet && amountNum > walletRemaining + 0.001
+  const priorAmount = isEdit ? Number(expense?.amount || 0) : 0
+  const extraNeeded = isEdit ? Math.max(0, amountNum - priorAmount) : amountNum
+  const overBalance =
+    editingOwn && hasWallet && extraNeeded > walletRemaining + 0.001
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
-    if (!hasWallet) {
+    if (!isEdit && !hasWallet) {
       setError('No wallet yet. Ask finance to give you money first.')
       return
     }
     if (overBalance) {
-      setError(`Only ${money(walletRemaining)} left in your wallet`)
+      setError(
+        isEdit
+          ? `Need ${money(extraNeeded)} more; only ${money(walletRemaining)} left in wallet`
+          : `Only ${money(walletRemaining)} left in your wallet`,
+      )
       return
     }
     setSaving(true)
     try {
-      await api.post('/expenses', {
+      const payload = {
         costCategoryId: Number(costCategoryId),
         description,
         amount: amountNum,
         vendorName: vendorName || undefined,
-        paymentMethod: 'WALLET',
-        payFromWallet: true,
         allocationScope,
         batchNumber: allocationScope === 'BATCH' ? batchNumber : undefined,
         notes: notes || undefined,
-      })
+      }
+      if (isEdit && expense) {
+        await api.patch(`/expenses/${expense.expenseNumber}`, payload)
+      } else {
+        await api.post('/expenses', {
+          ...payload,
+          paymentMethod: 'WALLET',
+          payFromWallet: true,
+        })
+      }
       onDone()
     } catch (err: unknown) {
       const body = (err as { response?: { data?: Record<string, unknown> } }).response?.data
       if (body && body.errors) {
         setError(Object.values(body.errors as Record<string, string>).join(' · '))
       } else {
-        setError(String((body && body.err) || 'Could not record the expense'))
+        setError(
+          String(
+            (body && body.err) ||
+              (isEdit ? 'Could not update the expense' : 'Could not record the expense'),
+          ),
+        )
       }
     } finally {
       setSaving(false)
@@ -510,12 +622,23 @@ function NewExpenseModalForm({
           hasWallet ? 'border-zinc-200 bg-zinc-50' : 'border-amber-200 bg-amber-50 text-amber-900',
         )}
       >
-        {hasWallet ? (
+        {editingOwn && hasWallet ? (
           <p>
             Wallet remaining <span className="font-bold tabular-nums">{money(walletRemaining)}</span>
+            {isEdit ? (
+              <span className="text-zinc-500">
+                {' '}
+                · already charged {money(priorAmount)}
+              </span>
+            ) : null}
           </p>
-        ) : (
+        ) : editingOwn ? (
           <p>Open a wallet first — expenses pay from your processing money.</p>
+        ) : (
+          <p>
+            Editing {expense?.recordedBy || 'member'}’s expense
+            {isEdit ? ` · currently ${money(priorAmount)}` : ''}. Wallet adjusts on their account.
+          </p>
         )}
       </div>
 
@@ -530,37 +653,36 @@ function NewExpenseModalForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs font-semibold">Category</Label>
-          <Select value={costCategoryId} onValueChange={setCostCategoryId}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Choose…" />
-            </SelectTrigger>
-            <SelectContent>
-              {grouped.map(([group, list]) =>
-                list.map((cat) => (
-                  <SelectItem key={cat.id} value={String(cat.id)}>
-                    {group} · {cat.name}
-                  </SelectItem>
-                )),
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs font-semibold">Amount (₦)</Label>
-          <Input
-            type="number"
-            inputMode="decimal"
-            className={cn('h-8 text-xs font-semibold', overBalance && 'border-red-400')}
-            required
-            min={0}
-            step="any"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-        </div>
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">Category</Label>
+        <Select value={costCategoryId} onValueChange={setCostCategoryId}>
+          <SelectTrigger className="h-8 w-full text-xs">
+            <SelectValue placeholder="Choose category…" />
+          </SelectTrigger>
+          <SelectContent>
+            {grouped.map(([group, list]) =>
+              list.map((cat) => (
+                <SelectItem key={cat.id} value={String(cat.id)}>
+                  {group} · {cat.name}
+                </SelectItem>
+              )),
+            )}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">Amount (₦)</Label>
+        <Input
+          type="number"
+          inputMode="decimal"
+          className={cn('h-8 w-full text-xs font-semibold', overBalance && 'border-red-400')}
+          required
+          min={0}
+          step="any"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
       </div>
 
       <div className="space-y-1">
@@ -634,11 +756,17 @@ function NewExpenseModalForm({
             !description ||
             !costCategoryId ||
             !(amountNum > 0) ||
-            !hasWallet ||
+            (!isEdit && !hasWallet) ||
             overBalance
           }
         >
-          {saving ? 'Paying…' : `Pay ${amountNum > 0 ? money(amountNum) : ''} from wallet`}
+          {saving
+            ? isEdit
+              ? 'Saving…'
+              : 'Paying…'
+            : isEdit
+              ? 'Save changes'
+              : `Pay ${amountNum > 0 ? money(amountNum) : ''} · post to cost`}
         </Button>
       </div>
     </form>

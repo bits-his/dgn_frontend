@@ -90,6 +90,25 @@ type DistributorDetail = {
     businessDate: string | null
     notes: string | null
   }[]
+  ledger?: {
+    receivable: number
+    advance: number
+    net: number
+    txns: {
+      id: number
+      account: string
+      entryType: string
+      debit: number
+      credit: number
+      balanceAfter: number
+      saleNumber: string | null
+      businessDate: string | null
+      paymentMethod: string | null
+      reference: string | null
+      notes: string | null
+      createdAt?: string
+    }[]
+  }
   outlet?: {
     remainingQty: number
     stock: {
@@ -136,6 +155,41 @@ type LedgerEntry = {
   credit: number
   balanceAfter: number
   href?: string
+}
+
+function entryTypeLabel(entryType: string, saleNumber: string | null) {
+  const t = String(entryType || '').toUpperCase()
+  const sale = saleNumber ? ` · ${saleNumber}` : ''
+  if (t === 'SALE') return `Sale${sale}`
+  if (t === 'PAYMENT') return `Payment${sale}`
+  if (t === 'OPENING_RECEIVABLE') return `Opening receivable${sale}`
+  if (t === 'OPENING_ADVANCE') return 'Opening advance'
+  if (t === 'ADVANCE_DEPOSIT') return 'Advance deposit'
+  if (t === 'ADVANCE_APPLY') return `Advance applied${sale}`
+  if (t === 'SALE_RETURN') return `Return${sale}`
+  return `${entryType || 'Entry'}${sale}`
+}
+
+function buildLedgerFromServer(
+  txns: NonNullable<DistributorDetail['ledger']>['txns'],
+): LedgerEntry[] {
+  // Statement shows RECEIVABLE only (running balance due). Newest first for display.
+  const recv = txns
+    .filter((t) => String(t.account).toUpperCase() === 'RECEIVABLE')
+    .slice()
+    .reverse()
+  return recv
+    .map((t) => ({
+      id: `txn-${t.id}`,
+      dateLabel: formatBusinessDate(t.businessDate) || '—',
+      title: entryTypeLabel(t.entryType, t.saleNumber),
+      meta: [t.paymentMethod, t.reference, t.notes].filter(Boolean).join(' · ') || undefined,
+      debit: Number(t.debit || 0),
+      credit: Number(t.credit || 0),
+      balanceAfter: Number(t.balanceAfter || 0),
+      href: t.saleNumber ? `/sales/${t.saleNumber}` : undefined,
+    }))
+    .reverse()
 }
 
 function buildDistributorLedger(
@@ -428,11 +482,11 @@ export function DistributorDetailPage() {
 
   const d = detail.data
   const isShop = String(d?.distributorKind || '').toUpperCase() === 'SHOP'
-  const ledger = useMemo(
-    () =>
-      !d || isShop ? [] : buildDistributorLedger(d.sales || [], d.returns || []),
-    [d, isShop],
-  )
+  const ledger = useMemo(() => {
+    if (!d || isShop) return []
+    if (d.ledger?.txns?.length) return buildLedgerFromServer(d.ledger.txns)
+    return buildDistributorLedger(d.sales || [], d.returns || [])
+  }, [d, isShop])
 
   if (detail.isLoading) {
     return <p className="text-sm text-zinc-800">Loading distributor…</p>
@@ -902,14 +956,19 @@ export function DistributorDetailPage() {
                         {money(c.outstanding)}
                       </p>
                       <p className="text-[11px] text-zinc-500">
-                        Debit = sale · Credit = payment
+                        Debit = they owe · Credit = paid / cleared
                       </p>
+                      {d.ledger ? (
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          Advance held {money(d.ledger.advance)}
+                        </p>
+                      ) : null}
                     </div>
                   </header>
 
                   {ledger.length === 0 ? (
                     <p className="py-6 text-center text-xs text-zinc-500">
-                      No sales or payments yet.
+                      No ledger transactions yet.
                     </p>
                   ) : (
                     <table className="mt-3 w-full text-left text-xs sm:text-sm">
@@ -975,26 +1034,28 @@ export function DistributorDetailPage() {
 
                   <section className="mt-3 ml-auto w-full max-w-[14rem] space-y-1 text-xs sm:text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-600">Sales (debit)</span>
+                      <span className="text-zinc-600">Receivable</span>
                       <span className="font-semibold tabular-nums">
-                        {money(d.totals.revenue)}
+                        {money(d.ledger?.receivable ?? c.outstanding)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-600">Received (credit)</span>
+                      <span className="text-zinc-600">Advance (payable)</span>
                       <span className="font-semibold tabular-nums">
-                        {money(d.totals.collected)}
+                        {money(d.ledger?.advance ?? advanceBalance)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3 border-t border-zinc-300 pt-1.5">
-                      <span className="font-semibold text-zinc-900">Balance due</span>
+                      <span className="font-semibold text-zinc-900">Net due</span>
                       <span
                         className={cn(
                           'font-black tabular-nums',
-                          c.outstanding > 0.001 ? 'text-red-700' : 'text-teal-800',
+                          (d.ledger?.net ?? c.outstanding) > 0.001
+                            ? 'text-red-700'
+                            : 'text-teal-800',
                         )}
                       >
-                        {money(c.outstanding)}
+                        {money(d.ledger?.net ?? c.outstanding)}
                       </span>
                     </div>
                   </section>

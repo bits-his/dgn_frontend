@@ -9,6 +9,7 @@ import {
   Factory,
   Recycle,
   PackageCheck,
+  Store,
 } from 'lucide-react'
 import {
   Bar,
@@ -265,6 +266,66 @@ type Dashboard = {
     pcs: number
   }>
   finishedGoodsValue?: number
+  factoryShops?: {
+    shopCount: number
+    transferredQty: number
+    transferredValue: number
+    remainingQty: number
+    remainingValue: number
+    soldAtShopQty: number
+    shopRetailGenerated: number
+    shopRetailCollected: number
+    shopRetailOutstanding: number
+    transferCount: number
+    note?: string
+    shops: Array<{
+      customerId: number
+      customerName: string
+      customerCode: string | null
+      receivedQty: number
+      soldQty: number
+      remainingQty: number
+      remainingValue: number
+      transferredValue: number
+      transferCount: number
+      retailGenerated: number
+      retailCollected: number
+      retailOutstanding: number
+      retailSaleCount: number
+      stock: Array<{
+        productId: number
+        productName: string
+        uom: string
+        received: number
+        sold: number
+        remaining: number
+        remainingValue: number
+      }>
+    }>
+    transfers: Array<{
+      id: number
+      saleNumber: string
+      saleType: string
+      notASale?: boolean
+      businessDate: string | null
+      customerId: number
+      customerName: string
+      customerCode: string | null
+      qty: number
+      stockValue: number
+      lineCount: number
+      issuedBy: string | null
+    }>
+    stock: Array<{
+      productId: number
+      productName: string
+      uom: string
+      received: number
+      sold: number
+      remaining: number
+      remainingValue: number
+    }>
+  }
 }
 
 type DrillPayload = {
@@ -314,7 +375,7 @@ export function DashboardPage() {
   const [viewMode, setViewMode] = useState<'executive' | 'staff'>('executive')
   const [drillKpi, setDrillKpi] = useState<string | null>(null)
   const [activeKpiModal, setActiveKpiModal] = useState<
-    'raw_material' | 'production' | 'finished_goods' | 'sales' | null
+    'raw_material' | 'production' | 'finished_goods' | 'sales' | 'shops' | null
   >(null)
 
   const dash = useQuery({
@@ -749,6 +810,53 @@ export function DashboardPage() {
                       <span>Payables</span>
                       <span className="text-[13px] font-semibold tabular-nums text-sky-600">
                         ₦{fmt(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 5: Market shops */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActiveKpiModal('shops')}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('shops')}
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-violet-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-violet-700 dark:group-hover:text-violet-400 transition-colors truncate">
+                      Market shops
+                    </span>
+                    <div className="flex size-6 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400 shrink-0">
+                      <Store className="size-3.5" />
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                    {money(d.factoryShops?.remainingValue ?? 0)}
+                  </p>
+                  <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Shops</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                        {d.factoryShops?.shopCount ?? 0}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Issued (period)</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                        {fmtDozenPcs(d.factoryShops?.transferredQty ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Still on hand</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-violet-700 dark:text-violet-400">
+                        {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Shop retail credit</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-amber-600">
+                        ₦{fmt(d.factoryShops?.shopRetailOutstanding ?? 0)}
                       </span>
                     </div>
                   </div>
@@ -1879,6 +1987,214 @@ export function DashboardPage() {
                     </Button>
                     <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
                       <Link to="/expenses" onClick={() => setActiveKpiModal(null)}>Cash &amp; Expenses →</Link>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeKpiModal === 'shops' && d && (
+              <div className="space-y-3">
+                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex size-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400">
+                      <Store className="size-4" />
+                    </div>
+                    <div>
+                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
+                        Market shops
+                      </DialogTitle>
+                      <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                        Stock issued to shops, balances on hand, and stall sales · {d.range.label}
+                      </DialogDescription>
+                    </div>
+                  </div>
+                </DialogHeader>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      At shops now
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-violet-700 dark:text-violet-400">
+                      {money(d.factoryShops?.remainingValue ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">
+                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)} on hand
+                    </span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Issued in period
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {fmtDozenPcs(d.factoryShops?.transferredQty ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">
+                      {money(d.factoryShops?.transferredValue ?? 0)} stock value ·{' '}
+                      {d.factoryShops?.transferCount ?? 0} transfers
+                    </span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Sold at stall
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">Shop retail qty</span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Shop retail
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      ₦{fmt(d.factoryShops?.shopRetailGenerated ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">
+                      Collected ₦{fmt(d.factoryShops?.shopRetailCollected ?? 0)}
+                    </span>
+                  </div>
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Shop credit
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
+                      ₦{fmt(d.factoryShops?.shopRetailOutstanding ?? 0)}
+                    </p>
+                    <span className="text-[10px] text-muted-foreground">Buyers owe stalls</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Balance by shop
+                  </h4>
+                  {(d.factoryShops?.shops || []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-4 text-center">
+                      No market shops set up yet.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-56">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
+                          <tr>
+                            <th className="py-2.5 px-3">Shop</th>
+                            <th className="py-2.5 px-3 text-right">Received</th>
+                            <th className="py-2.5 px-3 text-right">Sold</th>
+                            <th className="py-2.5 px-3 text-right">On hand</th>
+                            <th className="py-2.5 px-3 text-right">Stock value</th>
+                            <th className="py-2.5 px-3 text-right">Retail credit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                          {(d.factoryShops?.shops || []).map((shop) => (
+                            <tr
+                              key={shop.customerId}
+                              className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60"
+                            >
+                              <td className="py-2.5 px-3">
+                                <Link
+                                  to={`/distributors/${shop.customerCode || shop.customerId}`}
+                                  onClick={() => setActiveKpiModal(null)}
+                                  className="font-semibold text-violet-700 hover:underline dark:text-violet-400"
+                                >
+                                  {shop.customerName}
+                                </Link>
+                                <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
+                                  {shop.customerCode}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right tabular-nums">
+                                {fmtDozenPcs(shop.receivedQty)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right tabular-nums">
+                                {fmtDozenPcs(shop.soldQty)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-semibold tabular-nums">
+                                {fmtDozenPcs(shop.remainingQty)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold tabular-nums text-violet-700 dark:text-violet-400">
+                                {money(shop.remainingValue)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right tabular-nums text-amber-600">
+                                {money(shop.retailOutstanding)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Transfer transactions ({d.factoryShops?.transfers?.length ?? 0})
+                  </h4>
+                  {(d.factoryShops?.transfers || []).length === 0 ? (
+                    <p className="text-xs text-muted-foreground py-4 text-center">
+                      No stock issues to shops in this period.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-64">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
+                          <tr>
+                            <th className="py-2.5 px-3">Date</th>
+                            <th className="py-2.5 px-3">Transfer #</th>
+                            <th className="py-2.5 px-3">Shop</th>
+                            <th className="py-2.5 px-3 text-right">Qty</th>
+                            <th className="py-2.5 px-3 text-right">Stock value</th>
+                            <th className="py-2.5 px-3">Type</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                          {(d.factoryShops?.transfers || []).map((txn) => (
+                            <tr
+                              key={txn.id}
+                              className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60"
+                            >
+                              <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
+                                {formatBusinessDate(txn.businessDate) || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-semibold text-foreground">
+                                {txn.saleNumber}
+                              </td>
+                              <td className="py-2.5 px-3 font-semibold text-foreground">
+                                {txn.customerName}
+                              </td>
+                              <td className="py-2.5 px-3 text-right tabular-nums">
+                                {fmtDozenPcs(txn.qty)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-bold tabular-nums">
+                                {money(txn.stockValue)}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+                                  Issue
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                      <Link to="/distributors" onClick={() => setActiveKpiModal(null)}>
+                        All shops →
+                      </Link>
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                      <Link to="/sales/new" onClick={() => setActiveKpiModal(null)}>
+                        Issue to shop →
+                      </Link>
                     </Button>
                   </div>
                 </div>
