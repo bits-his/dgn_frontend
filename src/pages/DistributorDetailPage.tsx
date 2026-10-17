@@ -1078,33 +1078,41 @@ export function DistributorDetailPage() {
 
             {isShop ? (
               <>
-                <BookPanel title="Received from factory">
+                <BookPanel title="Transfers from factory">
                   {d.sales.length === 0 ? (
-                    <p className="text-xs text-zinc-500">Nothing dispatched yet.</p>
+                    <p className="text-xs text-zinc-500">No stock transfers yet.</p>
                   ) : (
-                    d.sales.map((sale) => (
-                      <div
-                        key={sale.id}
-                        className="border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <Link
-                              to={`/sales/${sale.saleNumber}`}
-                              className="font-mono text-xs font-semibold text-amber-800"
-                            >
-                              {sale.saleNumber}
-                            </Link>
-                            <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                              {sale.lines
-                                .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
-                                .join(', ') || `${sale.lineCount} lines`}
-                            </p>
+                    d.sales.map((sale) => {
+                      const isTransfer =
+                        String(sale.saleType || '').toUpperCase() === 'SHOP_TRANSFER' ||
+                        String(sale.saleType || '').toUpperCase() === 'TRANSFER' ||
+                        !(Number(sale.totalAmount) > 0.001)
+                      return (
+                        <div
+                          key={sale.id}
+                          className="border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <Link
+                                to={`/sales/${sale.saleNumber}`}
+                                className="font-mono text-xs font-semibold text-amber-800"
+                              >
+                                {sale.saleNumber}
+                              </Link>
+                              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
+                                {sale.lines
+                                  .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
+                                  .join(', ') || `${sale.lineCount} lines`}
+                              </p>
+                            </div>
+                            <StatusChip tone={isTransfer ? 'ok' : 'muted'}>
+                              {isTransfer ? 'Transfer' : 'Received'}
+                            </StatusChip>
                           </div>
-                          <StatusChip tone="muted">Received</StatusChip>
                         </div>
-                      </div>
-                    ))
+                      )
+                    })
                   )}
                 </BookPanel>
                 <BookPanel

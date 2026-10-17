@@ -882,10 +882,6 @@ export function DashboardPage() {
 
               {(() => {
                 const board = (d.customerBalances?.rows || []).slice(0, 8)
-                const topAbs = Math.max(
-                  1,
-                  ...board.map((c) => Math.max(Number(c.receivable || 0), Number(c.payable || 0))),
-                )
                 if (!board.length) {
                   return (
                     <Card className="p-4 text-xs text-muted-foreground">
@@ -913,12 +909,10 @@ export function DashboardPage() {
                         </p>
                       </div>
                     </div>
-                    <ol className="space-y-2.5">
+                    <ol className="divide-y divide-zinc-100 dark:divide-zinc-800">
                       {board.map((c, idx) => {
                         const recv = Number(c.receivable || 0)
                         const pay = Number(c.payable || 0)
-                        const recvW = Math.max(4, Math.round((recv / topAbs) * 100))
-                        const payW = Math.max(pay > 0 ? 4 : 0, Math.round((pay / topAbs) * 100))
                         const href = c.customerCode
                           ? `/distributors/${c.customerCode}`
                           : '/distributors'
@@ -926,66 +920,34 @@ export function DashboardPage() {
                           <li key={c.customerId}>
                             <Link
                               to={href}
-                              className="group block rounded-xl border border-zinc-100 bg-zinc-50/60 px-2.5 py-2 transition-colors hover:border-emerald-200 hover:bg-white dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:border-emerald-900"
+                              className="group flex items-center gap-2.5 px-1 py-2.5 transition-colors hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40"
                             >
-                              <div className="flex items-center gap-2.5">
-                                <span
-                                  className={cn(
-                                    'flex size-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-black tabular-nums',
-                                    idx === 0
-                                      ? 'bg-amber-400 text-amber-950'
-                                      : idx === 1
-                                        ? 'bg-zinc-300 text-zinc-800'
-                                        : idx === 2
-                                          ? 'bg-orange-200 text-orange-900'
-                                          : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-300',
-                                  )}
-                                >
-                                  {idx + 1}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <p className="truncate text-sm font-semibold text-foreground group-hover:text-emerald-700">
-                                      {c.customerName}
-                                    </p>
-                                    <p
-                                      className={cn(
-                                        'shrink-0 text-xs font-bold tabular-nums',
-                                        c.net >= 0 ? 'text-amber-700' : 'text-sky-700',
-                                      )}
-                                    >
-                                      {c.net >= 0 ? '+' : '−'}
-                                      {money(Math.abs(c.net))}
-                                    </p>
-                                  </div>
-                                  <div className="mt-1.5 space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Recv</span>
-                                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
-                                        <div
-                                          className="h-full rounded-full bg-amber-500"
-                                          style={{ width: `${recvW}%` }}
-                                        />
-                                      </div>
-                                      <span className="w-[4.5rem] shrink-0 text-right text-[10px] font-semibold tabular-nums text-amber-700">
-                                        {money(recv)}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="w-14 shrink-0 text-[10px] text-muted-foreground">Pay</span>
-                                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-200/80 dark:bg-zinc-800">
-                                        <div
-                                          className="h-full rounded-full bg-sky-500"
-                                          style={{ width: `${payW}%` }}
-                                        />
-                                      </div>
-                                      <span className="w-[4.5rem] shrink-0 text-right text-[10px] font-semibold tabular-nums text-sky-700">
-                                        {money(pay)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </div>
+                              <span className="w-5 shrink-0 text-center text-[11px] font-bold tabular-nums text-zinc-400">
+                                {idx + 1}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-foreground group-hover:text-emerald-700">
+                                  {c.customerName}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  <span className="text-amber-700 dark:text-amber-400">
+                                    Recv {money(recv)}
+                                  </span>
+                                  <span className="mx-1.5 text-zinc-300">·</span>
+                                  <span className="text-sky-700 dark:text-sky-400">
+                                    Pay {money(pay)}
+                                  </span>
+                                </p>
                               </div>
+                              <p
+                                className={cn(
+                                  'shrink-0 text-xs font-bold tabular-nums',
+                                  c.net >= 0 ? 'text-amber-700' : 'text-sky-700',
+                                )}
+                              >
+                                {c.net >= 0 ? '+' : '−'}
+                                {money(Math.abs(c.net))}
+                              </p>
                             </Link>
                           </li>
                         )

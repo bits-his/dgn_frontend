@@ -25,10 +25,29 @@ type LineInput = {
   unitPrice: string
 }
 
+type DistributorOption = {
+  id: number
+  code: string
+  name: string
+  phone?: string | null
+  distributorKind?: string
+}
+
+type BuyerPick =
+  | { kind: 'buyer'; id: number; name: string; saleCount?: number; balanceDue?: number }
+  | {
+      kind: 'distributor'
+      id: number
+      name: string
+      code: string
+      phone?: string | null
+    }
+
 type OverviewPayload = {
   outlet?: { id: number; code: string; name: string }
   stock: StockRow[]
   buyers?: ShopBuyerRow[]
+  distributors?: DistributorOption[]
 }
 
 function fmt(n: number) {
@@ -49,6 +68,7 @@ export function RecordOutletSalePage() {
   const [saleType, setSaleType] = useState<'CASH' | 'CREDIT' | 'TRANSFER'>('CASH')
   const [buyerName, setBuyerName] = useState('')
   const [selectedBuyerId, setSelectedBuyerId] = useState<number | null>(null)
+  const [linkedCustomerId, setLinkedCustomerId] = useState<number | null>(null)
   const [buyerPickerOpen, setBuyerPickerOpen] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<{ saleNumber: string; totalAmount: number } | null>(null)
@@ -65,6 +85,7 @@ export function RecordOutletSalePage() {
   })
 
   const buyers = overview.data?.buyers || []
+  const distributors = overview.data?.distributors || []
   const stock = useMemo(
     () => (overview.data?.stock || []).filter((row) => row.remaining > 0.0001),
     [overview.data],
@@ -76,11 +97,54 @@ export function RecordOutletSalePage() {
     return stock.filter((row) => row.productName.toLowerCase().includes(q))
   }, [stock, itemSearch])
 
-  const buyerSuggestions = useMemo(() => {
+  const buyerSuggestions = useMemo((): BuyerPick[] => {
     const q = buyerName.trim().toLowerCase()
-    if (!q) return buyers.slice(0, 8)
-    return buyers.filter((b) => b.name.toLowerCase().includes(q)).slice(0, 8)
-  }, [buyers, buyerName])
+    const local: BuyerPick[] = (q
+      ? buyers.filter((b) => b.name.toLowerCase().includes(q))
+      : buyers
+    )
+      .slice(0, 6)
+      .map((b) => ({
+        kind: 'buyer' as const,
+        id: b.id,
+        name: b.name,
+        saleCount: b.saleCount,
+        balanceDue: b.balanceDue,
+      }))
+
+    const dists: BuyerPick[] = (q
+      ? distributors.filter(
+          (d) =>
+            d.name.toLowerCase().includes(q) ||
+            String(d.code || '')
+              .toLowerCase()
+              .includes(q),
+        )
+      : distributors
+    )
+      .slice(0, 8)
+      .map((d) => ({
+        kind: 'distributor' as const,
+        id: d.id,
+        name: d.name,
+        code: d.code,
+        phone: d.phone,
+      }))
+
+    // Prefer distributors when searching; keep local returning customers too
+    const merged = [...dists, ...local]
+    const seen = new Set<string>()
+    const unique: BuyerPick[] = []
+    for (const row of merged) {
+      const key =
+        row.kind === 'distributor' ? `d-${row.id}` : `b-${row.id}-${row.name.toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      unique.push(row)
+      if (unique.length >= 10) break
+    }
+    return unique
+  }, [buyers, distributors, buyerName])
 
   useEffect(() => {
     if (!stock.length) return
@@ -139,14 +203,22 @@ export function RecordOutletSalePage() {
     }))
   }
 
-  const pickBuyer = (buyer: ShopBuyerRow) => {
-    setSelectedBuyerId(buyer.id)
-    setBuyerName(buyer.name)
+  const pickBuyer = (row: BuyerPick) => {
+    if (row.kind === 'distributor') {
+      setSelectedBuyerId(null)
+      setLinkedCustomerId(row.id)
+      setBuyerName(row.name)
+    } else {
+      setSelectedBuyerId(row.id)
+      setLinkedCustomerId(null)
+      setBuyerName(row.name)
+    }
     setBuyerPickerOpen(false)
   }
 
   const clearBuyer = () => {
     setSelectedBuyerId(null)
+    setLinkedCustomerId(null)
     setBuyerName('')
   }
 
@@ -160,6 +232,7 @@ export function RecordOutletSalePage() {
         outletCustomerId: effectiveOutletId,
         saleType,
         outletBuyerId: selectedBuyerId,
+        linkedCustomerId,
         buyerName: buyerName.trim() || null,
         amountPaid: saleType === 'CREDIT' ? 0 : subtotal,
         lines: activeLines.map((row) => ({
@@ -428,7 +501,7 @@ export function RecordOutletSalePage() {
             <div className="relative">
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-zinc-700">Customer</label>
-                {(selectedBuyerId || buyerName) && (
+                {(selectedBuyerId || linkedCustomerId || buyerName) && (
                   <button
                     type="button"
                     onClick={clearBuyer}
@@ -443,36 +516,57 @@ export function RecordOutletSalePage() {
                 onChange={(e) => {
                   setBuyerName(e.target.value)
                   setSelectedBuyerId(null)
+                  setLinkedCustomerId(null)
                   setBuyerPickerOpen(true)
                 }}
                 onFocus={() => setBuyerPickerOpen(true)}
                 onBlur={() => {
                   window.setTimeout(() => setBuyerPickerOpen(false), 150)
                 }}
-                placeholder="Walk-in or pick a returning customer"
+                placeholder="Type a name or pick a distributor / returning customer"
                 className="h-9 text-xs"
               />
-              {selectedBuyerId ? (
-                <p className="mt-1 text-[10px] font-medium text-teal-700">Returning customer selected</p>
+              {linkedCustomerId ? (
+                <p className="mt-1 text-[10px] font-medium text-violet-700">
+                  Distributor selected from app list
+                </p>
+              ) : selectedBuyerId ? (
+                <p className="mt-1 text-[10px] font-medium text-teal-700">
+                  Returning shop customer selected
+                </p>
               ) : buyerName.trim() ? (
-                <p className="mt-1 text-[10px] text-zinc-500">Will save as a new / matching customer</p>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Will save as a new / matching shop customer
+                </p>
               ) : (
                 <p className="mt-1 text-[10px] text-zinc-500">Leave blank for walk-in</p>
               )}
               {buyerPickerOpen && buyerSuggestions.length > 0 && (
-                <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-md">
+                <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-md">
                   {buyerSuggestions.map((b) => (
-                    <li key={b.id}>
+                    <li key={b.kind === 'distributor' ? `d-${b.id}` : `b-${b.id}`}>
                       <button
                         type="button"
                         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-zinc-50"
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => pickBuyer(b)}
                       >
-                        <span className="truncate font-medium text-zinc-900">{b.name}</span>
+                        <span className="min-w-0 truncate">
+                          <span className="font-medium text-zinc-900">{b.name}</span>
+                          {b.kind === 'distributor' ? (
+                            <span className="mt-0.5 block font-mono text-[10px] text-violet-600">
+                              Distributor · {b.code}
+                            </span>
+                          ) : null}
+                        </span>
                         <span className="shrink-0 tabular-nums text-[10px] text-zinc-500">
-                          {b.saleCount}×
-                          {b.balanceDue > 0.001 ? ` · owes ${money(b.balanceDue)}` : ''}
+                          {b.kind === 'distributor'
+                            ? 'App list'
+                            : `${b.saleCount || 0}×${
+                                (b.balanceDue || 0) > 0.001
+                                  ? ` · owes ${money(b.balanceDue || 0)}`
+                                  : ''
+                              }`}
                         </span>
                       </button>
                     </li>
