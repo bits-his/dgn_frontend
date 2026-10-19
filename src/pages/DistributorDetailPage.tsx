@@ -111,6 +111,7 @@ type DistributorDetail = {
       debit: number
       credit: number
       balanceAfter: number
+      saleId?: number | null
       saleNumber: string | null
       businessDate: string | null
       paymentMethod: string | null
@@ -219,17 +220,22 @@ function buildLedgerFromServer(
       netDue = +(netDue - credit + debit).toFixed(2)
     }
 
+    const saleNo = t.saleNumber || t.reference || null
     return {
       id: `txn-${t.id}`,
       dateLabel: formatBusinessDate(t.businessDate) || '—',
-      title: entryTypeLabel(t.entryType),
-      meta: [t.paymentMethod, t.reference, t.notes].filter(Boolean).join(' · ') || undefined,
+      title: saleNo
+        ? `${entryTypeLabel(t.entryType)} · ${saleNo}`
+        : entryTypeLabel(t.entryType),
+      meta: [t.paymentMethod, t.notes].filter(Boolean).join(' · ') || undefined,
       debit,
       credit,
       balanceAfter: netDue,
-      saleNumber: t.saleNumber || null,
+      saleNumber: saleNo,
       entryType,
-      expandable: entryType === 'SALE' || entryType === 'SALE_RETURN',
+      // Only factory Sale rows expand with line items; shop refs stay flat
+      expandable:
+        (entryType === 'SALE' || entryType === 'SALE_RETURN') && Boolean(t.saleId),
     }
   })
 
@@ -352,6 +358,7 @@ export function DistributorDetailPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [expandedLedgerId, setExpandedLedgerId] = useState<string | null>(null)
+  const [shopTab, setShopTab] = useState<'overview' | 'customers'>('overview')
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
   const [advanceOpen, setAdvanceOpen] = useState(false)
   const [openingOpen, setOpeningOpen] = useState(false)
@@ -695,7 +702,11 @@ export function DistributorDetailPage() {
                         {money(d.outlet?.money.creditOutstanding || 0)}
                       </p>
                     </div>
-                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
+                    <button
+                      type="button"
+                      onClick={() => setShopTab('customers')}
+                      className="px-3 py-2.5 text-center sm:px-4 sm:text-left hover:bg-zinc-50/80"
+                    >
                       <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
                         Owing
                       </p>
@@ -705,88 +716,120 @@ export function DistributorDetailPage() {
                           customers
                         </span>
                       </p>
-                    </div>
+                    </button>
                   </div>
                 </section>
 
-                <ShopCustomersBoard
-                  buyers={shopBuyers.data?.rows || []}
-                  debtors={shopBuyers.data?.debtors || []}
-                  viewHref={(b) =>
-                    shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
-                  }
-                  limit={24}
-                />
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <BookPanel title="Stock on hand">
-                    {(d.outlet?.stock || []).length === 0 ? (
-                      <p className="py-3 text-center text-xs text-zinc-500">
-                        No stock yet — issue from the factory first.
-                      </p>
-                    ) : (
-                      d.outlet!.stock.map((row) => (
-                        <DataRow
-                          key={row.productId}
-                          title={row.productName}
-                          meta={`${
-                            isPieceUom(row.uom)
-                              ? fmtDozenPcs(row.sold)
-                              : `${fmt(row.sold)} ${row.uom}`
-                          } sold`}
-                          value={
-                            isPieceUom(row.uom)
-                              ? fmtDozenPcs(row.remaining)
-                              : qtyDozenLabel(row.remaining, row.uom)
-                          }
-                        />
-                      ))
-                    )}
-                  </BookPanel>
-                  <BookPanel
-                    title="Recent sales"
-                    action={
-                      (d.outlet?.money.saleCount || 0) > 0 ? (
-                        <Link
-                          to={shopSalesListPath(
-                            isOutletScoped(user) ? null : d.id,
-                            d.code,
-                          )}
-                          className="text-[11px] font-semibold text-teal-800"
-                        >
-                          View all {d.outlet?.money.saleCount || ''} →
-                        </Link>
-                      ) : null
-                    }
-                  >
-                    {(d.outlet?.sales || []).length === 0 ? (
-                      <p className="py-3 text-center text-xs text-zinc-500">
-                        No sales recorded yet.
-                      </p>
-                    ) : (
-                      d.outlet!.sales.map((sale) => (
-                        <DataRow
-                          key={sale.id}
-                          title={
-                            <Link
-                              to={shopSalePath(sale.saleNumber)}
-                              className="hover:text-teal-800"
-                            >
-                              {sale.buyerName || 'Walk-in'}
-                            </Link>
-                          }
-                          meta={`${formatBusinessDate(sale.businessDate) || '—'} · ${sale.saleNumber}`}
-                          value={money(sale.totalAmount)}
-                          hint={
-                            sale.balanceDue > 0.001
-                              ? `Credit ${money(sale.balanceDue)}`
-                              : 'View / print →'
-                          }
-                        />
-                      ))
-                    )}
-                  </BookPanel>
+                <div className="flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs font-semibold">
+                  {(
+                    [
+                      ['overview', 'Overview'],
+                      [
+                        'customers',
+                        `Customers${
+                          shopBuyers.data?.rows?.length
+                            ? ` · ${shopBuyers.data.rows.length}`
+                            : ''
+                        }`,
+                      ],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setShopTab(id)}
+                      className={cn(
+                        'flex-1 rounded-md px-3 py-2 transition-colors',
+                        shopTab === id
+                          ? 'bg-white text-zinc-900 shadow-xs'
+                          : 'text-zinc-500 hover:text-zinc-800',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
+
+                {shopTab === 'customers' ? (
+                  <ShopCustomersBoard
+                    buyers={shopBuyers.data?.rows || []}
+                    debtors={shopBuyers.data?.debtors || []}
+                    viewHref={(b) =>
+                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+                    }
+                    limit={200}
+                  />
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <BookPanel title="Stock on hand">
+                      {(d.outlet?.stock || []).length === 0 ? (
+                        <p className="py-3 text-center text-xs text-zinc-500">
+                          No stock yet — issue from the factory first.
+                        </p>
+                      ) : (
+                        d.outlet!.stock.map((row) => (
+                          <DataRow
+                            key={row.productId}
+                            title={row.productName}
+                            meta={`${
+                              isPieceUom(row.uom)
+                                ? fmtDozenPcs(row.sold)
+                                : `${fmt(row.sold)} ${row.uom}`
+                            } sold`}
+                            value={
+                              isPieceUom(row.uom)
+                                ? fmtDozenPcs(row.remaining)
+                                : qtyDozenLabel(row.remaining, row.uom)
+                            }
+                          />
+                        ))
+                      )}
+                    </BookPanel>
+                    <BookPanel
+                      title="Recent sales"
+                      action={
+                        (d.outlet?.money.saleCount || 0) > 0 ? (
+                          <Link
+                            to={shopSalesListPath(
+                              isOutletScoped(user) ? null : d.id,
+                              d.code,
+                            )}
+                            className="text-[11px] font-semibold text-teal-800"
+                          >
+                            View all {d.outlet?.money.saleCount || ''} →
+                          </Link>
+                        ) : null
+                      }
+                    >
+                      {(d.outlet?.sales || []).length === 0 ? (
+                        <p className="py-3 text-center text-xs text-zinc-500">
+                          No sales recorded yet.
+                        </p>
+                      ) : (
+                        d.outlet!.sales.map((sale) => (
+                          <DataRow
+                            key={sale.id}
+                            title={
+                              <Link
+                                to={shopSalePath(sale.saleNumber)}
+                                className="hover:text-teal-800"
+                              >
+                                {sale.buyerName || 'Walk-in'}
+                              </Link>
+                            }
+                            meta={`${formatBusinessDate(sale.businessDate) || '—'} · ${sale.saleNumber}`}
+                            value={money(sale.totalAmount)}
+                            hint={
+                              sale.balanceDue > 0.001
+                                ? `Credit ${money(sale.balanceDue)}`
+                                : 'View / print →'
+                            }
+                          />
+                        ))
+                      )}
+                    </BookPanel>
+                  </div>
+                )}
               </div>
             ) : (
               <>
