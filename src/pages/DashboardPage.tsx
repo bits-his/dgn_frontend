@@ -614,7 +614,7 @@ export function DashboardPage() {
 
               {/* Operational KPI scorecards */}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {/* Card 1: Raw Material — kg + ₦ like Finished Goods */}
+                {/* Card 1: Raw Material — compact table */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -648,145 +648,168 @@ export function DashboardPage() {
                       )}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1.5 text-xs leading-snug">
-                    {(
-                      [
-                        {
-                          boughtLabel: 'Raw scrap bought',
-                          availLabel: 'Scrap available',
-                          bought:
-                            d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
-                          boughtCost:
-                            d.materialFlow.boughtRawCost ?? d.inventory.boughtRawCost ?? 0,
-                          available:
-                            d.materialFlow.availableRawScrapKg ??
-                            d.inventory.availableRawScrapKg ??
-                            0,
-                          availableValue:
-                            d.materialFlow.availableRawScrapValue ??
-                            d.inventory.availableRawScrapValue ??
-                            0,
-                        },
-                        {
-                          boughtLabel: 'Crushed bought',
-                          availLabel: 'Crushed available',
-                          bought:
-                            d.materialFlow.boughtCrushedKg ??
-                            d.inventory.boughtCrushedKg ??
-                            0,
-                          boughtCost:
-                            d.materialFlow.boughtCrushedCost ??
-                            d.inventory.boughtCrushedCost ??
-                            0,
-                          available:
-                            d.materialFlow.availableCrushedKg ??
-                            d.inventory.availableCrushedKg ??
-                            0,
-                          availableValue:
-                            d.materialFlow.availableCrushedValue ??
-                            d.inventory.availableCrushedValue ??
-                            0,
-                        },
-                        {
-                          boughtLabel: 'Recycled bought',
-                          availLabel: 'Recycled available',
-                          bought:
-                            d.materialFlow.boughtRecycledKg ??
-                            d.inventory.boughtRecycledKg ??
-                            0,
-                          boughtCost:
-                            d.materialFlow.boughtRecycledCost ??
-                            d.inventory.boughtRecycledCost ??
-                            0,
-                          available:
-                            d.materialFlow.availableRecycledKg ??
-                            d.inventory.availableRecycledKg ??
-                            0,
-                          availableValue:
-                            d.materialFlow.availableRecycledValue ??
-                            d.inventory.availableRecycledValue ??
-                            0,
-                        },
-                      ] as const
-                    ).map((row) => (
-                      <div key={row.boughtLabel} className="space-y-0.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate text-muted-foreground">
-                            {row.boughtLabel}
-                          </span>
-                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
-                            <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                              {fmt(row.bought)} kg
-                            </span>
-                            <span className="font-bold text-foreground">
-                              {money(row.boughtCost)}
-                            </span>
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate text-muted-foreground">
-                            {row.availLabel}
-                          </span>
-                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
-                            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-                              {fmt(row.available)} kg
-                            </span>
-                            <span className="font-bold text-emerald-700 dark:text-emerald-400">
-                              {money(row.availableValue)}
-                            </span>
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="space-y-0.5 border-t border-zinc-100 dark:border-zinc-800 pt-1.5">
-                      {(() => {
-                        const washedKg =
-                          (d.materialFlow.availableWashedKg ??
-                            d.inventory.availableWashedKg ??
-                            0) +
-                          (d.materialFlow.availableStoreReadyKg ??
-                            d.inventory.availableStoreReadyKg ??
-                            0)
-                        const washedValue =
-                          (d.materialFlow.availableWashedValue ??
-                            d.inventory.availableWashedValue ??
-                            0) +
-                          (d.materialFlow.availableStoreReadyValue ??
-                            d.inventory.availableStoreReadyValue ??
-                            0)
-                        return (
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="min-w-0 truncate text-muted-foreground">
-                              Washed / store
-                            </span>
-                            <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
-                              <span className="font-semibold text-foreground">
-                                {fmt(washedKg)} kg
-                              </span>
-                              <span className="font-bold text-foreground">
-                                {money(washedValue)}
-                              </span>
-                            </span>
-                          </div>
-                        )
-                      })()}
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Waste</span>
-                        <span className="tabular-nums text-[13px] font-semibold text-rose-600 shrink-0">
-                          {fmt(d.materialFlow.wasteKg || 0)} kg
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">2nd grade</span>
-                        <span className="tabular-nums text-[13px] font-semibold text-amber-700 dark:text-amber-400 shrink-0">
-                          {fmt(
-                            d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0,
-                          )}{' '}
-                          kg
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const washedKg =
+                      (d.materialFlow.availableWashedKg ??
+                        d.inventory.availableWashedKg ??
+                        0) +
+                      (d.materialFlow.availableStoreReadyKg ??
+                        d.inventory.availableStoreReadyKg ??
+                        0)
+                    const washedValue =
+                      (d.materialFlow.availableWashedValue ??
+                        d.inventory.availableWashedValue ??
+                        0) +
+                      (d.materialFlow.availableStoreReadyValue ??
+                        d.inventory.availableStoreReadyValue ??
+                        0)
+                    type Tone = 'default' | 'avail' | 'waste' | 'second'
+                    const rows: {
+                      label: string
+                      kg: number
+                      value?: number
+                      tone: Tone
+                      divider?: boolean
+                    }[] = [
+                      {
+                        label: 'Raw scrap bought',
+                        kg: d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
+                        value: d.materialFlow.boughtRawCost ?? d.inventory.boughtRawCost ?? 0,
+                        tone: 'default',
+                      },
+                      {
+                        label: 'Scrap available',
+                        kg:
+                          d.materialFlow.availableRawScrapKg ??
+                          d.inventory.availableRawScrapKg ??
+                          0,
+                        value:
+                          d.materialFlow.availableRawScrapValue ??
+                          d.inventory.availableRawScrapValue ??
+                          0,
+                        tone: 'avail',
+                      },
+                      {
+                        label: 'Crushed bought',
+                        kg:
+                          d.materialFlow.boughtCrushedKg ?? d.inventory.boughtCrushedKg ?? 0,
+                        value:
+                          d.materialFlow.boughtCrushedCost ??
+                          d.inventory.boughtCrushedCost ??
+                          0,
+                        tone: 'default',
+                      },
+                      {
+                        label: 'Crushed available',
+                        kg:
+                          d.materialFlow.availableCrushedKg ??
+                          d.inventory.availableCrushedKg ??
+                          0,
+                        value:
+                          d.materialFlow.availableCrushedValue ??
+                          d.inventory.availableCrushedValue ??
+                          0,
+                        tone: 'avail',
+                      },
+                      {
+                        label: 'Recycled bought',
+                        kg:
+                          d.materialFlow.boughtRecycledKg ??
+                          d.inventory.boughtRecycledKg ??
+                          0,
+                        value:
+                          d.materialFlow.boughtRecycledCost ??
+                          d.inventory.boughtRecycledCost ??
+                          0,
+                        tone: 'default',
+                      },
+                      {
+                        label: 'Recycled available',
+                        kg:
+                          d.materialFlow.availableRecycledKg ??
+                          d.inventory.availableRecycledKg ??
+                          0,
+                        value:
+                          d.materialFlow.availableRecycledValue ??
+                          d.inventory.availableRecycledValue ??
+                          0,
+                        tone: 'avail',
+                      },
+                      {
+                        label: 'Washed / store',
+                        kg: washedKg,
+                        value: washedValue,
+                        tone: 'default',
+                        divider: true,
+                      },
+                      {
+                        label: 'Waste',
+                        kg: d.materialFlow.wasteKg || 0,
+                        tone: 'waste',
+                      },
+                      {
+                        label: '2nd grade',
+                        kg: d.materialFlow.secondGradeKg || d.inventory.secondGradeKg || 0,
+                        tone: 'second',
+                      },
+                    ]
+                    const toneClass = (tone: Tone) =>
+                      tone === 'avail'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : tone === 'waste'
+                          ? 'text-rose-600'
+                          : tone === 'second'
+                            ? 'text-amber-700 dark:text-amber-400'
+                            : 'text-zinc-800 dark:text-zinc-200'
+                    return (
+                      <table className="mt-2 w-full border-collapse text-[11px] leading-tight">
+                        <thead>
+                          <tr className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+                            <th className="pb-1 pr-1 text-left font-semibold">Type</th>
+                            <th className="pb-1 px-1 text-right font-semibold">kg</th>
+                            <th className="pb-1 pl-1 text-right font-semibold">₦</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => (
+                            <tr
+                              key={row.label}
+                              className={cn(
+                                row.divider && 'border-t border-zinc-100 dark:border-zinc-800',
+                              )}
+                            >
+                              <td
+                                className={cn(
+                                  'max-w-[7.5rem] truncate py-0.5 pr-1 text-zinc-500',
+                                  row.divider && 'pt-1.5',
+                                )}
+                              >
+                                {row.label}
+                              </td>
+                              <td
+                                className={cn(
+                                  'whitespace-nowrap py-0.5 px-1 text-right tabular-nums font-semibold',
+                                  toneClass(row.tone),
+                                  row.divider && 'pt-1.5',
+                                )}
+                              >
+                                {fmt(row.kg)}
+                              </td>
+                              <td
+                                className={cn(
+                                  'whitespace-nowrap py-0.5 pl-1 text-right tabular-nums font-bold',
+                                  toneClass(row.tone),
+                                  row.divider && 'pt-1.5',
+                                )}
+                              >
+                                {row.value != null ? money(row.value) : '—'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )
+                  })()}
                 </div>
 
                 {/* Card 2: Production — by product */}
@@ -833,7 +856,7 @@ export function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Card 3: Finished Goods — stock × list price */}
+                {/* Card 3: Finished Goods — compact table */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -857,35 +880,46 @@ export function DashboardPage() {
                       {money(d.inventory.fgValue ?? d.finishedGoodsValue ?? 0)}
                     </span>
                   </div>
-                  <div className="mt-2 space-y-1.5">
-                    {(d.finishedGoodsStock || []).length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No finished goods in store</p>
-                    ) : (
-                      (d.finishedGoodsStock || []).slice(0, 4).map((row) => (
-                        <div
-                          key={row.productId}
-                          className="flex items-center justify-between gap-2 text-xs"
-                        >
-                          <span className="min-w-0 truncate text-muted-foreground">
-                            {row.productName}
-                          </span>
-                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
-                            <span className="font-semibold text-foreground">
+                  {(d.finishedGoodsStock || []).length === 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">No finished goods in store</p>
+                  ) : (
+                    <table className="mt-2 w-full border-collapse text-[11px] leading-tight">
+                      <thead>
+                        <tr className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
+                          <th className="pb-1 pr-1 text-left font-semibold">Product</th>
+                          <th className="pb-1 px-1 text-right font-semibold">Qty</th>
+                          <th className="pb-1 pl-1 text-right font-semibold">₦</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(d.finishedGoodsStock || []).slice(0, 5).map((row) => (
+                          <tr key={row.productId}>
+                            <td className="max-w-[7.5rem] truncate py-0.5 pr-1 text-zinc-500">
+                              {row.productName}
+                            </td>
+                            <td className="whitespace-nowrap py-0.5 px-1 text-right tabular-nums font-semibold text-zinc-800 dark:text-zinc-200">
                               {fmtDozenPcs(row.qtyOnHand)}
-                            </span>
-                            <span className="font-bold text-foreground">
+                            </td>
+                            <td className="whitespace-nowrap py-0.5 pl-1 text-right tabular-nums font-bold text-zinc-800 dark:text-zinc-200">
                               {money(row.stockValue)}
-                            </span>
-                          </span>
-                        </div>
-                      ))
-                    )}
-                    {(d.finishedGoodsStock || []).length > 4 ? (
-                      <p className="text-xs text-teal-600 font-medium">
-                        +{(d.finishedGoodsStock || []).length - 4} more
-                      </p>
-                    ) : null}
-                  </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      {(d.finishedGoodsStock || []).length > 5 ? (
+                        <tfoot>
+                          <tr>
+                            <td
+                              colSpan={3}
+                              className="pt-1 text-[10px] font-medium text-teal-600"
+                            >
+                              +{(d.finishedGoodsStock || []).length - 5} more
+                            </td>
+                          </tr>
+                        </tfoot>
+                      ) : null}
+                    </table>
+                  )}
                 </div>
 
                 {/* Card 4: Sales — factory + shop on separate lines */}
@@ -2203,70 +2237,72 @@ export function DashboardPage() {
             )}
 
             {activeKpiModal === 'shops' && d && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400">
-                      <Store className="size-4" />
+                  <div className="flex items-center gap-2">
+                    <div className="flex size-7 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400">
+                      <Store className="size-3.5" />
                     </div>
                     <div>
-                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
+                      <DialogTitle className="text-sm font-bold tracking-tight text-foreground">
                         Market shops
                       </DialogTitle>
-                      <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                      <DialogDescription className="text-[11px] text-muted-foreground">
                         Stock at shop and stall sales · {d.range.label}
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">On hand</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-violet-700 dark:text-violet-400">
-                      {money(d.factoryShops?.remainingValue ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">
-                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
-                    </span>
+                <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                  <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800">
+                    <div className="px-2 py-2 sm:px-2.5">
+                      <p className="text-[10px] font-medium text-zinc-500">On hand</p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-violet-700 dark:text-violet-400">
+                        {money(d.factoryShops?.remainingValue ?? 0)}
+                      </p>
+                      <p className="text-[10px] text-zinc-400">
+                        {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
+                      </p>
+                    </div>
+                    <div className="px-2 py-2 sm:px-2.5">
+                      <p className="text-[10px] font-medium text-zinc-500">Sold</p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+                        {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
+                      </p>
+                      <p className="text-[10px] text-zinc-400">At the shop</p>
+                    </div>
+                    <div className="px-2 py-2 sm:px-2.5">
+                      <p className="text-[10px] font-medium text-zinc-500">Sales</p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+                        ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
+                      </p>
+                      <p className="text-[10px] text-zinc-400">
+                        Collected ₦
+                        {fmt(d.sales.shopCollected ?? d.factoryShops?.shopRetailCollected ?? 0)}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">Sold</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">At the shop</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[11px] font-medium text-muted-foreground">Sales</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">
-                      Collected ₦
-                      {fmt(d.sales.shopCollected ?? d.factoryShops?.shopRetailCollected ?? 0)}
-                    </span>
-                  </div>
-                </div>
+                </section>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                     Balance by shop
                   </h4>
                   {(d.factoryShops?.shops || []).length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-4 text-center">
+                    <p className="py-3 text-center text-xs text-muted-foreground">
                       No market shops set up yet.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-56">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
+                    <div className="max-h-48 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+                      <table className="w-full border-collapse text-left text-[11px]">
+                        <thead className="sticky top-0 border-b border-zinc-200 bg-zinc-50 text-muted-foreground dark:border-zinc-800 dark:bg-zinc-900">
                           <tr>
-                            <th className="py-2.5 px-3">Shop</th>
-                            <th className="py-2.5 px-3 text-right">Received</th>
-                            <th className="py-2.5 px-3 text-right">Sold</th>
-                            <th className="py-2.5 px-3 text-right">On hand</th>
-                            <th className="py-2.5 px-3 text-right">Stock value</th>
+                            <th className="px-2 py-1.5 font-semibold">Shop</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">In</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">Sold</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">On hand</th>
+                            <th className="px-2 py-1.5 text-right font-semibold">Value</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -2275,7 +2311,7 @@ export function DashboardPage() {
                               key={shop.customerId}
                               className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60"
                             >
-                              <td className="py-2.5 px-3">
+                              <td className="px-2 py-1.5">
                                 <Link
                                   to={`/distributors/${shop.customerCode || shop.customerId}`}
                                   onClick={() => setActiveKpiModal(null)}
@@ -2284,16 +2320,16 @@ export function DashboardPage() {
                                   {shop.customerName}
                                 </Link>
                               </td>
-                              <td className="py-2.5 px-3 text-right tabular-nums">
+                              <td className="px-2 py-1.5 text-right tabular-nums">
                                 {fmtDozenPcs(shop.receivedQty)}
                               </td>
-                              <td className="py-2.5 px-3 text-right tabular-nums">
+                              <td className="px-2 py-1.5 text-right tabular-nums">
                                 {fmtDozenPcs(shop.soldQty)}
                               </td>
-                              <td className="py-2.5 px-3 text-right font-semibold tabular-nums">
+                              <td className="px-2 py-1.5 text-right font-semibold tabular-nums">
                                 {fmtDozenPcs(shop.remainingQty)}
                               </td>
-                              <td className="py-2.5 px-3 text-right font-bold tabular-nums text-violet-700 dark:text-violet-400">
+                              <td className="px-2 py-1.5 text-right font-bold tabular-nums text-violet-700 dark:text-violet-400">
                                 {money(shop.remainingValue)}
                               </td>
                             </tr>
@@ -2304,16 +2340,16 @@ export function DashboardPage() {
                   )}
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Transfer transactions ({d.factoryShops?.transfers?.length ?? 0})
+                    Transfers ({d.factoryShops?.transfers?.length ?? 0})
                   </h4>
                   {(d.factoryShops?.transfers || []).length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-4 text-center">
+                    <p className="py-3 text-center text-xs text-muted-foreground">
                       No stock issues to shops in this period.
                     </p>
                   ) : (
-                    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                    <div className="max-h-56 overflow-y-auto divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
                       {(d.factoryShops?.transfers || []).map((txn) => {
                         const open = expandedShopTransferId === txn.id
                         return (
@@ -2323,7 +2359,7 @@ export function DashboardPage() {
                               onClick={() =>
                                 setExpandedShopTransferId(open ? null : txn.id)
                               }
-                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-zinc-50/80 dark:hover:bg-zinc-900/60"
+                              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-zinc-50/80 dark:hover:bg-zinc-900/60"
                             >
                               <ChevronDown
                                 className={cn(
