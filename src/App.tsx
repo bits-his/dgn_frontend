@@ -45,6 +45,12 @@ import { SaleInvoicePage, SaleReceiptPage } from '@/pages/SaleDocumentPage'
 import { DistributorsPage } from '@/pages/DistributorsPage'
 import { DistributorDetailPage } from '@/pages/DistributorDetailPage'
 import { RecordOutletSalePage } from '@/pages/RecordOutletSalePage'
+import { ShopSalesPage } from '@/pages/ShopSalesPage'
+import { ShopSaleDetailPage } from '@/pages/ShopSaleDetailPage'
+import {
+  ShopSaleInvoicePage,
+  ShopSaleReceiptPage,
+} from '@/pages/ShopSaleDocumentPage'
 import { ShopBuyerDetailPage } from '@/pages/ShopBuyerDetailPage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ProductPricingPage } from '@/pages/ProductPricingPage'
@@ -116,6 +122,8 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/sales/:saleNumber/invoice" element={<SaleInvoicePage />} />
               <Route path="/sales/:saleNumber/receipt" element={<SaleReceiptPage />} />
+              <Route path="/shop/sales/:saleNumber/invoice" element={<ShopSaleInvoicePage />} />
+              <Route path="/shop/sales/:saleNumber/receipt" element={<ShopSaleReceiptPage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<HomePage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
@@ -157,7 +165,9 @@ function App() {
                 <Route path="/pricing" element={<ProductPricingPage />} />
                 <Route path="/distributors" element={<DistributorsPage />} />
                 <Route path="/distributors/:code" element={<DistributorDetailPage />} />
+                <Route path="/shop/sales" element={<ShopSalesPage />} />
                 <Route path="/shop/sales/new" element={<RecordOutletSalePage />} />
+                <Route path="/shop/sales/:saleNumber" element={<ShopSaleDetailPage />} />
                 <Route path="/shop/customers/:buyerId" element={<ShopBuyerDetailPage />} />
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />

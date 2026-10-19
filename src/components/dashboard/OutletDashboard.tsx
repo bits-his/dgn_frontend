@@ -5,12 +5,11 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { PageLayout } from '@/components/PageLayout'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, outletHomePath, shopBuyerPath } from '@/lib/outlet'
+import { isOutletScoped, outletHomePath, shopBuyerPath, shopSalesListPath } from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
 import { BookPanel, DataRow } from '@/components/outlet/OutletBookUi'
 import {
   ShopCustomersBoard,
-  ShopDebtorsPanel,
   type ShopBuyerRow,
 } from '@/components/outlet/ShopCustomersBoard'
 import { cn } from '@/lib/utils'
@@ -159,22 +158,19 @@ export function OutletDashboard() {
           </div>
         </div>
 
-        {/* People */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ShopCustomersBoard
-            buyers={buyers}
-            viewHref={(b) => shopBuyerPath(b.id)}
-            action={
-              <Link
-                to={bookHref}
-                className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-teal-800"
-              >
-                All <ArrowRight className="size-3" />
-              </Link>
-            }
-          />
-          <ShopDebtorsPanel debtors={debtors} viewHref={(b) => shopBuyerPath(b.id)} />
-        </div>
+        <ShopCustomersBoard
+          buyers={buyers}
+          debtors={debtors}
+          viewHref={(b) => shopBuyerPath(b.id)}
+          action={
+            <Link
+              to={bookHref}
+              className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-teal-800"
+            >
+              Book <ArrowRight className="size-3" />
+            </Link>
+          }
+        />
 
         {/* Stock + recent */}
         <div className="grid gap-3 sm:grid-cols-2">
@@ -214,8 +210,8 @@ export function OutletDashboard() {
           <BookPanel
             title="Recent sales"
             action={
-              <Link to="/shop/sales/new" className="text-[11px] font-semibold text-teal-800">
-                New
+              <Link to={shopSalesListPath()} className="text-[11px] font-semibold text-teal-800">
+                View all {(d?.money.saleCount || 0) > 0 ? d?.money.saleCount : ''} →
               </Link>
             }
           >

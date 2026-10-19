@@ -10,6 +10,7 @@ import {
   Recycle,
   PackageCheck,
   Store,
+  ChevronDown,
 } from 'lucide-react'
 import {
   Bar,
@@ -107,7 +108,16 @@ type Dashboard = {
     unitsGoodDozen?: number
     unitsGoodPcs?: number
   }
-  sales: { saleCount: number; revenue: number }
+  sales: {
+    saleCount: number
+    revenue: number
+    factorySaleCount?: number
+    shopSaleCount?: number
+    factoryRevenue?: number
+    shopRevenue?: number
+    shopCollected?: number
+    shopOutstanding?: number
+  }
   spend: { approvedExpenses: number; wagesOutstanding: number }
   money: {
     cashIn: number
@@ -152,6 +162,10 @@ type Dashboard = {
     boughtRawKg?: number
     boughtCrushedKg?: number
     boughtRecycledKg?: number
+    boughtRawCost?: number
+    boughtCrushedCost?: number
+    boughtRecycledCost?: number
+    boughtCost?: number
     availableKg?: number
     availableRawScrapKg?: number
     availableCrushedKg?: number
@@ -159,6 +173,14 @@ type Dashboard = {
     availableStoreReadyKg?: number
     availableRecycledKg?: number
     availableOtherKg?: number
+    availableRawScrapValue?: number
+    availableCrushedValue?: number
+    availableWashedValue?: number
+    availableStoreReadyValue?: number
+    availableRecycledValue?: number
+    availableOtherValue?: number
+    availableMaterialValue?: number
+    availableMaterialKg?: number
     wasteKg?: number
     secondGradeKg?: number
     damagedRecrushKg?: number
@@ -187,6 +209,10 @@ type Dashboard = {
     boughtRawKg?: number
     boughtCrushedKg?: number
     boughtRecycledKg?: number
+    boughtRawCost?: number
+    boughtCrushedCost?: number
+    boughtRecycledCost?: number
+    boughtCost?: number
     wasteKg?: number
     secondGradeKg?: number
     availableKg?: number
@@ -196,6 +222,14 @@ type Dashboard = {
     availableStoreReadyKg?: number
     availableRecycledKg?: number
     availableOtherKg?: number
+    availableRawScrapValue?: number
+    availableCrushedValue?: number
+    availableWashedValue?: number
+    availableStoreReadyValue?: number
+    availableRecycledValue?: number
+    availableOtherValue?: number
+    availableMaterialValue?: number
+    availableMaterialKg?: number
     sortedKg?: number | null
     crushedKg?: number | null
     washedKg?: number | null
@@ -315,6 +349,14 @@ type Dashboard = {
       stockValue: number
       lineCount: number
       issuedBy: string | null
+      lines?: Array<{
+        productId: number
+        productName: string | null
+        qty: number
+        uom: string
+        unitPrice: number
+        lineValue: number
+      }>
     }>
     stock: Array<{
       productId: number
@@ -377,6 +419,7 @@ export function DashboardPage() {
   const [activeKpiModal, setActiveKpiModal] = useState<
     'raw_material' | 'production' | 'finished_goods' | 'sales' | 'shops' | null
   >(null)
+  const [expandedShopTransferId, setExpandedShopTransferId] = useState<number | null>(null)
 
   const dash = useQuery({
     queryKey: ['executive-dashboard', apiParams, compare],
@@ -571,7 +614,7 @@ export function DashboardPage() {
 
               {/* Operational KPI scorecards */}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {/* Card 1: Raw Material — bought + available by buy type */}
+                {/* Card 1: Raw Material — kg + ₦ like Finished Goods */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -587,7 +630,25 @@ export function DashboardPage() {
                       <Recycle className="size-3.5" />
                     </div>
                   </div>
-                  <div className="mt-2 space-y-2 text-xs leading-snug">
+                  <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-base font-bold tabular-nums text-foreground">
+                      {fmt(
+                        d.materialFlow.availableMaterialKg ??
+                          d.inventory.availableMaterialKg ??
+                          d.inventory.rawKg ??
+                          0,
+                      )}{' '}
+                      kg
+                    </span>
+                    <span className="text-base font-bold tabular-nums text-foreground text-right">
+                      {money(
+                        d.materialFlow.availableMaterialValue ??
+                          d.inventory.availableMaterialValue ??
+                          0,
+                      )}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1.5 text-xs leading-snug">
                     {(
                       [
                         {
@@ -595,9 +656,15 @@ export function DashboardPage() {
                           availLabel: 'Scrap available',
                           bought:
                             d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
+                          boughtCost:
+                            d.materialFlow.boughtRawCost ?? d.inventory.boughtRawCost ?? 0,
                           available:
                             d.materialFlow.availableRawScrapKg ??
                             d.inventory.availableRawScrapKg ??
+                            0,
+                          availableValue:
+                            d.materialFlow.availableRawScrapValue ??
+                            d.inventory.availableRawScrapValue ??
                             0,
                         },
                         {
@@ -607,9 +674,17 @@ export function DashboardPage() {
                             d.materialFlow.boughtCrushedKg ??
                             d.inventory.boughtCrushedKg ??
                             0,
+                          boughtCost:
+                            d.materialFlow.boughtCrushedCost ??
+                            d.inventory.boughtCrushedCost ??
+                            0,
                           available:
                             d.materialFlow.availableCrushedKg ??
                             d.inventory.availableCrushedKg ??
+                            0,
+                          availableValue:
+                            d.materialFlow.availableCrushedValue ??
+                            d.inventory.availableCrushedValue ??
                             0,
                         },
                         {
@@ -619,43 +694,82 @@ export function DashboardPage() {
                             d.materialFlow.boughtRecycledKg ??
                             d.inventory.boughtRecycledKg ??
                             0,
+                          boughtCost:
+                            d.materialFlow.boughtRecycledCost ??
+                            d.inventory.boughtRecycledCost ??
+                            0,
                           available:
                             d.materialFlow.availableRecycledKg ??
                             d.inventory.availableRecycledKg ??
+                            0,
+                          availableValue:
+                            d.materialFlow.availableRecycledValue ??
+                            d.inventory.availableRecycledValue ??
                             0,
                         },
                       ] as const
                     ).map((row) => (
                       <div key={row.boughtLabel} className="space-y-0.5">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground truncate">{row.boughtLabel}</span>
-                          <span className="tabular-nums text-[13px] font-semibold text-zinc-800 dark:text-zinc-200 shrink-0">
-                            {fmt(row.bought)} kg
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            {row.boughtLabel}
+                          </span>
+                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
+                            <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                              {fmt(row.bought)} kg
+                            </span>
+                            <span className="font-bold text-foreground">
+                              {money(row.boughtCost)}
+                            </span>
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground truncate">{row.availLabel}</span>
-                          <span className="tabular-nums text-[13px] font-bold text-emerald-700 dark:text-emerald-400 shrink-0">
-                            {fmt(row.available)} kg
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            {row.availLabel}
+                          </span>
+                          <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                              {fmt(row.available)} kg
+                            </span>
+                            <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                              {money(row.availableValue)}
+                            </span>
                           </span>
                         </div>
                       </div>
                     ))}
                     <div className="space-y-0.5 border-t border-zinc-100 dark:border-zinc-800 pt-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground truncate">Washed / store</span>
-                        <span className="tabular-nums text-[13px] font-semibold text-foreground shrink-0">
-                          {fmt(
-                            (d.materialFlow.availableWashedKg ??
-                              d.inventory.availableWashedKg ??
-                              0) +
-                              (d.materialFlow.availableStoreReadyKg ??
-                                d.inventory.availableStoreReadyKg ??
-                                0),
-                          )}{' '}
-                          kg
-                        </span>
-                      </div>
+                      {(() => {
+                        const washedKg =
+                          (d.materialFlow.availableWashedKg ??
+                            d.inventory.availableWashedKg ??
+                            0) +
+                          (d.materialFlow.availableStoreReadyKg ??
+                            d.inventory.availableStoreReadyKg ??
+                            0)
+                        const washedValue =
+                          (d.materialFlow.availableWashedValue ??
+                            d.inventory.availableWashedValue ??
+                            0) +
+                          (d.materialFlow.availableStoreReadyValue ??
+                            d.inventory.availableStoreReadyValue ??
+                            0)
+                        return (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate text-muted-foreground">
+                              Washed / store
+                            </span>
+                            <span className="shrink-0 flex items-baseline gap-2 tabular-nums text-right text-[13px]">
+                              <span className="font-semibold text-foreground">
+                                {fmt(washedKg)} kg
+                              </span>
+                              <span className="font-bold text-foreground">
+                                {money(washedValue)}
+                              </span>
+                            </span>
+                          </div>
+                        )
+                      })()}
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-muted-foreground">Waste</span>
                         <span className="tabular-nums text-[13px] font-semibold text-rose-600 shrink-0">
@@ -774,7 +888,7 @@ export function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Card 4: Sales */}
+                {/* Card 4: Sales — factory + shop on separate lines */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -791,13 +905,24 @@ export function DashboardPage() {
                     </div>
                   </div>
                   <p className="mt-1.5 text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
-                    ₦{fmt(d.sales.revenue, 0)}
+                    ₦
+                    {fmt(
+                      (d.sales.factoryRevenue ?? d.sales.revenue ?? 0) +
+                        (d.sales.shopRevenue ?? 0),
+                      0,
+                    )}
                   </p>
                   <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
-                      <span>Orders</span>
+                      <span>Factory sales</span>
                       <span className="text-[13px] font-semibold tabular-nums text-foreground">
-                        {d.sales.saleCount}
+                        ₦{fmt(d.sales.factoryRevenue ?? d.sales.revenue, 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Shop sales</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                        ₦{fmt(d.sales.shopRevenue ?? 0, 0)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
@@ -831,32 +956,25 @@ export function DashboardPage() {
                       <Store className="size-3.5" />
                     </div>
                   </div>
-                  <p className="mt-1.5 text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
-                    {money(d.factoryShops?.remainingValue ?? 0)}
-                  </p>
+                  <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
+                    </span>
+                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums text-right truncate">
+                      {money(d.factoryShops?.remainingValue ?? 0)}
+                    </span>
+                  </div>
                   <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
                     <div className="flex items-center justify-between gap-2">
-                      <span>Shops</span>
+                      <span>Sold</span>
                       <span className="text-[13px] font-semibold tabular-nums text-foreground">
-                        {d.factoryShops?.shopCount ?? 0}
+                        {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span>Issued (period)</span>
+                      <span>Sales</span>
                       <span className="text-[13px] font-semibold tabular-nums text-foreground">
-                        {fmtDozenPcs(d.factoryShops?.transferredQty ?? 0)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Still on hand</span>
-                      <span className="text-[13px] font-semibold tabular-nums text-violet-700 dark:text-violet-400">
-                        {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Shop retail credit</span>
-                      <span className="text-[13px] font-semibold tabular-nums text-amber-600">
-                        ₦{fmt(d.factoryShops?.shopRetailOutstanding ?? 0)}
+                        ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
                       </span>
                     </div>
                   </div>
@@ -872,7 +990,7 @@ export function DashboardPage() {
                     Customers
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    Receivable (they owe) · Payable (advance on account)
+                    Netted position — they owe, or we hold their advance
                   </p>
                 </div>
                 <Button variant="outline" size="sm" className="h-7 text-xs font-medium shrink-0" asChild>
@@ -930,13 +1048,17 @@ export function DashboardPage() {
                                   {c.customerName}
                                 </p>
                                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                  <span className="text-amber-700 dark:text-amber-400">
-                                    Recv {money(recv)}
-                                  </span>
-                                  <span className="mx-1.5 text-zinc-300">·</span>
-                                  <span className="text-sky-700 dark:text-sky-400">
-                                    Pay {money(pay)}
-                                  </span>
+                                  {recv > 0.001 ? (
+                                    <span className="text-amber-700 dark:text-amber-400">
+                                      Receivable {money(recv)}
+                                    </span>
+                                  ) : pay > 0.001 ? (
+                                    <span className="text-sky-700 dark:text-sky-400">
+                                      Advance held {money(pay)}
+                                    </span>
+                                  ) : (
+                                    <span>Settled</span>
+                                  )}
                                 </p>
                               </div>
                               <p
@@ -1314,6 +1436,35 @@ export function DashboardPage() {
                   </div>
                 </DialogHeader>
 
+                <div className="flex items-baseline justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      On hand
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {fmt(
+                        d.materialFlow.availableMaterialKg ??
+                          d.inventory.availableMaterialKg ??
+                          d.inventory.rawKg ??
+                          0,
+                      )}{' '}
+                      kg
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      Stock value
+                    </span>
+                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
+                      {money(
+                        d.materialFlow.availableMaterialValue ??
+                          d.inventory.availableMaterialValue ??
+                          0,
+                      )}
+                    </p>
+                  </div>
+                </div>
+
                 <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 text-xs">
                   {(
                     [
@@ -1322,9 +1473,15 @@ export function DashboardPage() {
                         availLabel: 'Scrap available',
                         bought:
                           d.materialFlow.boughtRawKg ?? d.inventory.boughtRawKg ?? 0,
+                        boughtCost:
+                          d.materialFlow.boughtRawCost ?? d.inventory.boughtRawCost ?? 0,
                         available:
                           d.materialFlow.availableRawScrapKg ??
                           d.inventory.availableRawScrapKg ??
+                          0,
+                        availableValue:
+                          d.materialFlow.availableRawScrapValue ??
+                          d.inventory.availableRawScrapValue ??
                           0,
                       },
                       {
@@ -1334,9 +1491,17 @@ export function DashboardPage() {
                           d.materialFlow.boughtCrushedKg ??
                           d.inventory.boughtCrushedKg ??
                           0,
+                        boughtCost:
+                          d.materialFlow.boughtCrushedCost ??
+                          d.inventory.boughtCrushedCost ??
+                          0,
                         available:
                           d.materialFlow.availableCrushedKg ??
                           d.inventory.availableCrushedKg ??
+                          0,
+                        availableValue:
+                          d.materialFlow.availableCrushedValue ??
+                          d.inventory.availableCrushedValue ??
                           0,
                       },
                       {
@@ -1346,9 +1511,17 @@ export function DashboardPage() {
                           d.materialFlow.boughtRecycledKg ??
                           d.inventory.boughtRecycledKg ??
                           0,
+                        boughtCost:
+                          d.materialFlow.boughtRecycledCost ??
+                          d.inventory.boughtRecycledCost ??
+                          0,
                         available:
                           d.materialFlow.availableRecycledKg ??
                           d.inventory.availableRecycledKg ??
+                          0,
+                        availableValue:
+                          d.materialFlow.availableRecycledValue ??
+                          d.inventory.availableRecycledValue ??
                           0,
                       },
                     ] as const
@@ -1356,14 +1529,24 @@ export function DashboardPage() {
                     <div key={row.boughtLabel} className="space-y-0.5 py-1 border-b border-zinc-100 dark:border-zinc-800 sm:border-0">
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-muted-foreground">{row.boughtLabel}</span>
-                        <span className="tabular-nums font-semibold text-foreground">
-                          {fmt(row.bought)} kg
+                        <span className="flex items-baseline gap-2 tabular-nums text-right">
+                          <span className="font-semibold text-foreground">
+                            {fmt(row.bought)} kg
+                          </span>
+                          <span className="font-bold text-foreground">
+                            {money(row.boughtCost)}
+                          </span>
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
                         <span className="text-muted-foreground">{row.availLabel}</span>
-                        <span className="tabular-nums font-bold text-emerald-700 dark:text-emerald-400">
-                          {fmt(row.available)} kg
+                        <span className="flex items-baseline gap-2 tabular-nums text-right">
+                          <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                            {fmt(row.available)} kg
+                          </span>
+                          <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                            {money(row.availableValue)}
+                          </span>
                         </span>
                       </div>
                     </div>
@@ -1376,12 +1559,20 @@ export function DashboardPage() {
                           d.materialFlow.availableWashedKg ??
                           d.inventory.availableWashedKg ??
                           0,
+                        amount:
+                          d.materialFlow.availableWashedValue ??
+                          d.inventory.availableWashedValue ??
+                          0,
                       },
                       {
                         label: 'Store-ready available',
                         value:
                           d.materialFlow.availableStoreReadyKg ??
                           d.inventory.availableStoreReadyKg ??
+                          0,
+                        amount:
+                          d.materialFlow.availableStoreReadyValue ??
+                          d.inventory.availableStoreReadyValue ??
                           0,
                       },
                       {
@@ -1411,7 +1602,7 @@ export function DashboardPage() {
                     >
                       <span className="text-muted-foreground">{row.label}</span>
                       <span
-                        className={`tabular-nums font-bold ${
+                        className={`flex items-baseline gap-2 tabular-nums text-right font-bold ${
                           'tone' in row && row.tone === 'waste'
                             ? 'text-rose-600'
                             : 'tone' in row && row.tone === 'second'
@@ -1421,7 +1612,8 @@ export function DashboardPage() {
                                 : 'text-emerald-700 dark:text-emerald-400'
                         }`}
                       >
-                        {fmt(row.value)} kg
+                        <span>{fmt(row.value)} kg</span>
+                        {'amount' in row ? <span>{money(row.amount)}</span> : null}
                       </span>
                     </div>
                   ))}
@@ -1443,6 +1635,7 @@ export function DashboardPage() {
                             <th className="whitespace-nowrap py-2 pr-3">Buy</th>
                             <th className="py-2 px-3 whitespace-nowrap">Bought as</th>
                             <th className="py-2 px-3 text-right whitespace-nowrap">Bought</th>
+                            <th className="py-2 px-3 text-right whitespace-nowrap">Amount</th>
                             <th className="py-2 px-3 text-right whitespace-nowrap">Available</th>
                             <th className="py-2 px-3 text-right whitespace-nowrap">Waste</th>
                             <th className="py-2 px-3 text-right whitespace-nowrap">2nd grade</th>
@@ -1483,6 +1676,9 @@ export function DashboardPage() {
                                 </td>
                                 <td className="py-2 px-3 text-right font-mono tabular-nums align-middle whitespace-nowrap">
                                   {fmt(row.kg)} kg
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono tabular-nums font-semibold align-middle whitespace-nowrap">
+                                  {money(row.cost ?? 0)}
                                 </td>
                                 <td className="py-2 px-3 text-right font-mono tabular-nums font-semibold text-emerald-700 dark:text-emerald-400 align-middle whitespace-nowrap">
                                   {fmt(row.availableKg ?? 0)} kg
@@ -1780,178 +1976,229 @@ export function DashboardPage() {
             )}
 
             {activeKpiModal === 'sales' && d && (
-              <div className="space-y-3">
-                <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                      <Banknote className="size-4" />
-                    </div>
-                    <div>
-                      <DialogTitle className="text-base font-bold tracking-tight text-foreground">
-                        Sales &amp; Financial Commercials
-                      </DialogTitle>
-                      <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Revenue, cash, receivables, and customer advances for {d.periodLabel}
-                      </DialogDescription>
-                    </div>
-                  </div>
-                </DialogHeader>
+              <div className="space-y-2.5">
+                {(() => {
+                  const factoryRev = Number(d.sales.factoryRevenue ?? d.sales.revenue ?? 0)
+                  const shopRev = Number(d.sales.shopRevenue ?? 0)
+                  const totalRev = factoryRev + shopRev
+                  const factoryN = Number(d.sales.factorySaleCount ?? d.sales.saleCount ?? 0)
+                  const shopN = Number(d.sales.shopSaleCount ?? 0)
+                  const theyOwe = Number(d.money.receivables || 0)
+                  const weHold = Number(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)
+                  const netPos = theyOwe - weHold
+                  const cashIn = Number(d.money.cashIn || 0)
+                  const cashOut = Number(d.money.cashOut || 0)
+                  const netCash = Number(d.money.netCash || 0)
+                  const owingRows = (d.customerBalances?.rows || []).filter(
+                    (c) => Number(c.receivable || 0) > 0.001,
+                  )
+                  const advanceRows = (d.customerBalances?.rows || []).filter(
+                    (c) => Number(c.payable || 0) > 0.001,
+                  )
+                  return (
+                    <>
+                      <DialogHeader className="mb-0 pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                        <div className="flex items-center gap-2">
+                          <div className="flex size-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                            <Banknote className="size-3.5" />
+                          </div>
+                          <div>
+                            <DialogTitle className="text-sm font-bold tracking-tight text-foreground">
+                              Sales · {d.periodLabel}
+                            </DialogTitle>
+                            <DialogDescription className="text-[11px] text-muted-foreground">
+                              What sold · who owes · cash movement
+                            </DialogDescription>
+                          </div>
+                        </div>
+                      </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Gross Revenue</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      ₦{fmt(d.sales.revenue, 0)}
-                    </p>
-                    <span className="text-[10px] text-emerald-600 font-medium">Billed sales volume</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Sales Orders</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {d.sales.saleCount || 0}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">Orders registered</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Receivables Due</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
-                      ₦{fmt(d.money.receivables || 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">Customer balances</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payables</span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-sky-600">
-                      ₦{fmt(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">Customer advances</span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Net Cash Flow</span>
-                    <p className={cn("mt-0.5 text-lg font-bold tabular-nums", d.money.netCash >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      ₦{fmt(d.money.netCash || 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">In − out</span>
-                  </div>
-                </div>
+                      {/* 1. What sold */}
+                      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                        <div className="flex items-baseline justify-between gap-2 border-b border-zinc-100 px-2.5 py-2 dark:border-zinc-800">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                            Sold this period
+                          </span>
+                          <span className="text-base font-bold tabular-nums text-zinc-900 dark:text-white">
+                            ₦{fmt(totalRev, 0)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 divide-x divide-zinc-100 dark:divide-zinc-800">
+                          <div className="px-2.5 py-2">
+                            <p className="text-[10px] font-medium text-zinc-500">Factory sales</p>
+                            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+                              ₦{fmt(factoryRev, 0)}
+                            </p>
+                            <p className="text-[10px] text-zinc-400">{factoryN} orders</p>
+                          </div>
+                          <div className="px-2.5 py-2">
+                            <p className="text-[10px] font-medium text-zinc-500">Shop sales</p>
+                            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+                              ₦{fmt(shopRev, 0)}
+                            </p>
+                            <p className="text-[10px] text-zinc-400">{shopN} orders</p>
+                          </div>
+                        </div>
+                      </section>
 
-                <div className="space-y-1.5">
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    Cash &amp; spend breakdown
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-[10px] text-muted-foreground">Cash in</span>
-                      <p className="text-sm font-bold text-emerald-600 tabular-nums mt-0.5">
-                        ₦{fmt(d.money.cashIn || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-[10px] text-muted-foreground">Cash out</span>
-                      <p className="text-sm font-bold text-red-600 tabular-nums mt-0.5">
-                        ₦{fmt(d.money.cashOut || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-[10px] text-muted-foreground">Approved expenses</span>
-                      <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">
-                        ₦{fmt(d.spend.approvedExpenses || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-zinc-200/80 p-2 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-                      <span className="text-[10px] text-muted-foreground">Wages outstanding</span>
-                      <p className="text-sm font-bold text-amber-600 tabular-nums mt-0.5">
-                        ₦{fmt(d.spend.wagesOutstanding || 0)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                      {/* 2. Customer money position (netted) */}
+                      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                        <div className="border-b border-zinc-100 px-2.5 py-1.5 dark:border-zinc-800">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                            Customer money
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 divide-x divide-zinc-100 dark:divide-zinc-800">
+                          <div className="px-2 py-2 text-center sm:px-2.5 sm:text-left">
+                            <p className="text-[10px] font-medium text-amber-700/80">They owe</p>
+                            <p className="mt-0.5 text-sm font-bold tabular-nums text-amber-700">
+                              ₦{fmt(theyOwe, 0)}
+                            </p>
+                          </div>
+                          <div className="px-2 py-2 text-center sm:px-2.5 sm:text-left">
+                            <p className="text-[10px] font-medium text-sky-700/80">Advance held</p>
+                            <p className="mt-0.5 text-sm font-bold tabular-nums text-sky-700">
+                              ₦{fmt(weHold, 0)}
+                            </p>
+                          </div>
+                          <div className="px-2 py-2 text-center sm:px-2.5 sm:text-left">
+                            <p className="text-[10px] font-medium text-zinc-500">Net</p>
+                            <p
+                              className={cn(
+                                'mt-0.5 text-sm font-bold tabular-nums',
+                                netPos > 0.001
+                                  ? 'text-amber-700'
+                                  : netPos < -0.001
+                                    ? 'text-sky-700'
+                                    : 'text-zinc-900 dark:text-white',
+                              )}
+                            >
+                              {netPos < -0.001 ? '−' : netPos > 0.001 ? '+' : ''}
+                              ₦{fmt(Math.abs(netPos), 0)}
+                            </p>
+                          </div>
+                        </div>
+                        {(owingRows.length > 0 || advanceRows.length > 0) && (
+                          <div className="max-h-36 space-y-0.5 overflow-y-auto border-t border-zinc-100 px-1.5 py-1.5 dark:border-zinc-800">
+                            {owingRows.slice(0, 5).map((c) => (
+                              <Link
+                                key={`o-${c.customerId}`}
+                                to={c.customerCode ? `/distributors/${c.customerCode}` : '/distributors'}
+                                onClick={() => setActiveKpiModal(null)}
+                                className="flex items-center justify-between gap-2 rounded px-1 py-1 text-[11px] hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                              >
+                                <span className="min-w-0 truncate font-medium text-zinc-800 dark:text-zinc-200">
+                                  {c.customerName}
+                                </span>
+                                <span className="shrink-0 font-semibold tabular-nums text-amber-700">
+                                  owes ₦{fmt(c.receivable, 0)}
+                                </span>
+                              </Link>
+                            ))}
+                            {advanceRows.slice(0, 5).map((c) => (
+                              <Link
+                                key={`a-${c.customerId}`}
+                                to={c.customerCode ? `/distributors/${c.customerCode}` : '/distributors'}
+                                onClick={() => setActiveKpiModal(null)}
+                                className="flex items-center justify-between gap-2 rounded px-1 py-1 text-[11px] hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                              >
+                                <span className="min-w-0 truncate font-medium text-zinc-800 dark:text-zinc-200">
+                                  {c.customerName}
+                                </span>
+                                <span className="shrink-0 font-semibold tabular-nums text-sky-700">
+                                  advance ₦{fmt(c.payable, 0)}
+                                </span>
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+                      </section>
 
-                {d.receivables && d.receivables.rows && d.receivables.rows.length > 0 && (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                        Customer receivables ({d.receivables.rows.length})
-                      </h4>
-                      <Link
-                        to="/distributors"
-                        onClick={() => setActiveKpiModal(null)}
-                        className="text-[11px] font-semibold text-teal-600 hover:underline"
-                      >
-                        All accounts →
-                      </Link>
-                    </div>
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-56">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
-                          <tr>
-                            <th className="py-2.5 px-3">Customer</th>
-                            <th className="py-2.5 px-3">Sale #</th>
-                            <th className="py-2.5 px-3 text-right">Balance Due</th>
-                            <th className="py-2.5 px-3 text-right">Age</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.receivables.rows.map((r, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground">{r.customerName || 'Walk-in'}</td>
-                              <td className="py-2.5 px-3 font-mono text-muted-foreground">{r.saleNumber}</td>
-                              <td className="py-2.5 px-3 text-right font-mono font-bold tabular-nums text-amber-600">
-                                ₦{fmt(r.balanceDue)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums text-muted-foreground">
-                                {r.ageDays}d
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                      {/* 3. Cash movement */}
+                      <section className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+                        <div className="flex items-baseline justify-between gap-2 border-b border-zinc-100 px-2.5 py-1.5 dark:border-zinc-800">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                            Cash this period
+                          </span>
+                          <span
+                            className={cn(
+                              'text-xs font-bold tabular-nums',
+                              netCash >= 0 ? 'text-emerald-700' : 'text-red-600',
+                            )}
+                          >
+                            Net {netCash >= 0 ? '+' : '−'}₦{fmt(Math.abs(netCash), 0)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-px bg-zinc-100 sm:grid-cols-4 dark:bg-zinc-800">
+                          <div className="bg-white px-2.5 py-2 dark:bg-zinc-950">
+                            <p className="text-[10px] text-zinc-500">Cash in</p>
+                            <p className="text-sm font-bold tabular-nums text-emerald-700">
+                              ₦{fmt(cashIn, 0)}
+                            </p>
+                          </div>
+                          <div className="bg-white px-2.5 py-2 dark:bg-zinc-950">
+                            <p className="text-[10px] text-zinc-500">Cash out</p>
+                            <p className="text-sm font-bold tabular-nums text-red-600">
+                              ₦{fmt(cashOut, 0)}
+                            </p>
+                          </div>
+                          <div className="bg-white px-2.5 py-2 dark:bg-zinc-950">
+                            <p className="text-[10px] text-zinc-500">Expenses</p>
+                            <p className="text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+                              ₦{fmt(d.spend.approvedExpenses || 0, 0)}
+                            </p>
+                          </div>
+                          <div className="bg-white px-2.5 py-2 dark:bg-zinc-950">
+                            <p className="text-[10px] text-zinc-500">Wages owed</p>
+                            <p className="text-sm font-bold tabular-nums text-amber-700">
+                              ₦{fmt(d.spend.wagesOutstanding || 0, 0)}
+                            </p>
+                          </div>
+                        </div>
+                      </section>
 
-                {d.trend && d.trend.length > 0 && (
-                  <div className="space-y-1.5">
-                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Revenue trend
-                    </h4>
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold">
-                          <tr>
-                            <th className="py-2.5 px-3">Period</th>
-                            <th className="py-2.5 px-3 text-right">Revenue</th>
-                            <th className="py-2.5 px-3 text-right">Units produced</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {d.trend.map((t, idx) => (
-                            <tr key={idx} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60">
-                              <td className="py-2.5 px-3 font-semibold text-foreground">{t.shortLabel}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">₦{fmt(t.revenue)}</td>
-                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">{fmt(t.unitsProduced, 0)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
+                      {/* Compact trend chips */}
+                      {d.trend && d.trend.length > 0 && (
+                        <section>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                            Recent months
+                          </p>
+                          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                            {d.trend.map((t, idx) => (
+                              <div
+                                key={idx}
+                                className="min-w-[4.75rem] shrink-0 rounded-md border border-zinc-200 bg-zinc-50/80 px-2 py-1.5 dark:border-zinc-800 dark:bg-zinc-900/50"
+                              >
+                                <p className="text-[10px] font-medium text-zinc-500">{t.shortLabel}</p>
+                                <p className="text-xs font-bold tabular-nums text-zinc-900 dark:text-white">
+                                  ₦{fmt(t.revenue, 0)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      )}
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <span className="text-[11px] text-muted-foreground">Quick actions:</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/sales" onClick={() => setActiveKpiModal(null)}>Sales Orders →</Link>
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/distributors" onClick={() => setActiveKpiModal(null)}>Distributor Ledgers →</Link>
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/expenses" onClick={() => setActiveKpiModal(null)}>Cash &amp; Expenses →</Link>
-                    </Button>
-                  </div>
-                </div>
+                      <div className="flex flex-wrap gap-1.5 border-t border-zinc-100 pt-2 dark:border-zinc-800">
+                        <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                          <Link to="/sales" onClick={() => setActiveKpiModal(null)}>
+                            Sales →
+                          </Link>
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                          <Link to="/distributors" onClick={() => setActiveKpiModal(null)}>
+                            Customers →
+                          </Link>
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
+                          <Link to="/expenses" onClick={() => setActiveKpiModal(null)}>
+                            Cash →
+                          </Link>
+                        </Button>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
 
@@ -1967,64 +2214,38 @@ export function DashboardPage() {
                         Market shops
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                        Stock issued to shops, balances on hand, and stall sales · {d.range.label}
+                        Stock at shop and stall sales · {d.range.label}
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      At shops now
-                    </span>
+                    <span className="text-[11px] font-medium text-muted-foreground">On hand</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-violet-700 dark:text-violet-400">
                       {money(d.factoryShops?.remainingValue ?? 0)}
                     </p>
                     <span className="text-[10px] text-muted-foreground">
-                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)} on hand
+                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
                     </span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Issued in period
-                    </span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      {fmtDozenPcs(d.factoryShops?.transferredQty ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">
-                      {money(d.factoryShops?.transferredValue ?? 0)} stock value ·{' '}
-                      {d.factoryShops?.transferCount ?? 0} transfers
-                    </span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Sold at stall
-                    </span>
+                    <span className="text-[11px] font-medium text-muted-foreground">Sold</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Shop retail qty</span>
+                    <span className="text-[10px] text-muted-foreground">At the shop</span>
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Shop retail
-                    </span>
+                    <span className="text-[11px] font-medium text-muted-foreground">Sales</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
-                      ₦{fmt(d.factoryShops?.shopRetailGenerated ?? 0)}
+                      ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
                     </p>
                     <span className="text-[10px] text-muted-foreground">
-                      Collected ₦{fmt(d.factoryShops?.shopRetailCollected ?? 0)}
+                      Collected ₦
+                      {fmt(d.sales.shopCollected ?? d.factoryShops?.shopRetailCollected ?? 0)}
                     </span>
-                  </div>
-                  <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Shop credit
-                    </span>
-                    <p className="mt-0.5 text-lg font-bold tabular-nums text-amber-600">
-                      ₦{fmt(d.factoryShops?.shopRetailOutstanding ?? 0)}
-                    </p>
-                    <span className="text-[10px] text-muted-foreground">Buyers owe stalls</span>
                   </div>
                 </div>
 
@@ -2046,7 +2267,6 @@ export function DashboardPage() {
                             <th className="py-2.5 px-3 text-right">Sold</th>
                             <th className="py-2.5 px-3 text-right">On hand</th>
                             <th className="py-2.5 px-3 text-right">Stock value</th>
-                            <th className="py-2.5 px-3 text-right">Retail credit</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -2063,9 +2283,6 @@ export function DashboardPage() {
                                 >
                                   {shop.customerName}
                                 </Link>
-                                <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">
-                                  {shop.customerCode}
-                                </span>
                               </td>
                               <td className="py-2.5 px-3 text-right tabular-nums">
                                 {fmtDozenPcs(shop.receivedQty)}
@@ -2078,9 +2295,6 @@ export function DashboardPage() {
                               </td>
                               <td className="py-2.5 px-3 text-right font-bold tabular-nums text-violet-700 dark:text-violet-400">
                                 {money(shop.remainingValue)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right tabular-nums text-amber-600">
-                                {money(shop.retailOutstanding)}
                               </td>
                             </tr>
                           ))}
@@ -2099,48 +2313,78 @@ export function DashboardPage() {
                       No stock issues to shops in this period.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-64">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-muted-foreground font-semibold sticky top-0">
-                          <tr>
-                            <th className="py-2.5 px-3">Date</th>
-                            <th className="py-2.5 px-3">Transfer #</th>
-                            <th className="py-2.5 px-3">Shop</th>
-                            <th className="py-2.5 px-3 text-right">Qty</th>
-                            <th className="py-2.5 px-3 text-right">Stock value</th>
-                            <th className="py-2.5 px-3">Type</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                          {(d.factoryShops?.transfers || []).map((txn) => (
-                            <tr
-                              key={txn.id}
-                              className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/60"
+                    <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800 max-h-72 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800">
+                      {(d.factoryShops?.transfers || []).map((txn) => {
+                        const open = expandedShopTransferId === txn.id
+                        return (
+                          <div key={txn.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedShopTransferId(open ? null : txn.id)
+                              }
+                              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs hover:bg-zinc-50/80 dark:hover:bg-zinc-900/60"
                             >
-                              <td className="py-2.5 px-3 whitespace-nowrap text-muted-foreground">
+                              <ChevronDown
+                                className={cn(
+                                  'size-3.5 shrink-0 text-muted-foreground transition-transform',
+                                  open && 'rotate-180',
+                                )}
+                              />
+                              <span className="w-20 shrink-0 whitespace-nowrap text-muted-foreground tabular-nums">
                                 {formatBusinessDate(txn.businessDate) || '—'}
-                              </td>
-                              <td className="py-2.5 px-3 font-mono font-semibold text-foreground">
-                                {txn.saleNumber}
-                              </td>
-                              <td className="py-2.5 px-3 font-semibold text-foreground">
+                              </span>
+                              <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
                                 {txn.customerName}
-                              </td>
-                              <td className="py-2.5 px-3 text-right tabular-nums">
+                              </span>
+                              <span className="shrink-0 tabular-nums text-muted-foreground">
                                 {fmtDozenPcs(txn.qty)}
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-bold tabular-nums">
+                              </span>
+                              <span className="w-24 shrink-0 text-right font-bold tabular-nums text-foreground">
                                 {money(txn.stockValue)}
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
-                                  Issue
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                              </span>
+                            </button>
+                            {open ? (
+                              <div className="border-t border-zinc-100 bg-zinc-50/50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+                                {(txn.lines || []).length === 0 ? (
+                                  <p className="py-1 text-[11px] text-muted-foreground">
+                                    No line items.
+                                  </p>
+                                ) : (
+                                  <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead className="text-muted-foreground font-semibold">
+                                      <tr>
+                                        <th className="py-1 pr-2">Product</th>
+                                        <th className="py-1 px-2 text-right">Qty</th>
+                                        <th className="py-1 px-2 text-right">Unit</th>
+                                        <th className="py-1 pl-2 text-right">Value</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                      {(txn.lines || []).map((line, idx) => (
+                                        <tr key={`${txn.id}-${line.productId}-${idx}`}>
+                                          <td className="py-1.5 pr-2 font-medium text-foreground">
+                                            {line.productName || `Product #${line.productId}`}
+                                          </td>
+                                          <td className="py-1.5 px-2 text-right tabular-nums">
+                                            {fmtDozenPcs(line.qty)}
+                                          </td>
+                                          <td className="py-1.5 px-2 text-right tabular-nums text-muted-foreground">
+                                            {money(line.unitPrice)}
+                                          </td>
+                                          <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">
+                                            {money(line.lineValue)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -2148,16 +2392,25 @@ export function DashboardPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                   <span className="text-[11px] text-muted-foreground">Quick actions:</span>
                   <div className="flex flex-wrap gap-1.5">
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/distributors" onClick={() => setActiveKpiModal(null)}>
-                        All shops →
-                      </Link>
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-[11px] font-medium" asChild>
-                      <Link to="/sales/new" onClick={() => setActiveKpiModal(null)}>
-                        Issue to shop →
-                      </Link>
-                    </Button>
+                    {(() => {
+                      const shops = d.factoryShops?.shops || []
+                      const shop = shops[0]
+                      const viewTo = shop
+                        ? `/distributors/${shop.customerCode || shop.customerId}`
+                        : '/distributors'
+                      return (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-[11px] font-medium"
+                          asChild
+                        >
+                          <Link to={viewTo} onClick={() => setActiveKpiModal(null)}>
+                            View shop →
+                          </Link>
+                        </Button>
+                      )
+                    })()}
                   </div>
                 </div>
               </div>

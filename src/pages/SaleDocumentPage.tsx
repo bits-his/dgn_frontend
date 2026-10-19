@@ -193,6 +193,33 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
   const collected = paymentsForDocument(s)
   const focused = paymentId ? collected.find((row) => String(row.id) === paymentId) : null
   const receiptRows = kind === 'receipt' ? (focused ? [focused] : collected) : collected
+  const typeKey = String(s.saleType || '').toUpperCase()
+  const isOpening = typeKey === 'OPENING_BALANCE'
+  const saleKind =
+    typeKey === 'CASH'
+      ? 'Cash sale'
+      : typeKey === 'OPENING_BALANCE'
+        ? 'Opening balance'
+        : 'Credit sale'
+  // Opening balances are money-only (no product lines). Mirror that on the invoice.
+  const invoiceLines: DocLine[] =
+    (s.lines || []).length > 0
+      ? s.lines
+      : Number(s.totalAmount) > 0.001
+        ? [
+            {
+              id: 0,
+              batchNumber: null,
+              productName: isOpening ? 'Opening receivable' : 'Invoice balance',
+              qty: 1,
+              qtyReturned: 0,
+              uom: 'lot',
+              unitPrice: Number(s.totalAmount),
+              unitsPerDozen: null,
+              lineTotal: Number(s.totalAmount),
+            },
+          ]
+        : []
 
   return (
     <div className="min-h-svh bg-[var(--bg)] print:bg-white">
@@ -205,7 +232,7 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
         </button>
       </div>
 
-      <article className="dgn-doc mx-auto mb-10 max-w-[210mm] bg-white px-8 py-8 shadow-sm print:mb-0 print:max-w-none print:px-0 print:py-0 print:shadow-none">
+      <article className="dgn-doc mx-auto mb-10 max-w-[210mm] bg-white shadow-sm print:mb-0 print:max-w-none print:shadow-none">
         <header className="flex flex-wrap items-start justify-between gap-6 border-b border-zinc-300 pb-5">
           <FactoryMark />
           <div className="text-right">
@@ -215,7 +242,7 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
             <p className="mt-1 font-mono text-lg font-semibold">{s.saleNumber}</p>
             <p className="mt-1 text-sm text-zinc-700">{formatBusinessDate(s.businessDate)}</p>
             <p className="mt-1 text-sm font-semibold">
-              {s.saleType === 'CASH' ? 'Cash sale' : 'Credit sale'} · {statusLabel(s)}
+              {saleKind} · {statusLabel(s)}
             </p>
           </div>
         </header>
@@ -243,7 +270,7 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
           </div>
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Sale
+              {kind === 'invoice' ? 'Invoice' : 'Receipt'}
             </p>
             <p className="mt-1 text-sm text-zinc-800">
               Date: {formatBusinessDate(s.businessDate)}
@@ -252,8 +279,8 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
           </div>
         </section>
 
-        {kind === 'invoice' && (
-          <section className="mt-8">
+        <section className="mt-8">
+          {kind === 'invoice' ? (
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-y border-zinc-300 text-[11px] uppercase tracking-wide text-zinc-500">
@@ -266,10 +293,10 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
                 </tr>
               </thead>
               <tbody>
-                {s.lines.map((line, index) => (
-                  <tr key={line.id} className="border-b border-zinc-200">
+                {invoiceLines.map((line, index) => (
+                  <tr key={line.id || `syn-${index}`} className="border-b border-zinc-200">
                     <td className="py-2.5 pr-3 text-zinc-500">{index + 1}</td>
-                    <td className="py-2.5 pr-3">
+                    <td className="py-2.5 pr-3 text-zinc-900">
                       {line.productName || '—'}
                       {line.qtyReturned > 0 && (
                         <span className="block text-xs text-zinc-600">
@@ -277,58 +304,64 @@ function SaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 pr-3 font-mono text-xs">{line.batchNumber || '—'}</td>
-                    <td className="py-2.5 pr-3 text-right">
-                      {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
+                    <td className="py-2.5 pr-3 font-mono text-xs text-zinc-700">
+                      {line.batchNumber || '—'}
                     </td>
-                    <td className="py-2.5 pr-3 text-right">
-                      {isPieceUom(line.uom)
-                        ? `${money(dozenPriceFromUnit(line.unitPrice, perDozenOf(line.unitsPerDozen)))}/dz`
-                        : money(line.unitPrice)}
+                    <td className="py-2.5 pr-3 text-right text-zinc-900">
+                      {line.uom === 'lot'
+                        ? '1'
+                        : qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
                     </td>
-                    <td className="py-2.5 text-right font-semibold">{money(line.lineTotal)}</td>
+                    <td className="py-2.5 pr-3 text-right text-zinc-900">
+                      {line.uom === 'lot'
+                        ? money(line.unitPrice)
+                        : isPieceUom(line.uom)
+                          ? `${money(dozenPriceFromUnit(line.unitPrice, perDozenOf(line.unitsPerDozen)))}/dz`
+                          : money(line.unitPrice)}
+                    </td>
+                    <td className="py-2.5 text-right font-semibold text-zinc-900">
+                      {money(line.lineTotal)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </section>
-        )}
-
-        {kind === 'receipt' && (
-          <section className="mt-8">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              {focused ? 'This payment' : 'Payments received'}
-            </p>
-            {receiptRows.length === 0 ? (
-              <p className="mt-3 text-sm text-zinc-700">No payments recorded on this sale yet.</p>
-            ) : (
-              <table className="mt-3 w-full text-left text-sm">
-                <thead>
-                  <tr className="border-y border-zinc-300 text-[11px] uppercase tracking-wide text-zinc-500">
-                    <th className="py-2 pr-3">When</th>
-                    <th className="py-2 pr-3">How</th>
-                    <th className="py-2 pr-3">Reference</th>
-                    <th className="py-2 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {receiptRows.map((row) => (
-                    <tr key={String(row.id)} className="border-b border-zinc-200">
-                      <td className="py-2.5 pr-3 whitespace-nowrap">
-                        {formatWhen(row.receivedAt || row.recordedAt)}
-                      </td>
-                      <td className="py-2.5 pr-3">{methodLabel(row.paymentMethod)}</td>
-                      <td className="py-2.5 pr-3 font-mono text-xs">
-                        {row.reference || row.note || '—'}
-                      </td>
-                      <td className="py-2.5 text-right font-semibold">{money(row.amount)}</td>
+          ) : (
+            <>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                {focused ? 'This payment' : 'Payments received'}
+              </p>
+              {receiptRows.length === 0 ? (
+                <p className="mt-3 text-sm text-zinc-700">No payments recorded on this sale yet.</p>
+              ) : (
+                <table className="mt-3 w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-y border-zinc-300 text-[11px] uppercase tracking-wide text-zinc-500">
+                      <th className="py-2 pr-3">When</th>
+                      <th className="py-2 pr-3">How</th>
+                      <th className="py-2 pr-3">Reference</th>
+                      <th className="py-2 text-right">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </section>
-        )}
+                  </thead>
+                  <tbody>
+                    {receiptRows.map((row) => (
+                      <tr key={String(row.id)} className="border-b border-zinc-200">
+                        <td className="py-2.5 pr-3 whitespace-nowrap">
+                          {formatWhen(row.receivedAt || row.recordedAt)}
+                        </td>
+                        <td className="py-2.5 pr-3">{methodLabel(row.paymentMethod)}</td>
+                        <td className="py-2.5 pr-3 font-mono text-xs">
+                          {row.reference || row.note || '—'}
+                        </td>
+                        <td className="py-2.5 text-right font-semibold">{money(row.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
+        </section>
 
         <section className="mt-6 ml-auto w-full max-w-xs space-y-1.5 text-sm">
           {kind === 'invoice' && (

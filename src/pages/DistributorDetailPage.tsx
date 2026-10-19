@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Banknote, Boxes, CreditCard, Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
+import { fmtDozenPcs, isPieceUom, qtyDozenLabel } from '@/lib/units'
 import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, shopBuyerPath, shopRecordSalePath } from '@/lib/outlet'
+import {
+  isOutletScoped,
+  shopBuyerPath,
+  shopRecordSalePath,
+  shopSalesListPath,
+  shopSalePath,
+} from '@/lib/outlet'
 import { formatBusinessDate } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
-import { BookPanel, CompactStat, DataRow, StatusChip } from '@/components/outlet/OutletBookUi'
+import { BookPanel, DataRow, StatusChip } from '@/components/outlet/OutletBookUi'
 import {
   ShopCustomersBoard,
-  ShopDebtorsPanel,
   type ShopBuyerRow,
 } from '@/components/outlet/ShopCustomersBoard'
 
@@ -155,41 +161,76 @@ type LedgerEntry = {
   credit: number
   balanceAfter: number
   href?: string
+  saleNumber?: string | null
+  entryType?: string
+  expandable?: boolean
 }
 
-function entryTypeLabel(entryType: string, saleNumber: string | null) {
+function entryTypeLabel(entryType: string) {
   const t = String(entryType || '').toUpperCase()
-  const sale = saleNumber ? ` · ${saleNumber}` : ''
-  if (t === 'SALE') return `Sale${sale}`
-  if (t === 'PAYMENT') return `Payment${sale}`
-  if (t === 'OPENING_RECEIVABLE') return `Opening receivable${sale}`
+  if (t === 'SALE') return 'Sale'
+  if (t === 'PAYMENT') return 'Payment'
+  if (t === 'OPENING_RECEIVABLE') return 'Opening receivable'
   if (t === 'OPENING_ADVANCE') return 'Opening advance'
   if (t === 'ADVANCE_DEPOSIT') return 'Advance deposit'
-  if (t === 'ADVANCE_APPLY') return `Advance applied${sale}`
-  if (t === 'SALE_RETURN') return `Return${sale}`
-  return `${entryType || 'Entry'}${sale}`
+  if (t === 'ADVANCE_APPLY') return 'Advance applied'
+  if (t === 'SALE_RETURN') return 'Return'
+  return entryType || 'Entry'
 }
 
 function buildLedgerFromServer(
   txns: NonNullable<DistributorDetail['ledger']>['txns'],
 ): LedgerEntry[] {
-  // Statement shows RECEIVABLE only (running balance due). Newest first for display.
-  const recv = txns
-    .filter((t) => String(t.account).toUpperCase() === 'RECEIVABLE')
-    .slice()
-    .reverse()
-  return recv
-    .map((t) => ({
+  // Statement = receivable activity + advance deposits (wallet top-ups).
+  // Skip ADVANCE/ADVANCE_APPLY — that apply already appears as a receivable credit.
+  const rows = txns.filter((t) => {
+    const account = String(t.account).toUpperCase()
+    const entryType = String(t.entryType || '').toUpperCase()
+    if (account === 'RECEIVABLE') return true
+    if (account === 'ADVANCE') {
+      return entryType === 'ADVANCE_DEPOSIT' || entryType === 'OPENING_ADVANCE'
+    }
+    return false
+  })
+
+  // Oldest → newest for running net due (receivable − advance held).
+  const chronological = rows.slice().sort((a, b) => {
+    const da = String(a.businessDate || '')
+    const db = String(b.businessDate || '')
+    if (da !== db) return da.localeCompare(db)
+    return Number(a.id) - Number(b.id)
+  })
+
+  let netDue = 0
+  const withBalance = chronological.map((t) => {
+    const account = String(t.account).toUpperCase()
+    const entryType = String(t.entryType || '').toUpperCase()
+    const debit = Number(t.debit || 0)
+    const credit = Number(t.credit || 0)
+
+    if (account === 'RECEIVABLE') {
+      netDue = +(netDue + debit - credit).toFixed(2)
+    } else if (account === 'ADVANCE') {
+      // Deposit increases prepaid wallet → reduces net due.
+      netDue = +(netDue - credit + debit).toFixed(2)
+    }
+
+    return {
       id: `txn-${t.id}`,
       dateLabel: formatBusinessDate(t.businessDate) || '—',
-      title: entryTypeLabel(t.entryType, t.saleNumber),
+      title: entryTypeLabel(t.entryType),
       meta: [t.paymentMethod, t.reference, t.notes].filter(Boolean).join(' · ') || undefined,
-      debit: Number(t.debit || 0),
-      credit: Number(t.credit || 0),
-      balanceAfter: Number(t.balanceAfter || 0),
-      href: t.saleNumber ? `/sales/${t.saleNumber}` : undefined,
-    }))
-    .reverse()
+      debit,
+      credit,
+      balanceAfter: netDue,
+      saleNumber: t.saleNumber || null,
+      entryType,
+      expandable: entryType === 'SALE' || entryType === 'SALE_RETURN',
+    }
+  })
+
+  // Newest first on screen (same as before).
+  return withBalance.reverse()
 }
 
 function buildDistributorLedger(
@@ -205,6 +246,9 @@ function buildDistributorLedger(
     debit: number
     credit: number
     href?: string
+    saleNumber?: string | null
+    entryType?: string
+    expandable?: boolean
   }
   const raw: Raw[] = []
 
@@ -220,22 +264,25 @@ function buildDistributorLedger(
       id: `sale-${sale.id}`,
       sortKey,
       dateLabel,
-      title: `Sale ${sale.saleNumber}`,
+      title: 'Sale',
       meta: linesMeta,
       debit: Number(sale.totalAmount || 0),
       credit: 0,
-      href: `/sales/${sale.saleNumber}`,
+      saleNumber: sale.saleNumber,
+      entryType: 'SALE',
+      expandable: true,
     })
     if (Number(sale.amountPaid || 0) > 0.001) {
       raw.push({
         id: `pay-${sale.id}`,
         sortKey: `${sale.businessDate || '000000'}-${sale.id}-2`,
         dateLabel,
-        title: `Payment · ${sale.saleNumber}`,
+        title: 'Payment',
         meta: sale.paymentStatus,
         debit: 0,
         credit: Number(sale.amountPaid || 0),
-        href: `/sales/${sale.saleNumber}`,
+        saleNumber: sale.saleNumber,
+        entryType: 'PAYMENT',
       })
     }
   }
@@ -247,11 +294,13 @@ function buildDistributorLedger(
       id: `ret-${ret.id}`,
       sortKey: `${ret.businessDate || '000000'}-ret-${ret.id}`,
       dateLabel: formatBusinessDate(ret.businessDate) || '—',
-      title: `Return ${ret.returnNumber}`,
-      meta: ret.saleNumber ? `on ${ret.saleNumber}` : undefined,
+      title: 'Return',
+      meta: undefined,
       debit: 0,
       credit: Number(ret.refundAmount || 0),
-      href: ret.saleNumber ? `/sales/${ret.saleNumber}` : undefined,
+      saleNumber: ret.saleNumber,
+      entryType: 'SALE_RETURN',
+      expandable: Boolean(ret.saleNumber),
     })
   }
 
@@ -298,6 +347,7 @@ export function DistributorDetailPage() {
   const [editing, setEditing] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [expandedLedgerId, setExpandedLedgerId] = useState<string | null>(null)
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
   const [advanceOpen, setAdvanceOpen] = useState(false)
   const [openingOpen, setOpeningOpen] = useState(false)
@@ -506,8 +556,9 @@ export function DistributorDetailPage() {
   const c = d.credit
   const creditClosed = !isShop && c.creditLimit > 0 && c.atLimit
   const unpaid = c.unpaid || []
+  // Netted advance held after offsetting receivable (0 if they still owe overall)
   const advanceBalance = Number(
-    d.advanceBalance ?? c.advanceBalance ?? d.totals.advanceBalance ?? 0,
+    d.ledger?.held ?? d.advanceBalance ?? c.advanceBalance ?? d.totals.advanceBalance ?? 0,
   )
 
   const refreshAfterPayment = async () => {
@@ -522,10 +573,14 @@ export function DistributorDetailPage() {
     <PageLayout
       bare
       title={d.name}
-      description={`${d.code} · ${kindLabel(d.distributorKind)}${d.region ? ` · ${d.region}` : ''}`}
+      description={
+        isShop
+          ? `${kindLabel(d.distributorKind)}${d.region ? ` · ${d.region}` : ''}`
+          : `${d.code} · ${kindLabel(d.distributorKind)}${d.region ? ` · ${d.region}` : ''}`
+      }
       back={!isOutletScoped(user)}
       backTo="/distributors"
-      backLabel="All"
+      backLabel="Back"
       actions={
         <div className="flex items-center gap-1.5">
           {canEdit && !isOutletScoped(user) && !isShop ? (
@@ -553,17 +608,11 @@ export function DistributorDetailPage() {
               </Button>
             </>
           ) : null}
-          {isShop && canOutletSell ? (
-            <Button size="sm" className="h-8 gap-1 text-xs font-semibold" asChild>
-              <Link to={shopRecordSalePath(isOutletScoped(user) ? null : d.id)}>
-                <Plus className="size-3.5" />
-                Record sale
-              </Link>
-            </Button>
-          ) : null}
-          {!isOutletScoped(user) && canSell ? (
+          {/* Record sale CTA lives in the shop book hero */}
+          {/* Issue stock lives on the distributors list — keep shop detail lean */}
+          {!isOutletScoped(user) && canSell && !isShop ? (
             <Button size="sm" className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap" asChild>
-              <Link to={`/sales/new?customer=${d.id}`}>{isShop ? 'Issue stock' : 'New sale'}</Link>
+              <Link to={`/sales/new?customer=${d.id}`}>New sale</Link>
             </Button>
           ) : null}
         </div>
@@ -588,99 +637,153 @@ export function DistributorDetailPage() {
         )}
 
         {isShop ? (
-              <>
-                <div className="w-full space-y-4">
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                  <CompactStat
-                    label="Stock left"
-                    value={fmt(d.outlet?.remainingQty || 0)}
-                    icon={Boxes}
-                    tone="info"
-                  />
-                  <CompactStat
-                    label="Generated"
-                    value={money(d.outlet?.money.generated || 0)}
-                    hint={`${d.outlet?.money.saleCount || 0} sales`}
-                    icon={Banknote}
-                    tone="ok"
-                  />
-                  <CompactStat
-                    label="Collected"
-                    value={money(d.outlet?.money.collected || 0)}
-                    icon={Banknote}
-                    tone="ok"
-                  />
-                  <CompactStat
-                    label="Credit out"
-                    value={money(d.outlet?.money.creditOutstanding || 0)}
-                    hint={`${shopBuyers.data?.totals.debtorCount || 0} debtors`}
-                    icon={CreditCard}
-                    tone={(d.outlet?.money.creditOutstanding || 0) > 0.001 ? 'warn' : 'neutral'}
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <ShopCustomersBoard
-                    buyers={shopBuyers.data?.rows || []}
-                    viewHref={(b) =>
-                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+              <div className="w-full space-y-3">
+                {/* Today-at-a-glance */}
+                <section className="overflow-hidden rounded-xl border border-zinc-200/90 bg-white">
+                  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-100 bg-gradient-to-br from-teal-50/80 via-white to-zinc-50 px-3.5 py-3 sm:px-4">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-800/70">
+                        Shop book
+                      </p>
+                      <p className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-zinc-900">
+                        {money(d.outlet?.money.generated || 0)}
+                        <span className="ml-1.5 text-xs font-medium text-zinc-500">
+                          · {d.outlet?.money.saleCount || 0} sales
+                        </span>
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-zinc-500">
+                        Stock on hand{' '}
+                        <span className="font-semibold text-zinc-800">
+                          {fmtDozenPcs(d.outlet?.remainingQty || 0)}
+                        </span>
+                      </p>
+                    </div>
+                    {canOutletSell ? (
+                      <Button size="sm" className="h-9 gap-1.5 px-3 text-xs font-semibold" asChild>
+                        <Link to={shopRecordSalePath(isOutletScoped(user) ? null : d.id)}>
+                          <Plus className="size-3.5" />
+                          Record sale
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-3 divide-x divide-zinc-100">
+                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                        Collected
+                      </p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-teal-800">
+                        {money(d.outlet?.money.collected || 0)}
+                      </p>
+                    </div>
+                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                        Credit out
+                      </p>
+                      <p
+                        className={cn(
+                          'mt-0.5 text-sm font-bold tabular-nums',
+                          (d.outlet?.money.creditOutstanding || 0) > 0.001
+                            ? 'text-amber-800'
+                            : 'text-zinc-900',
+                        )}
+                      >
+                        {money(d.outlet?.money.creditOutstanding || 0)}
+                      </p>
+                    </div>
+                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                        Owing
+                      </p>
+                      <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900">
+                        {shopBuyers.data?.totals.debtorCount || 0}
+                        <span className="ml-1 text-[10px] font-medium text-zinc-400">
+                          customers
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <ShopCustomersBoard
+                  buyers={shopBuyers.data?.rows || []}
+                  debtors={shopBuyers.data?.debtors || []}
+                  viewHref={(b) =>
+                    shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+                  }
+                  limit={24}
+                />
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <BookPanel title="Stock on hand">
+                    {(d.outlet?.stock || []).length === 0 ? (
+                      <p className="py-3 text-center text-xs text-zinc-500">
+                        No stock yet — issue from the factory first.
+                      </p>
+                    ) : (
+                      d.outlet!.stock.map((row) => (
+                        <DataRow
+                          key={row.productId}
+                          title={row.productName}
+                          meta={`${
+                            isPieceUom(row.uom)
+                              ? fmtDozenPcs(row.sold)
+                              : `${fmt(row.sold)} ${row.uom}`
+                          } sold`}
+                          value={
+                            isPieceUom(row.uom)
+                              ? fmtDozenPcs(row.remaining)
+                              : qtyDozenLabel(row.remaining, row.uom)
+                          }
+                        />
+                      ))
+                    )}
+                  </BookPanel>
+                  <BookPanel
+                    title="Recent sales"
+                    action={
+                      (d.outlet?.money.saleCount || 0) > 0 ? (
+                        <Link
+                          to={shopSalesListPath(
+                            isOutletScoped(user) ? null : d.id,
+                            d.code,
+                          )}
+                          className="text-[11px] font-semibold text-teal-800"
+                        >
+                          View all {d.outlet?.money.saleCount || ''} →
+                        </Link>
+                      ) : null
                     }
-                    limit={12}
-                  />
-                  <ShopDebtorsPanel
-                    debtors={shopBuyers.data?.debtors || []}
-                    viewHref={(b) =>
-                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
-                    }
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                <BookPanel title="Stock on hand">
-                  {(d.outlet?.stock || []).length === 0 ? (
-                    <p className="py-3 text-xs leading-relaxed text-zinc-500">No stock at this shop yet.</p>
-                  ) : (
-                    d.outlet!.stock.map((row) => (
-                      <DataRow
-                        key={row.productId}
-                        title={row.productName}
-                        meta={`${fmt(row.received)} in · ${fmt(row.sold)} sold`}
-                        value={`${fmt(row.remaining)} ${row.uom}`}
-                      />
-                    ))
-                  )}
-                </BookPanel>
-                <BookPanel title="Shop sales">
-                  {(d.outlet?.sales || []).length === 0 ? (
-                    <p className="py-3 text-xs leading-relaxed text-zinc-500">No sales recorded yet.</p>
-                  ) : (
-                    d.outlet!.sales.map((sale) => (
-                      <DataRow
-                        key={sale.id}
-                        title={
-                          sale.outletBuyerId ? (
+                  >
+                    {(d.outlet?.sales || []).length === 0 ? (
+                      <p className="py-3 text-center text-xs text-zinc-500">
+                        No sales recorded yet.
+                      </p>
+                    ) : (
+                      d.outlet!.sales.map((sale) => (
+                        <DataRow
+                          key={sale.id}
+                          title={
                             <Link
-                              to={shopBuyerPath(
-                                sale.outletBuyerId,
-                                isOutletScoped(user) ? null : d.id,
-                                d.code,
-                              )}
+                              to={shopSalePath(sale.saleNumber)}
                               className="hover:text-teal-800"
                             >
-                              {sale.buyerName || 'Customer'}
+                              {sale.buyerName || 'Walk-in'}
                             </Link>
-                          ) : (
-                            sale.buyerName || 'Walk-in'
-                          )
-                        }
-                        meta={`${sale.saleNumber} · ${sale.saleType.toLowerCase()}`}
-                        value={money(sale.totalAmount)}
-                        hint={sale.balanceDue > 0.001 ? `Owes ${money(sale.balanceDue)}` : undefined}
-                      />
-                    ))
-                  )}
-                </BookPanel>
+                          }
+                          meta={`${formatBusinessDate(sale.businessDate) || '—'} · ${sale.saleNumber}`}
+                          value={money(sale.totalAmount)}
+                          hint={
+                            sale.balanceDue > 0.001
+                              ? `Credit ${money(sale.balanceDue)}`
+                              : 'View / print →'
+                          }
+                        />
+                      ))
+                    )}
+                  </BookPanel>
                 </div>
-                </div>
-              </>
+              </div>
             ) : (
               <>
                 <div
@@ -931,9 +1034,9 @@ export function DistributorDetailPage() {
                   </BookPanel>
                 </div>
 
-                <article className="rounded-lg border border-zinc-300 bg-white px-3.5 py-3.5 shadow-xs sm:rounded-xl sm:px-5 sm:py-4">
-                  <header className="flex flex-wrap items-start justify-between gap-3 border-b border-zinc-300 pb-3">
-                    <div>
+                <article className="overflow-hidden rounded-lg border border-zinc-300 bg-white shadow-xs sm:rounded-xl">
+                  <header className="space-y-3 border-b border-zinc-300 px-3.5 py-3 sm:flex sm:items-start sm:justify-between sm:gap-3 sm:space-y-0 sm:px-5 sm:py-4">
+                    <div className="min-w-0 w-full sm:w-auto">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                         Account statement
                       </p>
@@ -943,106 +1046,166 @@ export function DistributorDetailPage() {
                         <p className="mt-0.5 text-[11px] text-zinc-500">{d.region}</p>
                       ) : null}
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                        Balance due
-                      </p>
-                      <p
-                        className={cn(
-                          'mt-0.5 text-base font-black tabular-nums',
-                          c.outstanding > 0.001 ? 'text-red-700' : 'text-teal-800',
-                        )}
-                      >
-                        {money(c.outstanding)}
-                      </p>
-                      <p className="text-[11px] text-zinc-500">
-                        Debit = they owe · Credit = paid / cleared
-                      </p>
-                      {d.ledger ? (
-                        <p className="mt-1 text-[11px] text-zinc-500">
-                          Advance held {money(d.ledger.advance)}
+                    <div className="flex w-full items-end justify-between gap-3 border-t border-zinc-200 pt-2.5 sm:w-auto sm:flex-col sm:items-end sm:border-0 sm:pt-0 sm:text-right">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                          Balance due
                         </p>
-                      ) : null}
+                        <p
+                          className={cn(
+                            'mt-0.5 text-base font-black tabular-nums',
+                            (d.ledger?.net ?? c.outstanding) > 0.001
+                              ? 'text-red-700'
+                              : 'text-teal-800',
+                          )}
+                        >
+                          {money(d.ledger?.net ?? c.outstanding)}
+                        </p>
+                      </div>
+                      <div className="max-w-[12rem] text-right text-[10px] leading-snug text-zinc-500 sm:max-w-none sm:text-[11px]">
+                        <p>Debit = they owe · Credit = paid / advance</p>
+                        {d.ledger ? (
+                          <p className="mt-0.5">
+                            Advance held {money(d.ledger.held ?? Math.max(0, d.ledger.advance - d.ledger.receivable))}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
                   </header>
 
                   {ledger.length === 0 ? (
-                    <p className="py-6 text-center text-xs text-zinc-500">
+                    <p className="px-3.5 py-6 text-center text-xs text-zinc-500 sm:px-5">
                       No ledger transactions yet.
                     </p>
                   ) : (
-                    <table className="mt-3 w-full text-left text-xs sm:text-sm">
-                      <thead>
-                        <tr className="border-y border-zinc-300 text-[10px] uppercase tracking-wide text-zinc-500 sm:text-[11px]">
-                          <th className="py-1.5 pr-2 font-semibold">Date</th>
-                          <th className="py-1.5 pr-2 font-semibold">Particulars</th>
-                          <th className="py-1.5 pr-2 text-right font-semibold">Debit</th>
-                          <th className="py-1.5 pr-2 text-right font-semibold">Credit</th>
-                          <th className="py-1.5 text-right font-semibold">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <div className="border-b border-zinc-200">
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2 border-b border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:px-4">
+                        <span className="w-4" />
+                        <span>Particulars</span>
+                        <span className="w-14 text-right sm:w-20">Debit</span>
+                        <span className="w-14 text-right sm:w-20">Credit</span>
+                        <span className="w-14 text-right sm:w-20">Balance</span>
+                      </div>
+                      <div className="divide-y divide-zinc-100">
                         {[...ledger].reverse().map((row) => {
                           const isDebit = row.debit > 0.001
+                          const open = expandedLedgerId === row.id
+                          const sale = row.saleNumber
+                            ? d.sales.find((s) => s.saleNumber === row.saleNumber)
+                            : null
+                          const lines = sale?.lines || []
+                          const canExpand = Boolean(row.expandable && row.saleNumber)
                           return (
-                            <tr key={row.id} className="border-b border-zinc-200">
-                              <td className="whitespace-nowrap py-1.5 pr-2 text-zinc-600">
-                                {row.dateLabel}
-                              </td>
-                              <td className="py-1.5 pr-2">
-                                {row.href ? (
-                                  <Link
-                                    to={row.href}
-                                    className="font-medium text-amber-800 hover:underline"
-                                  >
+                            <div key={row.id}>
+                              <button
+                                type="button"
+                                disabled={!canExpand}
+                                onClick={() =>
+                                  canExpand &&
+                                  setExpandedLedgerId(open ? null : row.id)
+                                }
+                                className={cn(
+                                  'grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 px-2.5 py-2 text-left text-xs sm:px-4 sm:text-sm',
+                                  canExpand && 'hover:bg-zinc-50/80',
+                                  !canExpand && 'cursor-default',
+                                )}
+                              >
+                                <span className="flex w-4 items-center">
+                                  {canExpand ? (
+                                    <ChevronDown
+                                      className={cn(
+                                        'size-3.5 text-zinc-400 transition-transform',
+                                        open && 'rotate-180',
+                                      )}
+                                    />
+                                  ) : (
+                                    <span className="size-3.5" />
+                                  )}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-zinc-900">
                                     {row.title}
-                                  </Link>
-                                ) : (
-                                  <span className="font-medium text-zinc-900">{row.title}</span>
-                                )}
-                                {row.meta ? (
-                                  <span className="mt-0.5 block text-[10px] text-zinc-500 sm:text-[11px]">
-                                    {row.meta}
                                   </span>
-                                ) : null}
-                              </td>
-                              <td
-                                className={cn(
-                                  'py-1.5 pr-2 text-right tabular-nums',
-                                  isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
-                                )}
-                              >
-                                {isDebit ? money(row.debit) : '—'}
-                              </td>
-                              <td
-                                className={cn(
-                                  'py-1.5 pr-2 text-right tabular-nums',
-                                  !isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
-                                )}
-                              >
-                                {!isDebit ? money(row.credit) : '—'}
-                              </td>
-                              <td className="py-1.5 text-right tabular-nums text-zinc-700">
-                                {money(row.balanceAfter)}
-                              </td>
-                            </tr>
+                                  <span className="mt-0.5 block whitespace-nowrap text-[10px] text-zinc-500 sm:text-[11px]">
+                                    {row.dateLabel}
+                                  </span>
+                                </span>
+                                <span
+                                  className={cn(
+                                    'w-14 text-right tabular-nums sm:w-20',
+                                    isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                  )}
+                                >
+                                  {isDebit ? money(row.debit) : '—'}
+                                </span>
+                                <span
+                                  className={cn(
+                                    'w-14 text-right tabular-nums sm:w-20',
+                                    !isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                  )}
+                                >
+                                  {!isDebit ? money(row.credit) : '—'}
+                                </span>
+                                <span className="w-14 text-right tabular-nums text-zinc-700 sm:w-20">
+                                  {money(row.balanceAfter)}
+                                </span>
+                              </button>
+                              {open && canExpand ? (
+                                <div className="border-t border-zinc-100 bg-zinc-50/60 px-2.5 py-2 sm:px-4">
+                                  {lines.length === 0 ? (
+                                    <p className="text-[11px] text-zinc-500">No line items.</p>
+                                  ) : (
+                                    <table className="w-full text-left text-[11px]">
+                                      <thead className="text-zinc-500">
+                                        <tr>
+                                          <th className="py-1 pr-2 font-medium">Product</th>
+                                          <th className="py-1 px-2 text-right font-medium">Qty</th>
+                                          <th className="py-1 px-2 text-right font-medium">Unit</th>
+                                          <th className="py-1 pl-2 text-right font-medium">Value</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-zinc-100">
+                                        {lines.map((line) => (
+                                          <tr key={line.id}>
+                                            <td className="py-1.5 pr-2 font-medium text-zinc-900">
+                                              {line.productName || line.batchNumber || 'Item'}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-right tabular-nums">
+                                              {isPieceUom(line.uom)
+                                                ? fmtDozenPcs(line.qty)
+                                                : `${fmt(line.qty)} ${line.uom || ''}`.trim()}
+                                            </td>
+                                            <td className="py-1.5 px-2 text-right tabular-nums text-zinc-500">
+                                              {money(line.unitPrice)}
+                                            </td>
+                                            <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">
+                                              {money(line.lineTotal)}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
                           )
                         })}
-                      </tbody>
-                    </table>
+                      </div>
+                    </div>
                   )}
 
-                  <section className="mt-3 ml-auto w-full max-w-[14rem] space-y-1 text-xs sm:text-sm">
+                  <section className="ml-auto w-full max-w-[14rem] space-y-1 px-3.5 py-3 text-xs sm:px-5 sm:py-4 sm:text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-600">Receivable</span>
+                      <span className="text-zinc-600">They owe</span>
                       <span className="font-semibold tabular-nums">
-                        {money(d.ledger?.receivable ?? c.outstanding)}
+                        {money(d.ledger?.owed ?? Math.max(0, (d.ledger?.net ?? c.outstanding) || 0))}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-zinc-600">Advance (payable)</span>
+                      <span className="text-zinc-600">Advance held</span>
                       <span className="font-semibold tabular-nums">
-                        {money(d.ledger?.advance ?? advanceBalance)}
+                        {money(advanceBalance)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3 border-t border-zinc-300 pt-1.5">
@@ -1061,18 +1224,6 @@ export function DistributorDetailPage() {
                   </section>
                 </article>
 
-                {d.byProduct.length > 0 && (
-                  <BookPanel title="What they buy">
-                    {d.byProduct.slice(0, 6).map((row) => (
-                      <DataRow
-                        key={row.productId}
-                        title={row.productName}
-                        meta={`${fmt(row.qty)} units`}
-                        value={money(row.revenue)}
-                      />
-                    ))}
-                  </BookPanel>
-                )}
               </>
             )}
 
@@ -1087,29 +1238,58 @@ export function DistributorDetailPage() {
                         String(sale.saleType || '').toUpperCase() === 'SHOP_TRANSFER' ||
                         String(sale.saleType || '').toUpperCase() === 'TRANSFER' ||
                         !(Number(sale.totalAmount) > 0.001)
+                      const open = expandedLedgerId === `xfer-${sale.id}`
                       return (
                         <div
                           key={sale.id}
-                          className="border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0"
+                          className="border-b border-zinc-100 last:border-0"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <Link
-                                to={`/sales/${sale.saleNumber}`}
-                                className="font-mono text-xs font-semibold text-amber-800"
-                              >
-                                {sale.saleNumber}
-                              </Link>
-                              <p className="mt-0.5 text-[11px] leading-snug text-zinc-500">
-                                {sale.lines
-                                  .map((l) => `${l.productName || l.batchNumber} × ${fmt(l.qty)}`)
-                                  .join(', ') || `${sale.lineCount} lines`}
-                              </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedLedgerId(open ? null : `xfer-${sale.id}`)
+                            }
+                            className="flex w-full items-start justify-between gap-2 py-1.5 text-left"
+                          >
+                            <div className="min-w-0 flex items-start gap-1.5">
+                              <ChevronDown
+                                className={cn(
+                                  'mt-0.5 size-3.5 shrink-0 text-zinc-400 transition-transform',
+                                  open && 'rotate-180',
+                                )}
+                              />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-zinc-900">
+                                  {formatBusinessDate(sale.businessDate) || 'Transfer'}
+                                </p>
+                                <p className="mt-0.5 text-[10px] text-zinc-500">
+                                  {sale.lines.length} item{sale.lines.length === 1 ? '' : 's'}
+                                </p>
+                              </div>
                             </div>
                             <StatusChip tone={isTransfer ? 'ok' : 'muted'}>
                               {isTransfer ? 'Transfer' : 'Received'}
                             </StatusChip>
-                          </div>
+                          </button>
+                          {open ? (
+                            <div className="mb-1.5 ml-5 space-y-1">
+                              {sale.lines.map((l) => (
+                                <div
+                                  key={l.id}
+                                  className="flex items-center justify-between gap-2 text-[11px]"
+                                >
+                                  <span className="min-w-0 truncate text-zinc-700">
+                                    {l.productName || l.batchNumber || 'Item'}
+                                  </span>
+                                  <span className="shrink-0 tabular-nums text-zinc-900">
+                                    {isPieceUom(l.uom)
+                                      ? fmtDozenPcs(l.qty)
+                                      : `${fmt(l.qty)} ${l.uom || ''}`.trim()}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       )
                     })

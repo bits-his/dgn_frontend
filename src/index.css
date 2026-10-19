@@ -209,6 +209,11 @@ h3 {
   letter-spacing: 0.02em;
 }
 
+/* Screen + print share the same document padding so invoice and receipt match. */
+.dgn-doc {
+  padding: 2rem;
+}
+
 @media print {
   @page {
     size: A4;
@@ -224,6 +229,13 @@ h3 {
 
   .dgn-print-hide {
     display: none !important;
+  }
+
+  .dgn-doc {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
   }
 }
 

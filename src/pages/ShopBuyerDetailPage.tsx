@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { BookPanel, CompactStat, DataRow } from '@/components/outlet/OutletBookUi'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, outletQuery } from '@/lib/outlet'
+import { isOutletScoped, outletQuery, shopSalePath } from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
 import { hasPermission } from '@/lib/auth'
 import { cn } from '@/lib/utils'
@@ -234,19 +234,26 @@ export function ShopBuyerDetailPage() {
                 <p className="py-3 text-xs text-zinc-500">No sales yet.</p>
               ) : (
                 d.sales.map((sale) => (
-                  <DataRow
+                  <Link
                     key={sale.id}
-                    title={sale.saleNumber}
-                    meta={`${sale.businessDate || '—'} · ${sale.saleType.toLowerCase()}${
-                      sale.lines[0]?.productName
-                        ? ` · ${sale.lines.map((l) => l.productName).filter(Boolean).slice(0, 2).join(', ')}`
-                        : ''
-                    }`}
-                    value={money(sale.totalAmount)}
-                    hint={
-                      sale.balanceDue > 0.001 ? `Owes ${money(sale.balanceDue)}` : undefined
-                    }
-                  />
+                    to={shopSalePath(sale.saleNumber)}
+                    className="block -mx-0.5 rounded-md px-0.5 transition-colors hover:bg-zinc-50"
+                  >
+                    <DataRow
+                      title={sale.saleNumber}
+                      meta={`${sale.businessDate || '—'} · ${sale.saleType.toLowerCase()}${
+                        sale.lines[0]?.productName
+                          ? ` · ${sale.lines.map((l) => l.productName).filter(Boolean).slice(0, 2).join(', ')}`
+                          : ''
+                      }`}
+                      value={money(sale.totalAmount)}
+                      hint={
+                        sale.balanceDue > 0.001
+                          ? `Owes ${money(sale.balanceDue)} · View →`
+                          : 'Invoice / receipt →'
+                      }
+                    />
+                  </Link>
                 ))
               )}
             </BookPanel>

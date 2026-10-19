@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, Users, CreditCard, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { Plus, Search, Users, CreditCard, Banknote, Wallet } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { api } from '@/lib/api'
 import { NairaAmountInput } from '@/components/ui'
@@ -124,8 +124,13 @@ export function money(n: number) {
 
 export function unpaidSummary(c: DistributorCredit) {
   const count = c.unpaidCount ?? c.unpaid?.length ?? 0
-  if (count > 0) return `${count} unpaid · ${money(c.outstanding)}`
-  if (c.outstanding > 0.001) return `Unpaid · ${money(c.outstanding)}`
+  const unpaidAmt =
+    c.unpaid?.reduce((s, u) => s + Number(u.balanceDue || 0), 0) ?? c.outstanding
+  if (count > 0 && unpaidAmt > 0.001) {
+    return `${count} unpaid · ${money(unpaidAmt)}`
+  }
+  if (c.outstanding > 0.001) return `Owes · ${money(c.outstanding)}`
+  if ((c.advanceBalance || 0) > 0.001) return 'Invoices covered by advance'
   return 'No unpaid invoices'
 }
 
@@ -185,13 +190,35 @@ export function DistributorsPage() {
   const totals = useMemo(() => {
     const rows = distributors.data || []
     const active = rows.filter((r) => r.isActive !== false)
+    const shops = active.filter((r) => String(r.distributorKind || '').toUpperCase() === 'SHOP')
     return {
       count: rows.length,
       active: active.length,
+      shops: shops.length,
       outstanding: active.reduce((sum, r) => sum + (r.credit.outstanding || 0), 0),
-      available: active.reduce((sum, r) => sum + (r.credit.available || 0), 0),
-      atLimit: active.filter((r) => r.credit.atLimit).length,
-      overdue: active.filter((r) => (r.credit.overdueCount || 0) > 0).length,
+      revenue: active.reduce(
+        (sum, r) =>
+          sum +
+          (String(r.distributorKind || '').toUpperCase() === 'SHOP'
+            ? Number(r.outletStock?.generated || 0)
+            : Number(r.credit.revenue || 0)),
+        0,
+      ),
+      collected: active.reduce((sum, r) => sum + (r.credit.collected || 0), 0),
+      advance: active.reduce(
+        (sum, r) => sum + Number(r.credit.advanceBalance ?? r.advanceBalance ?? 0),
+        0,
+      ),
+      saleCount: active.reduce(
+        (sum, r) =>
+          sum +
+          Number(
+            String(r.distributorKind || '').toUpperCase() === 'SHOP'
+              ? r.outletStock?.saleCount || 0
+              : r.credit.saleCount || 0,
+          ),
+        0,
+      ),
     }
   }, [distributors.data])
 
@@ -259,117 +286,120 @@ export function DistributorsPage() {
     () => [
       {
         accessorKey: 'name',
-        header: 'Distributor',
-        cell: ({ row }) => (
-          <div>
-            <Link
-              to={`/distributors/${row.original.code}`}
-              className="font-semibold text-zinc-900 hover:text-zinc-600 hover:underline inline-flex items-center gap-1.5"
-            >
-              <span>{row.original.name}</span>
-            </Link>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="font-mono text-[11px] text-zinc-400">{row.original.code}</span>
-              {row.original.region && (
-                <span className="text-[11px] text-zinc-500">· {row.original.region}</span>
-              )}
-              {row.original.isActive === false && (
-                <span className="rounded bg-zinc-100 px-1.5 py-0.2 text-[10px] font-semibold text-zinc-600">
-                  Inactive
-                </span>
-              )}
+        header: 'Account',
+        cell: ({ row }) => {
+          const r = row.original
+          return (
+            <div>
+              <Link
+                to={`/distributors/${r.code}`}
+                className="inline-flex items-center gap-1.5 font-semibold text-zinc-900 hover:text-zinc-600 hover:underline"
+              >
+                <span>{r.name}</span>
+              </Link>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-mono text-[11px] text-zinc-400">{r.code}</span>
+                {r.region ? (
+                  <span className="text-[11px] text-zinc-500">· {r.region}</span>
+                ) : null}
+                {r.phone ? (
+                  <span className="text-[11px] text-zinc-500">· {r.phone}</span>
+                ) : null}
+                {r.isActive === false ? (
+                  <span className="rounded bg-zinc-100 px-1.5 text-[10px] font-semibold text-zinc-600">
+                    Inactive
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ),
+          )
+        },
       },
       {
         accessorKey: 'distributorKind',
         header: 'Type',
         cell: ({ row }) => (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-zinc-100 text-zinc-800 border border-zinc-200">
+          <span className="inline-flex items-center rounded-md border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium text-zinc-700">
             {kindLabel(row.original.distributorKind)}
           </span>
         ),
       },
       {
-        accessorKey: 'minOrderQty',
-        header: 'Min Qty',
-        cell: ({ row }) => (
-          <span className="tabular-nums text-xs text-zinc-700">
-            {Number(row.original.minOrderQty || 0) > 0
-              ? Number(row.original.minOrderQty).toLocaleString()
-              : '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'outstanding',
-        header: 'Owes / credit',
-        cell: ({ row }) => (
-          <span className="font-semibold text-xs tabular-nums text-zinc-900">
-            {money(
-              String(row.original.distributorKind).toUpperCase() === 'SHOP'
-                ? row.original.outletStock?.creditOutstanding || 0
-                : row.original.credit.outstanding,
-            )}
-          </span>
-        ),
-      },
-      {
-        id: 'stockLeft',
-        header: 'Stock left',
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-zinc-700">
-            {row.original.outletStock
-              ? Number(row.original.outletStock.remainingQty || 0).toLocaleString()
-              : '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'shopSales',
-        header: 'Shop sales',
+        id: 'owes',
+        header: 'Owes',
         cell: ({ row }) => {
           const isShop = String(row.original.distributorKind || '').toUpperCase() === 'SHOP'
-          if (!isShop) return <span className="text-xs text-zinc-400">—</span>
-          const count = row.original.outletStock?.saleCount ?? row.original.credit.saleCount ?? 0
-          return (
-            <span className="text-xs tabular-nums text-zinc-700">
-              {count} · {money(row.original.outletStock?.generated || 0)}
-            </span>
-          )
-        },
-      },
-      {
-        id: 'creditLimit',
-        header: 'Limit',
-        cell: ({ row }) => (
-          <span className="text-xs tabular-nums text-zinc-600">
-            {money(row.original.credit.creditLimit)}
-          </span>
-        ),
-      },
-      {
-        id: 'available',
-        header: 'Available',
-        cell: ({ row }) => {
-          const c = row.original.credit
+          const amt = isShop
+            ? Number(row.original.outletStock?.creditOutstanding || 0)
+            : Number(row.original.credit.outstanding || 0)
           return (
             <span
-              className={`font-semibold text-xs tabular-nums ${
-                c.atLimit ? 'text-red-700' : 'text-teal-700'
+              className={`text-xs font-semibold tabular-nums ${
+                amt > 0.001 ? 'text-amber-700' : 'text-zinc-400'
               }`}
             >
-              {money(c.available)}
+              {amt > 0.001 ? money(amt) : '—'}
             </span>
           )
         },
       },
       {
-        id: 'payment',
-        header: 'Payment Status',
+        id: 'advance',
+        header: 'Advance',
+        cell: ({ row }) => {
+          const adv = Number(
+            row.original.credit.advanceBalance ?? row.original.advanceBalance ?? 0,
+          )
+          return (
+            <span
+              className={`text-xs font-semibold tabular-nums ${
+                adv > 0.001 ? 'text-sky-700' : 'text-zinc-400'
+              }`}
+            >
+              {adv > 0.001 ? money(adv) : '—'}
+            </span>
+          )
+        },
+      },
+      {
+        id: 'sales',
+        header: 'Sales',
+        cell: ({ row }) => {
+          const isShop = String(row.original.distributorKind || '').toUpperCase() === 'SHOP'
+          const revenue = isShop
+            ? Number(row.original.outletStock?.generated || 0)
+            : Number(row.original.credit.revenue || 0)
+          const count = isShop
+            ? Number(row.original.outletStock?.saleCount || 0)
+            : Number(row.original.credit.saleCount || 0)
+          if (!(revenue > 0.001) && count === 0) {
+            return <span className="text-xs text-zinc-400">—</span>
+          }
+          return (
+            <span className="text-xs tabular-nums text-zinc-800">
+              <span className="font-semibold">{money(revenue)}</span>
+              <span className="block text-[10px] text-zinc-400">{count} orders</span>
+            </span>
+          )
+        },
+      },
+      {
+        id: 'status',
+        header: 'Status',
         cell: ({ row }) => {
           const c = row.original.credit
+          const isShop = String(row.original.distributorKind || '').toUpperCase() === 'SHOP'
+          if (isShop) {
+            const shopCredit = Number(row.original.outletStock?.creditOutstanding || 0)
+            if (shopCredit > 0.001) {
+              return (
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                  Shop credit
+                </span>
+              )
+            }
+            return <span className="text-xs text-zinc-500">Active</span>
+          }
           if (c.creditLimit <= 0 && row.original.isActive !== false) {
             return (
               <span className="rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
@@ -379,19 +409,25 @@ export function DistributorsPage() {
           }
           if (c.atLimit && c.creditLimit > 0) {
             return (
-              <span className="rounded-md bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 border border-red-200">
-                Credit closed
+              <span className="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                Limit full
               </span>
             )
           }
           if ((c.overdueCount || 0) > 0) {
             return (
-              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 border border-amber-200">
+              <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                 {c.overdueCount} overdue
               </span>
             )
           }
-          return <span className="text-xs text-zinc-600">{unpaidSummary(c)}</span>
+          if ((c.advanceBalance || 0) > 0.001) {
+            return <span className="text-xs font-medium text-sky-700">In credit</span>
+          }
+          if (c.outstanding > 0.001) {
+            return <span className="text-xs text-amber-700">{unpaidSummary(c)}</span>
+          }
+          return <span className="text-xs text-zinc-500">Clear</span>
         },
       },
       {
@@ -449,99 +485,69 @@ export function DistributorsPage() {
       }
     >
       <div className="space-y-4">
-        {/* Metric Cards: Compact 2 per row on mobile, 4 on desktop */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
-          {/* Total Distributors */}
-          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                  Distributors
-                </span>
-                <div className="size-5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                  <Users className="size-3" />
-                </div>
-              </div>
-              <div className="mt-1 flex items-baseline gap-1">
-                <span className="text-base sm:text-lg font-black text-zinc-900 dark:text-white tabular-nums tracking-tight truncate">
-                  {totals.count}
-                </span>
-                <span className="text-[10px] text-zinc-400 font-medium truncate">
-                  ({totals.active} active)
-                </span>
-              </div>
+        {/* Compact sales KPIs */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-2">
+          <div className="rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Accounts
+              </span>
+              <Users className="size-3 text-zinc-400" />
             </div>
-            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-              Dealer accounts
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+              {totals.active}
+              <span className="ml-1 text-[10px] font-medium text-zinc-400">
+                · {totals.shops} shop{totals.shops === 1 ? '' : 's'}
+              </span>
             </p>
           </div>
 
-          {/* Outstanding Balance */}
-          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                  Total Outstanding
-                </span>
-                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${totals.outstanding > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400'}`}>
-                  <CreditCard className="size-3" />
-                </div>
-              </div>
-              <div className="mt-1">
-                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate block ${totals.outstanding > 0 ? 'text-amber-700 dark:text-amber-400' : 'text-zinc-900 dark:text-white'}`}>
-                  {money(totals.outstanding)}
-                </span>
-              </div>
+          <div className="rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Sales
+              </span>
+              <Banknote className="size-3 text-teal-600" />
             </div>
-            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-              Owed to factory
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900 dark:text-white">
+              {money(totals.revenue)}
             </p>
+            <p className="text-[10px] text-zinc-400">{totals.saleCount} orders</p>
           </div>
 
-          {/* Credit Available */}
-          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                  Credit Headroom
-                </span>
-                <div className="size-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0">
-                  <CheckCircle2 className="size-3" />
-                </div>
-              </div>
-              <div className="mt-1">
-                <span className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums tracking-tight truncate block">
-                  {money(totals.available)}
-                </span>
-              </div>
+          <div className="rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Outstanding
+              </span>
+              <CreditCard
+                className={`size-3 ${totals.outstanding > 0.001 ? 'text-amber-600' : 'text-zinc-400'}`}
+              />
             </div>
-            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-              Available to spend
+            <p
+              className={`mt-0.5 text-sm font-bold tabular-nums ${
+                totals.outstanding > 0.001
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-zinc-900 dark:text-white'
+              }`}
+            >
+              {money(totals.outstanding)}
             </p>
+            <p className="text-[10px] text-zinc-400">They still owe</p>
           </div>
 
-          {/* At Credit Limit / Overdue */}
-          <div className="rounded-lg sm:rounded-xl border border-zinc-200/90 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-2.5 sm:p-3 shadow-xs relative overflow-hidden flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 truncate">
-                  Blocked / Overdue
-                </span>
-                <div className={`size-5 rounded-md flex items-center justify-center shrink-0 ${totals.atLimit > 0 || totals.overdue > 0 ? 'bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}`}>
-                  <AlertTriangle className="size-3" />
-                </div>
-              </div>
-              <div className="mt-1 flex items-baseline gap-1">
-                <span className={`text-base sm:text-lg font-black tabular-nums tracking-tight truncate ${totals.atLimit > 0 ? 'text-red-600 dark:text-red-400' : 'text-zinc-900 dark:text-white'}`}>
-                  {totals.atLimit}
-                </span>
-                <span className="text-[10px] text-zinc-400 font-medium truncate">
-                  at limit
-                </span>
-              </div>
+          <div className="rounded-lg border border-zinc-200/90 bg-white px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex items-center justify-between gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Advance held
+              </span>
+              <Wallet className="size-3 text-sky-600" />
             </div>
-            <p className="mt-0.5 text-[10px] text-zinc-400 truncate">
-              {totals.overdue > 0 ? `${totals.overdue} with overdue bills` : 'None overdue'}
+            <p className="mt-0.5 text-sm font-bold tabular-nums text-sky-700 dark:text-sky-400">
+              {money(totals.advance)}
+            </p>
+            <p className="text-[10px] text-zinc-400">
+              Collected {money(totals.collected)}
             </p>
           </div>
         </div>

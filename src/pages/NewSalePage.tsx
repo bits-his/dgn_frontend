@@ -221,6 +221,7 @@ export function NewSalePage() {
         distributorKind?: string
         advanceBalance?: number
         paymentTermsDays?: number
+        ledger?: { advance?: number }
         credit: DistributorCreditView & {
           available?: number
           atLimit?: boolean
@@ -242,8 +243,13 @@ export function NewSalePage() {
             : 'GREEN') as 'GREEN' | 'YELLOW' | 'RED',
         overdueCount: Number(credit.overdueCount || 0),
         overdueAmount: Number(credit.overdueAmount || 0),
+        // Gross ADVANCE wallet available to apply on a sale (not netted display)
         advanceBalance: Number(
-          profile.advanceBalance ?? credit.advanceBalance ?? 0,
+          profile.ledger?.advance ??
+            (credit as { advanceGross?: number }).advanceGross ??
+            profile.advanceBalance ??
+            credit.advanceBalance ??
+            0,
         ),
         paymentTermsDays: Number(
           profile.paymentTermsDays ?? credit.paymentTermsDays ?? 14,

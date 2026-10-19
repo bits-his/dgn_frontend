@@ -43,3 +43,23 @@ export function shopRecordSalePath(outletId?: number | null) {
   if (!outletId) return '/shop/sales/new'
   return `/shop/sales/new?outletId=${outletId}`
 }
+
+export function shopSalesListPath(outletId?: number | null, shopCode?: string | null) {
+  const params = new URLSearchParams()
+  if (outletId) params.set('outletId', String(outletId))
+  if (shopCode) params.set('shopCode', shopCode)
+  const q = params.toString()
+  return q ? `/shop/sales?${q}` : '/shop/sales'
+}
+
+export function shopSalePath(saleNumber: string) {
+  return `/shop/sales/${encodeURIComponent(saleNumber)}`
+}
+
+export function shopSaleInvoicePath(saleNumber: string) {
+  return `/shop/sales/${encodeURIComponent(saleNumber)}/invoice`
+}
+
+export function shopSaleReceiptPath(saleNumber: string) {
+  return `/shop/sales/${encodeURIComponent(saleNumber)}/receipt`
+}

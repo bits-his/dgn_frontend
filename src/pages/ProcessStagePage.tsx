@@ -624,9 +624,10 @@ export function ProcessStageForm({
   const lotOverIn =
     lotLines.some((line) => Number(line.qtyUsable || 0) - line.qtyIn > 0.001) ||
     (isPartialLotStage && stageConsumed - lotTotalIn > 0.001)
-  // Partial stages: only colours entered this run need usable; blank stay for later.
+  // Partial stages: colours with usable this run, OR (washing) waste-only run.
   const lotMissingUsable = isPartialLotStage
-    ? !lotLines.some((line) => Number(line.qtyUsable || 0) > 0)
+    ? !lotLines.some((line) => Number(line.qtyUsable || 0) > 0) &&
+      !(isWashing && stageOptionalWaste > 0.001)
     : lotLines.some((line) => !(Number(line.qtyUsable || 0) > 0))
 
   const qtyInput = isMultiLotStage ? lotTotalIn : Number(watch('qtyInput') || 0)
@@ -822,10 +823,12 @@ export function ProcessStageForm({
       if (lotMissingUsable) {
         setServerErrors([
           {
-            label: 'Usable',
-            message: isPartialLotStage
-              ? `Enter usable kg for at least one colour this ${meta.title.toLowerCase()} run. Leave the rest blank for later.`
-              : `Enter usable kg after ${meta.title.toLowerCase()} for every colour.`,
+            label: isWashing ? 'Usable / waste' : 'Usable',
+            message: isWashing
+              ? 'Enter usable kg for at least one colour, or enter waste kg for a waste-only wash. Leave other colours blank for later.'
+              : isPartialLotStage
+                ? `Enter usable kg for at least one colour this ${meta.title.toLowerCase()} run. Leave the rest blank for later.`
+                : `Enter usable kg after ${meta.title.toLowerCase()} for every colour.`,
           },
         ])
         setSubmitAction(null)
@@ -1146,7 +1149,9 @@ export function ProcessStageForm({
                     </h2>
                     {!isRecrushing && (
                       <p className="text-xs text-[var(--ink-muted)] mt-0.5">
-                        Enter usable kg per colour. Leave blank to finish later.
+                        {isWashing
+                          ? 'Enter usable kg per colour, or waste only. Leave blank colours for later.'
+                          : 'Enter usable kg per colour. Leave blank to finish later.'}
                       </p>
                     )}
                   </div>

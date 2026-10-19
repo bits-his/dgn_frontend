@@ -186,275 +186,267 @@ export function SaleDetailPage() {
   }
 
   const s = sale.data
-  const unpaid = s.balanceDue > 0.001
+  const saleType = String(s.saleType || '').toUpperCase()
+  const isTransfer = saleType === 'SHOP_TRANSFER' || saleType === 'TRANSFER'
+  const unpaid = !isTransfer && s.balanceDue > 0.001
   const payments = s.payments || []
-  const customerIsDistributor = s.customer?.customerType === 'DISTRIBUTOR' && Boolean(s.customer.code)
+  const customerIsDistributor =
+    s.customer?.customerType === 'DISTRIBUTOR' && Boolean(s.customer.code)
+  const typeLabel = isTransfer
+    ? 'Shop transfer'
+    : saleType === 'CASH'
+      ? 'Cash sale'
+      : saleType === 'CREDIT'
+        ? 'Credit sale'
+        : saleType === 'OPENING_BALANCE'
+          ? 'Opening balance'
+          : s.saleType
 
   return (
     <PageLayout
-      title={`Sale: ${s.saleNumber}`}
-      description={`${customerIsDistributor ? s.customer?.name : s.customer?.name || 'Customer'} · ${s.saleType.toLowerCase()} · ${s.status.replace('_', ' ').toLowerCase()}`}
+      title={s.saleNumber}
+      description={`${s.customer?.name || 'Customer'} · ${typeLabel}`}
       back={true}
       backTo="/sales"
-      backLabel="All sales"
+      backLabel="Back"
       actions={
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
-            <Link to={`/sales/${s.saleNumber}/invoice`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-              <Printer className="size-3.5 shrink-0" />
-              <span>Invoice</span>
-            </Link>
-          </Button>
-          {s.amountPaid > 0.001 && (
-            <Button variant="outline" size="sm" className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center" asChild>
-              <Link to={`/sales/${s.saleNumber}/receipt`} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        !isTransfer ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
+              asChild
+            >
+              <Link
+                to={`/sales/${s.saleNumber}/invoice`}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
                 <Printer className="size-3.5 shrink-0" />
-                <span>Receipt</span>
+                <span>Invoice</span>
               </Link>
             </Button>
-          )}
-        </div>
-      }
-    >
-      <div className="space-y-6">
-        <Card className="!p-5">
-          <h2 className="text-base font-semibold mb-3">Order summary</h2>
-          <div className="space-y-2 text-sm">
-          <Row label="Goods value" value={money(s.subtotal)} />
-          <Row label="Discount" value={`− ${money(s.discount)}`} />
-          <div className="border-t border-[var(--line)] pt-2">
-            <Row label="Total" value={money(s.totalAmount)} strong />
-          </div>
-          <Row label="Paid" value={money(s.amountPaid)} />
-          <Row label="Balance" value={money(s.balanceDue)} tone={unpaid ? 'bad' : 'good'} strong />
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Fact label="Business date" value={formatBusinessDate(s.businessDate)} />
-          <Fact label="Recorded by" value={s.soldBy || '—'} />
-        </div>
-      </Card>
-
-      <Card className="mb-6">
-        <h2 className="text-base font-semibold">Customer</h2>
-        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-          <Fact label="Name" value={s.customer?.name || '—'} />
-          <Fact label="Type" value={s.customer?.customerType?.toLowerCase() || '—'} />
-          <Fact label="Phone" value={s.customer?.phone || '—'} />
-          <Fact label="Address" value={s.customer?.address || '—'} />
-          {customerIsDistributor && (
-            <div className="sm:col-span-2">
-              <Link
-                to={`/distributors/${s.customer!.code}`}
-                className="text-sm font-semibold text-[var(--accent-strong)] hover:underline"
-              >
-                Open distributor ledger
-              </Link>
-            </div>
-          )}
-        </dl>
-        {s.dispatchNotes && (
-          <div className="mt-4">
-            <Fact label="Notes" value={s.dispatchNotes} />
-          </div>
-        )}
-      </Card>
-
-      <Card className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold">Payments</h2>
-            <p className="text-sm text-zinc-700">
-              {unpaid
-                ? `${money(s.balanceDue)} still owed · ${money(s.amountPaid)} collected of ${money(s.totalAmount)}`
-                : `${money(s.amountPaid)} collected`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {canSell && unpaid && (
+            {s.amountPaid > 0.001 && (
               <Button
-                type="button"
+                variant="outline"
                 size="sm"
                 className="h-8 px-3 text-xs font-semibold gap-1.5 whitespace-nowrap inline-flex items-center"
-                onClick={() => setPayOpen(true)}
+                asChild
               >
-                <CreditCard className="size-3.5 shrink-0" />
-                <span>Record payment</span>
+                <Link
+                  to={`/sales/${s.saleNumber}/receipt`}
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <Printer className="size-3.5 shrink-0" />
+                  <span>Receipt</span>
+                </Link>
               </Button>
             )}
           </div>
-        </div>
-        {payments.length > 0 ? (
-          <div className="mt-4 -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="py-2 pr-4">When</th>
-                  <th className="py-2 pr-4">How</th>
-                  <th className="py-2 pr-4 text-right">Amount</th>
-                  <th className="py-2 pr-4">Reference</th>
-                  <th className="py-2 pr-4">Note</th>
-                  <th className="py-2 text-right"> </th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((row) => (
-                  <tr key={String(row.id)} className="border-b border-[var(--line)] last:border-0">
-                    <td className="py-3 pr-4 whitespace-nowrap">
-                      {formatWhen(row.receivedAt || row.recordedAt)}
-                    </td>
-                    <td className="py-3 pr-4">{methodLabel(row.paymentMethod)}</td>
-                    <td className="py-3 pr-4 text-right font-semibold">{money(row.amount)}</td>
-                    <td className="py-3 pr-4 font-mono text-xs">{row.reference || '—'}</td>
-                    <td className="py-3 pr-4 text-zinc-700">{row.note || '—'}</td>
-                    <td className="py-3 text-right">
-                      <Link
-                        to={`/sales/${s.saleNumber}/receipt?p=${encodeURIComponent(String(row.id))}`}
-                        className="text-sm font-semibold text-[var(--accent-strong)]"
-                      >
-                        Receipt
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        ) : null
+      }
+    >
+      <div className="space-y-2.5">
+        <Card className="!p-3 sm:!p-3.5">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-medium text-zinc-500">{typeLabel}</p>
+              <p className="mt-0.5 text-sm font-semibold text-zinc-900">
+                {s.customer?.name || '—'}
+              </p>
+              {s.customer?.code ? (
+                <Link
+                  to={`/distributors/${s.customer.code}`}
+                  className="mt-0.5 inline-block text-[11px] font-semibold text-[var(--accent-strong)] hover:underline"
+                >
+                  {isTransfer ? 'View shop' : customerIsDistributor ? 'Open ledger' : s.customer.code}
+                </Link>
+              ) : null}
+            </div>
+            <div className="text-right text-xs text-zinc-600">
+              <p>{formatBusinessDate(s.businessDate)}</p>
+              <p className="mt-0.5">{s.soldBy || '—'}</p>
+            </div>
           </div>
-        ) : (
-          <p className="mt-4 text-sm text-zinc-700">No payments recorded yet.</p>
-        )}
-      </Card>
+          {isTransfer ? (
+            <p className="mt-2.5 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-[11px] text-violet-800">
+              Factory → shop stock issue — not a sale, no invoice or payment.
+            </p>
+          ) : (
+            <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-[var(--line)] pt-2.5 sm:grid-cols-4">
+              <Fact label="Total" value={money(s.totalAmount)} />
+              <Fact label="Paid" value={money(s.amountPaid)} tone="good" />
+              <Fact
+                label="Balance"
+                value={money(s.balanceDue)}
+                tone={unpaid ? 'bad' : 'good'}
+              />
+              <Fact label="Margin" value={`${s.grossMarginPercent}%`} />
+            </div>
+          )}
+          {s.dispatchNotes ? (
+            <p className="mt-2 text-[11px] text-zinc-600">{s.dispatchNotes}</p>
+          ) : null}
+        </Card>
 
-      <Card className="mb-6">
-        <h2 className="text-base font-semibold">Goods</h2>
-        <p className="text-sm text-zinc-700">
-          {s.lines.length} line{s.lines.length === 1 ? '' : 's'}
-        </p>
-        <div className="mt-4 -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
-          <table className="w-full min-w-[820px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
-                <th className="py-2 pr-4">Product</th>
-                <th className="py-2 pr-4">Batch</th>
-                <th className="py-2 pr-4 text-right">Qty</th>
-                <th className="py-2 pr-4 text-right">Price / dz</th>
-                <th className="py-2 pr-4 text-right">Value</th>
-                <th className="py-2 pr-4 text-right">Cost</th>
-                <th className="py-2 pr-4 text-right">Margin</th>
-                <th className="py-2 text-right"> </th>
-              </tr>
-            </thead>
-            <tbody>
-              {s.lines.map((line) => {
-                const returnable = line.qty - line.qtyReturned
-                return (
-                  <tr key={line.id} className="border-b border-[var(--line)] last:border-0">
-                    <td className="py-3 pr-4">
-                      <p className="font-medium">{line.productName || '—'}</p>
-                      {line.qtyReturned > 0 && (
-                        <p className="text-xs text-amber-800">
-                          {qtyDozenLabel(line.qtyReturned, line.uom, line.unitsPerDozen)} returned
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3 pr-4">
-                      {line.batchNumber ? (
-                        <Link
-                          to={`/batches/${line.batchNumber}`}
-                          className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                        >
-                          {line.batchNumber}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="py-3 pr-4 text-right">
-                      {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
-                    </td>
-                    <td className="py-3 pr-4 text-right">
-                      {isPieceUom(line.uom)
-                        ? `${money(dozenPriceFromUnit(line.unitPrice, perDozenOf(line.unitsPerDozen)))}/dz`
-                        : money(line.unitPrice)}
-                    </td>
-                    <td className="py-3 pr-4 text-right font-semibold">{money(line.lineTotal)}</td>
-                    <td className="py-3 pr-4 text-right">{money(line.lineCost)}</td>
-                    <td className="py-3 pr-4 text-right">
-                      <span
-                        className={
-                          line.lineMargin > 0 ? 'font-semibold text-teal-700' : 'font-semibold text-red-700'
-                        }
-                      >
-                        {money(line.lineMargin)}
-                      </span>
-                      <p className="text-xs text-zinc-500">{line.lineMarginPercent}%</p>
-                    </td>
-                    <td className="py-3 text-right">
-                      {canSell && returnable > 0.001 && (
-                        <button
-                          type="button"
-                          className="text-sm font-semibold text-[var(--accent-strong)]"
-                          onClick={() => setReturningLine(line)}
-                        >
-                          Return
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      {s.returns.length > 0 && (
-        <Card>
-          <h2 className="text-base font-semibold">Returns</h2>
-          <div className="mt-4 -mx-5 overflow-x-auto px-5 sm:-mx-6 sm:px-6">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] text-xs uppercase tracking-wide text-zinc-500">
-                  <th className="py-2 pr-4">Return</th>
-                  <th className="py-2 pr-4">Batch</th>
-                  <th className="py-2 pr-4">Reason</th>
-                  <th className="py-2 pr-4 text-right">Qty</th>
-                  <th className="py-2 text-right">Refund</th>
-                </tr>
-              </thead>
-              <tbody>
-                {s.returns.map((ret) => (
-                  <tr key={ret.id} className="border-b border-[var(--line)] last:border-0">
-                    <td className="py-3 pr-4">
-                      <p className="font-mono text-xs font-semibold">{ret.returnNumber}</p>
-                      <p className="text-xs text-zinc-500">{ret.condition.toLowerCase()}</p>
-                    </td>
-                    <td className="py-3 pr-4">
-                      {ret.batchNumber ? (
-                        <Link
-                          to={`/batches/${ret.batchNumber}`}
-                          className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                        >
-                          {ret.batchNumber}
-                        </Link>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="py-3 pr-4">
-                      {REASON_COPY[ret.reason] ?? ret.reason}
-                      {ret.notes && <p className="text-xs text-zinc-500">{ret.notes}</p>}
-                    </td>
-                    <td className="py-3 pr-4 text-right">
-                      {qtyDozenLabel(ret.qty, ret.uom)}
-                    </td>
-                    <td className="py-3 text-right font-semibold">{money(ret.refundAmount)}</td>
-                  </tr>
+        {!isTransfer ? (
+          <Card className="!p-3 sm:!p-3.5">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Payments</h2>
+                <p className="text-[11px] text-zinc-600">
+                  {unpaid
+                    ? `${money(s.balanceDue)} owed · ${money(s.amountPaid)} collected`
+                    : `${money(s.amountPaid)} collected`}
+                </p>
+              </div>
+              {canSell && unpaid ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-2.5 text-[11px] font-semibold gap-1"
+                  onClick={() => setPayOpen(true)}
+                >
+                  <CreditCard className="size-3.5" />
+                  Record payment
+                </Button>
+              ) : null}
+            </div>
+            {payments.length > 0 ? (
+              <div className="mt-2 divide-y divide-zinc-100">
+                {payments.map((row) => (
+                  <div
+                    key={String(row.id)}
+                    className="flex items-center justify-between gap-2 py-1.5 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-zinc-900">
+                        {methodLabel(row.paymentMethod)} · {money(row.amount)}
+                      </p>
+                      <p className="text-[10px] text-zinc-500">
+                        {formatWhen(row.receivedAt || row.recordedAt)}
+                        {row.reference ? ` · ${row.reference}` : ''}
+                      </p>
+                    </div>
+                    <Link
+                      to={`/sales/${s.saleNumber}/receipt?p=${encodeURIComponent(String(row.id))}`}
+                      className="shrink-0 text-[11px] font-semibold text-[var(--accent-strong)]"
+                    >
+                      Receipt
+                    </Link>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <p className="mt-2 text-[11px] text-zinc-500">No payments yet.</p>
+            )}
+          </Card>
+        ) : null}
+
+        <Card className="!p-3 sm:!p-3.5">
+          <h2 className="text-sm font-semibold">
+            {isTransfer
+              ? 'Stock issued'
+              : saleType === 'OPENING_BALANCE'
+                ? 'Opening balance'
+                : 'Goods'}
+          </h2>
+          <p className="text-[11px] text-zinc-500">
+            {s.lines.length > 0
+              ? `${s.lines.length} line${s.lines.length === 1 ? '' : 's'}`
+              : saleType === 'OPENING_BALANCE'
+                ? 'Money balance only — no product lines'
+                : 'No lines'}
+          </p>
+          <div className="mt-2 divide-y divide-zinc-100">
+            {s.lines.length === 0 && Number(s.totalAmount) > 0.001 ? (
+              <div className="flex items-start justify-between gap-2 py-1.5 text-xs">
+                <p className="min-w-0 font-medium text-zinc-900">
+                  {saleType === 'OPENING_BALANCE'
+                    ? 'Opening receivable'
+                    : 'Invoice balance'}
+                </p>
+                <p className="shrink-0 font-semibold tabular-nums">
+                  {money(s.totalAmount)}
+                </p>
+              </div>
+            ) : null}
+            {s.lines.map((line) => {
+              const returnable = line.qty - line.qtyReturned
+              return (
+                <div
+                  key={line.id}
+                  className="flex items-start justify-between gap-2 py-1.5 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-zinc-900">
+                      {line.productName || '—'}
+                    </p>
+                    <p className="text-[10px] text-zinc-500">
+                      {line.batchNumber ? `${line.batchNumber} · ` : ''}
+                      {qtyDozenLabel(line.qty, line.uom, line.unitsPerDozen)}
+                      {!isTransfer
+                        ? ` · ${
+                            isPieceUom(line.uom)
+                              ? `${money(
+                                  dozenPriceFromUnit(
+                                    line.unitPrice,
+                                    perDozenOf(line.unitsPerDozen),
+                                  ),
+                                )}/dz`
+                              : money(line.unitPrice)
+                          }`
+                        : ''}
+                      {line.qtyReturned > 0
+                        ? ` · ${qtyDozenLabel(line.qtyReturned, line.uom, line.unitsPerDozen)} returned`
+                        : ''}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    {!isTransfer ? (
+                      <p className="font-semibold tabular-nums">{money(line.lineTotal)}</p>
+                    ) : null}
+                    {canSell && !isTransfer && returnable > 0.001 ? (
+                      <button
+                        type="button"
+                        className="mt-0.5 text-[11px] font-semibold text-[var(--accent-strong)]"
+                        onClick={() => setReturningLine(line)}
+                      >
+                        Return
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </Card>
-      )}
+
+        {!isTransfer && s.returns.length > 0 ? (
+          <Card className="!p-3 sm:!p-3.5">
+            <h2 className="text-sm font-semibold">Returns</h2>
+            <div className="mt-2 divide-y divide-zinc-100">
+              {s.returns.map((ret) => (
+                <div
+                  key={ret.id}
+                  className="flex items-start justify-between gap-2 py-1.5 text-xs"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-zinc-900">
+                      {REASON_COPY[ret.reason] ?? ret.reason}
+                    </p>
+                    <p className="text-[10px] text-zinc-500">
+                      {qtyDozenLabel(ret.qty, ret.uom)} · {ret.condition.toLowerCase()}
+                    </p>
+                  </div>
+                  <p className="shrink-0 font-semibold tabular-nums">
+                    {money(ret.refundAmount)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : null}
 
       {returningLine && (
         <ReturnDialog
@@ -503,41 +495,15 @@ function Fact({
 }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-zinc-500">{label}</p>
+      <p className="text-[10px] font-medium text-zinc-500">{label}</p>
       <p
         className={
-          'mt-1 text-sm font-semibold text-zinc-900 ' +
+          'mt-0.5 text-sm font-semibold tabular-nums text-zinc-900 ' +
           (tone === 'good' ? 'text-teal-700' : tone === 'bad' ? 'text-red-700' : '')
         }
       >
         {value}
       </p>
-    </div>
-  )
-}
-
-function Row({
-  label,
-  value,
-  strong,
-  tone,
-}: {
-  label: string
-  value: string
-  strong?: boolean
-  tone?: 'good' | 'bad'
-}) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-zinc-700">{label}</span>
-      <span
-        className={
-          (strong ? 'font-semibold ' : '') +
-          (tone === 'good' ? 'text-teal-700' : tone === 'bad' ? 'text-red-700' : '')
-        }
-      >
-        {value}
-      </span>
     </div>
   )
 }

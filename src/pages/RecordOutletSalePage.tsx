@@ -1,14 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Search } from 'lucide-react'
+import { Check, Plus, Search, UserRound } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, outletHomePath, outletQuery } from '@/lib/outlet'
+import {
+  isOutletScoped,
+  outletHomePath,
+  outletQuery,
+  shopSaleInvoicePath,
+  shopSalePath,
+  shopSaleReceiptPath,
+} from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
+import { NairaAmountInput } from '@/components/ui'
 import type { ShopBuyerRow } from '@/components/outlet/ShopCustomersBoard'
 
 type StockRow = {
@@ -34,7 +49,14 @@ type DistributorOption = {
 }
 
 type BuyerPick =
-  | { kind: 'buyer'; id: number; name: string; saleCount?: number; balanceDue?: number }
+  | {
+      kind: 'buyer'
+      id: number
+      name: string
+      saleCount?: number
+      balanceDue?: number
+      linkedCustomerId?: number | null
+    }
   | {
       kind: 'distributor'
       id: number
@@ -65,13 +87,28 @@ export function RecordOutletSalePage() {
 
   const [itemSearch, setItemSearch] = useState('')
   const [lineInputs, setLineInputs] = useState<Record<string, LineInput>>({})
-  const [saleType, setSaleType] = useState<'CASH' | 'CREDIT' | 'TRANSFER'>('CASH')
-  const [buyerName, setBuyerName] = useState('')
+  const [amountPaid, setAmountPaid] = useState('0')
+  /** Text in the search box (not a customer until selected or created). */
+  const [customerQuery, setCustomerQuery] = useState('')
   const [selectedBuyerId, setSelectedBuyerId] = useState<number | null>(null)
   const [linkedCustomerId, setLinkedCustomerId] = useState<number | null>(null)
+  const [selectedLabel, setSelectedLabel] = useState('')
   const [buyerPickerOpen, setBuyerPickerOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createPhone, setCreatePhone] = useState('')
+  const [createError, setCreateError] = useState('')
   const [error, setError] = useState('')
-  const [result, setResult] = useState<{ saleNumber: string; totalAmount: number } | null>(null)
+  const [result, setResult] = useState<{
+    saleNumber: string
+    totalAmount: number
+    amountPaid?: number
+    balanceDue?: number
+  } | null>(null)
+
+  // Walk-in until an existing / newly created customer is selected
+  const isWalkIn = !selectedBuyerId && !linkedCustomerId
+  const hasNamedCustomer = !isWalkIn
 
   const overview = useQuery({
     queryKey: ['outlet-overview', effectiveOutletId],
@@ -98,18 +135,25 @@ export function RecordOutletSalePage() {
   }, [stock, itemSearch])
 
   const buyerSuggestions = useMemo((): BuyerPick[] => {
-    const q = buyerName.trim().toLowerCase()
+    const q = customerQuery.trim().toLowerCase()
+    const linkedDistributorIds = new Set(
+      buyers
+        .map((b) => Number(b.linkedCustomerId || 0))
+        .filter((id) => id > 0),
+    )
+
     const local: BuyerPick[] = (q
       ? buyers.filter((b) => b.name.toLowerCase().includes(q))
       : buyers
     )
-      .slice(0, 6)
+      .slice(0, 8)
       .map((b) => ({
         kind: 'buyer' as const,
         id: b.id,
         name: b.name,
         saleCount: b.saleCount,
         balanceDue: b.balanceDue,
+        linkedCustomerId: b.linkedCustomerId,
       }))
 
     const dists: BuyerPick[] = (q
@@ -122,6 +166,7 @@ export function RecordOutletSalePage() {
         )
       : distributors
     )
+      .filter((d) => !linkedDistributorIds.has(Number(d.id)))
       .slice(0, 8)
       .map((d) => ({
         kind: 'distributor' as const,
@@ -131,20 +176,30 @@ export function RecordOutletSalePage() {
         phone: d.phone,
       }))
 
-    // Prefer distributors when searching; keep local returning customers too
-    const merged = [...dists, ...local]
+    const merged = [...local, ...dists]
     const seen = new Set<string>()
     const unique: BuyerPick[] = []
     for (const row of merged) {
       const key =
-        row.kind === 'distributor' ? `d-${row.id}` : `b-${row.id}-${row.name.toLowerCase()}`
+        row.kind === 'distributor'
+          ? `d-${row.id}`
+          : row.linkedCustomerId
+            ? `link-${row.linkedCustomerId}`
+            : `b-${row.id}`
       if (seen.has(key)) continue
       seen.add(key)
       unique.push(row)
       if (unique.length >= 10) break
     }
     return unique
-  }, [buyers, distributors, buyerName])
+  }, [buyers, distributors, customerQuery])
+
+  const canOfferCreate = useMemo(() => {
+    const q = customerQuery.trim()
+    if (!q || hasNamedCustomer) return false
+    const exact = buyers.some((b) => b.name.trim().toLowerCase() === q.toLowerCase())
+    return !exact
+  }, [customerQuery, buyers, hasNamedCustomer])
 
   useEffect(() => {
     if (!stock.length) return
@@ -185,12 +240,25 @@ export function RecordOutletSalePage() {
   const qtyTotal = activeLines.reduce((sum, row) => sum + row.qty, 0)
   const hasExceeded = activeLines.some((row) => row.exceeded)
   const missingPrice = activeLines.some((row) => !(row.unitPrice > 0))
+
+  const typingCustomer = customerQuery.trim().length > 0 && !hasNamedCustomer
+
+  const paidNow = useMemo(() => {
+    const n = Number(amountPaid)
+    if (!Number.isFinite(n) || n < 0) return 0
+    return Math.min(subtotal, n)
+  }, [amountPaid, subtotal])
+  const balanceDueNow = Math.max(0, Math.round((subtotal - paidNow) * 100) / 100)
+  const saleType: 'CASH' | 'CREDIT' = paidNow <= 0.001 ? 'CREDIT' : 'CASH'
+
   const canSubmit =
     Boolean(effectiveOutletId) &&
     activeLines.length > 0 &&
     !hasExceeded &&
     !missingPrice &&
-    !overview.isLoading
+    !overview.isLoading &&
+    !typingCustomer &&
+    !(balanceDueNow > 0.001 && isWalkIn)
 
   const setLine = (productId: number, patch: Partial<LineInput>) => {
     const key = String(productId)
@@ -207,20 +275,83 @@ export function RecordOutletSalePage() {
     if (row.kind === 'distributor') {
       setSelectedBuyerId(null)
       setLinkedCustomerId(row.id)
-      setBuyerName(row.name)
+      setSelectedLabel(row.name)
     } else {
       setSelectedBuyerId(row.id)
       setLinkedCustomerId(null)
-      setBuyerName(row.name)
+      setSelectedLabel(row.name)
     }
+    setCustomerQuery('')
     setBuyerPickerOpen(false)
+    setAmountPaid('0')
   }
 
   const clearBuyer = () => {
     setSelectedBuyerId(null)
     setLinkedCustomerId(null)
-    setBuyerName('')
+    setSelectedLabel('')
+    setCustomerQuery('')
+    setAmountPaid('0')
   }
+
+  const setPaidFull = () => {
+    setAmountPaid(subtotal > 0 ? String(Number(subtotal.toFixed(2))) : '0')
+  }
+
+  const openCreateModal = (prefill?: string) => {
+    setCreateName((prefill || customerQuery).trim())
+    setCreatePhone('')
+    setCreateError('')
+    setBuyerPickerOpen(false)
+    setCreateOpen(true)
+  }
+
+  // Cap paid amount if cart total drops below what's entered; never auto-fill
+  useEffect(() => {
+    setAmountPaid((prev) => {
+      const n = Number(prev)
+      if (!prev.trim() || !Number.isFinite(n) || n < 0) return '0'
+      if (n > subtotal + 0.001) return String(Number(subtotal.toFixed(2)))
+      return prev
+    })
+  }, [subtotal])
+
+  const createBuyer = useMutation({
+    mutationFn: async () => {
+      if (!effectiveOutletId) throw new Error('Pick a shop first')
+      const name = createName.trim()
+      if (!name) throw new Error('Enter the customer name')
+      const { data } = await api.post('/outlet-sales/buyers', {
+        outletCustomerId: effectiveOutletId,
+        name,
+        phone: createPhone.trim() || null,
+      })
+      return data.data as { id: number; name: string; phone: string | null }
+    },
+    onSuccess: async (buyer) => {
+      setCreateOpen(false)
+      setSelectedBuyerId(buyer.id)
+      setLinkedCustomerId(null)
+      setSelectedLabel(buyer.name)
+      setCustomerQuery('')
+      setAmountPaid('0')
+      setCreateError('')
+      await qc.invalidateQueries({ queryKey: ['outlet-overview'] })
+      await qc.invalidateQueries({ queryKey: ['outlet-buyers'] })
+    },
+    onError: (err: unknown) => {
+      const axiosErr = err as {
+        response?: { data?: { err?: string; errors?: { name?: string } } }
+        message?: string
+      }
+      setCreateError(
+        axiosErr.response?.data?.err ||
+          axiosErr.response?.data?.errors?.name ||
+          axiosErr.message ||
+          'Could not save customer',
+      )
+    },
+  })
 
   const save = useMutation({
     mutationFn: async () => {
@@ -228,13 +359,20 @@ export function RecordOutletSalePage() {
       if (!activeLines.length) throw new Error('Enter quantity on at least one product')
       if (hasExceeded) throw new Error('One of the quantities is more than stock left')
       if (missingPrice) throw new Error('Enter a unit price on every item in the sale')
+      if (balanceDueNow > 0.001 && isWalkIn) {
+        throw new Error('Walk-in must pay in full — create or pick a customer to leave a balance')
+      }
+      if (customerQuery.trim() && isWalkIn) {
+        throw new Error('Pick a customer from the list, or Create them — typing alone will not save a name')
+      }
       const { data } = await api.post('/outlet-sales', {
         outletCustomerId: effectiveOutletId,
         saleType,
         outletBuyerId: selectedBuyerId,
         linkedCustomerId,
-        buyerName: buyerName.trim() || null,
-        amountPaid: saleType === 'CREDIT' ? 0 : subtotal,
+        // Never auto-create from free text — only selected / created customers
+        buyerName: null,
+        amountPaid: paidNow,
         lines: activeLines.map((row) => ({
           productId: row.productId,
           qty: row.qty,
@@ -243,7 +381,12 @@ export function RecordOutletSalePage() {
       })
       return data as {
         message?: string
-        data?: { saleNumber: string; totalAmount: number }
+        data?: {
+          saleNumber: string
+          totalAmount: number
+          amountPaid: number
+          balanceDue: number
+        }
       }
     },
     onSuccess: async (body) => {
@@ -251,11 +394,15 @@ export function RecordOutletSalePage() {
       setResult({
         saleNumber: body.data?.saleNumber || '',
         totalAmount: body.data?.totalAmount || subtotal,
+        amountPaid: body.data?.amountPaid ?? paidNow,
+        balanceDue: body.data?.balanceDue ?? balanceDueNow,
       })
       setLineInputs({})
       clearBuyer()
+      setAmountPaid('0')
       await qc.invalidateQueries({ queryKey: ['outlet-overview'] })
       await qc.invalidateQueries({ queryKey: ['outlet-buyers'] })
+      await qc.invalidateQueries({ queryKey: ['outlet-sales-list'] })
       await qc.invalidateQueries({ queryKey: ['distributor'] })
       await qc.invalidateQueries({ queryKey: ['distributors'] })
     },
@@ -300,11 +447,26 @@ export function RecordOutletSalePage() {
             {result.saleNumber}
           </p>
           <p className="mt-2 text-xs text-zinc-500">
-            {money(result.totalAmount)} · stock at this stall has been updated.
+            {money(result.totalAmount)}
+            {(result.balanceDue || 0) > 0.001
+              ? ` · paid ${money(result.amountPaid || 0)} · credit ${money(result.balanceDue || 0)}`
+              : ' · paid in full'}
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <Button size="sm" className="h-8 font-semibold" asChild>
+              <Link to={shopSaleInvoicePath(result.saleNumber)}>Invoice</Link>
+            </Button>
+            {(result.amountPaid || 0) > 0.001 ? (
+              <Button variant="outline" size="sm" className="h-8 font-semibold" asChild>
+                <Link to={shopSaleReceiptPath(result.saleNumber)}>Receipt</Link>
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" className="h-8 font-semibold" asChild>
+              <Link to={shopSalePath(result.saleNumber)}>View sale</Link>
+            </Button>
             <Button
               size="sm"
+              variant="ghost"
               className="h-8 font-semibold"
               onClick={() => {
                 setResult(null)
@@ -313,11 +475,8 @@ export function RecordOutletSalePage() {
             >
               Record another
             </Button>
-            <Button variant="outline" size="sm" className="h-8 font-semibold" asChild>
-              <Link to={scoped ? outletHomePath(user) : backTo}>Shop book</Link>
-            </Button>
             <Button variant="ghost" size="sm" className="h-8 font-semibold" asChild>
-              <Link to={scoped ? '/' : backTo}>{scoped ? 'Dashboard' : 'Back'}</Link>
+              <Link to={scoped ? outletHomePath(user) : backTo}>Shop book</Link>
             </Button>
           </div>
         </div>
@@ -501,47 +660,47 @@ export function RecordOutletSalePage() {
             <div className="relative">
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-zinc-700">Customer</label>
-                {(selectedBuyerId || linkedCustomerId || buyerName) && (
+                {hasNamedCustomer && (
                   <button
                     type="button"
                     onClick={clearBuyer}
                     className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-800"
                   >
-                    Walk-in
+                    Clear · walk-in
                   </button>
                 )}
               </div>
-              <Input
-                value={buyerName}
-                onChange={(e) => {
-                  setBuyerName(e.target.value)
-                  setSelectedBuyerId(null)
-                  setLinkedCustomerId(null)
-                  setBuyerPickerOpen(true)
-                }}
-                onFocus={() => setBuyerPickerOpen(true)}
-                onBlur={() => {
-                  window.setTimeout(() => setBuyerPickerOpen(false), 150)
-                }}
-                placeholder="Type a name or pick a distributor / returning customer"
-                className="h-9 text-xs"
-              />
-              {linkedCustomerId ? (
-                <p className="mt-1 text-[10px] font-medium text-violet-700">
-                  Distributor selected from app list
-                </p>
-              ) : selectedBuyerId ? (
-                <p className="mt-1 text-[10px] font-medium text-teal-700">
-                  Returning shop customer selected
-                </p>
-              ) : buyerName.trim() ? (
-                <p className="mt-1 text-[10px] text-zinc-500">
-                  Will save as a new / matching shop customer
-                </p>
+              {hasNamedCustomer ? (
+                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2">
+                  <UserRound className="size-3.5 shrink-0 text-emerald-700" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-semibold text-zinc-900">{selectedLabel}</p>
+                    <p className="text-[10px] text-emerald-800">
+                      {linkedCustomerId ? 'Distributor account' : 'Shop customer'} · credit allowed
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <p className="mt-1 text-[10px] text-zinc-500">Leave blank for walk-in</p>
+                <>
+                  <Input
+                    value={customerQuery}
+                    onChange={(e) => {
+                      setCustomerQuery(e.target.value)
+                      setBuyerPickerOpen(true)
+                    }}
+                    onFocus={() => setBuyerPickerOpen(true)}
+                    onBlur={() => {
+                      window.setTimeout(() => setBuyerPickerOpen(false), 150)
+                    }}
+                    placeholder="Search customer or distributor…"
+                    className="h-9 text-xs"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-500">
+                    Leave empty for walk-in (full payment). Typing alone does not create a customer.
+                  </p>
+                </>
               )}
-              {buyerPickerOpen && buyerSuggestions.length > 0 && (
+              {!hasNamedCustomer && buyerPickerOpen && (buyerSuggestions.length > 0 || canOfferCreate) && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-md">
                   {buyerSuggestions.map((b) => (
                     <li key={b.kind === 'distributor' ? `d-${b.id}` : `b-${b.id}`}>
@@ -555,13 +714,17 @@ export function RecordOutletSalePage() {
                           <span className="font-medium text-zinc-900">{b.name}</span>
                           {b.kind === 'distributor' ? (
                             <span className="mt-0.5 block font-mono text-[10px] text-violet-600">
-                              Distributor · {b.code}
+                              App distributor · {b.code}
+                            </span>
+                          ) : b.linkedCustomerId ? (
+                            <span className="mt-0.5 block text-[10px] text-teal-700">
+                              Shop account · linked distributor
                             </span>
                           ) : null}
                         </span>
                         <span className="shrink-0 tabular-nums text-[10px] text-zinc-500">
                           {b.kind === 'distributor'
-                            ? 'App list'
+                            ? 'New link'
                             : `${b.saleCount || 0}×${
                                 (b.balanceDue || 0) > 0.001
                                   ? ` · owes ${money(b.balanceDue || 0)}`
@@ -571,65 +734,64 @@ export function RecordOutletSalePage() {
                       </button>
                     </li>
                   ))}
+                  {canOfferCreate && (
+                    <li className="border-t border-zinc-100">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => openCreateModal()}
+                      >
+                        <Plus className="size-3.5 shrink-0" />
+                        Create «{customerQuery.trim()}»
+                      </button>
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-zinc-700">How they paid</label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {(
-                  [
-                    ['CASH', 'Cash'],
-                    ['TRANSFER', 'Transfer'],
-                    ['CREDIT', 'Credit'],
-                  ] as const
-                ).map(([value, label]) => {
-                  const active = saleType === value
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSaleType(value)}
-                      className={`h-9 rounded-lg border text-xs font-semibold ${
-                        active
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
-                          : 'border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-zinc-700">Amount paid now</label>
+              <div className="flex gap-2">
+                <NairaAmountInput
+                  value={amountPaid}
+                  onChange={setAmountPaid}
+                  className="h-9 flex-1 text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 px-3 text-xs font-semibold"
+                  disabled={subtotal <= 0}
+                  onClick={setPaidFull}
+                >
+                  Pay full
+                </Button>
               </div>
-              {saleType === 'CREDIT' && (
-                <p className="mt-1.5 text-[10px] text-zinc-500">
-                  They will pay later. Name the customer so debtors stay clear.
-                </p>
-              )}
+              <p className="text-[10px] text-zinc-500">
+                {isWalkIn
+                  ? 'Walk-in must pay the full total — use Pay full or type the amount.'
+                  : 'Starts at 0 (credit) · Pay full or enter a part payment.'}
+              </p>
             </div>
 
             <div className="space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3.5 text-xs">
               <div className="flex justify-between text-zinc-600">
-                <span>Gross value ({activeLines.length} items)</span>
+                <span>Total ({activeLines.length} items)</span>
                 <span className="font-medium tabular-nums">{money(subtotal)}</span>
               </div>
-              <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-bold text-zinc-900">
-                <span>Net payable</span>
-                <span className="text-sm tabular-nums">{money(subtotal)}</span>
-              </div>
               <div className="flex justify-between font-semibold">
-                <span className="text-zinc-700">Collected now</span>
-                <span className="tabular-nums text-teal-700">
-                  {money(saleType === 'CREDIT' ? 0 : subtotal)}
-                </span>
+                <span className="text-zinc-700">Paid now</span>
+                <span className="tabular-nums text-teal-700">{money(paidNow)}</span>
               </div>
-              <div className="flex justify-between font-bold">
-                <span className="text-zinc-900">Balance due</span>
+              <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-bold">
+                <span className="text-zinc-900">Balance (credit)</span>
                 <span
-                  className={`tabular-nums ${saleType === 'CREDIT' && subtotal > 0 ? 'text-rose-700' : 'text-zinc-800'}`}
+                  className={`tabular-nums ${balanceDueNow > 0.001 ? 'text-rose-700' : 'text-zinc-800'}`}
                 >
-                  {money(saleType === 'CREDIT' ? subtotal : 0)}
+                  {money(balanceDueNow)}
                 </span>
               </div>
             </div>
@@ -666,13 +828,75 @@ export function RecordOutletSalePage() {
                       ? 'Reduce quantity on the highlighted item.'
                       : missingPrice
                         ? 'Enter a unit price on every item in the sale.'
-                        : 'Enter quantity on at least one product.'}
+                        : typingCustomer
+                          ? 'Pick a customer from the list, or Create them — then Record sale.'
+                          : balanceDueNow > 0.001 && isWalkIn
+                            ? 'Walk-in must pay in full — tap Pay full, or pick / create a customer for credit.'
+                            : 'Enter quantity on at least one product.'}
                 </p>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New shop customer</DialogTitle>
+            <DialogDescription>
+              Save name and phone so you can find them next time and sell on credit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-zinc-700">Name</label>
+              <Input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="Customer name"
+                className="h-9 text-xs"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-zinc-700">Phone</label>
+              <Input
+                value={createPhone}
+                onChange={(e) => setCreatePhone(e.target.value)}
+                placeholder="Optional"
+                className="h-9 text-xs"
+                inputMode="tel"
+              />
+            </div>
+            {createError && (
+              <div className="rounded-lg bg-red-50 px-2.5 py-2 text-[11px] font-medium text-red-700">
+                {createError}
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 flex-1 text-xs"
+                onClick={() => setCreateOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 flex-1 text-xs font-semibold"
+                disabled={createBuyer.isPending || !createName.trim()}
+                onClick={() => createBuyer.mutate()}
+              >
+                {createBuyer.isPending ? 'Saving…' : 'Save customer'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageLayout>
   )
 }
