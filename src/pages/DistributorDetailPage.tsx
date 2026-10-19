@@ -99,6 +99,10 @@ type DistributorDetail = {
   ledger?: {
     receivable: number
     advance: number
+    /** Netted amount they still owe (0 if advance covers receivable). */
+    owed: number
+    /** Netted advance held (0 if they still owe overall). */
+    held: number
     net: number
     txns: {
       id: number

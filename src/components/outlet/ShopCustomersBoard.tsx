@@ -30,7 +30,10 @@ function BuyerRow({
   return (
     <Link
       to={href}
-      className="group flex items-center gap-2.5 border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0 transition-colors hover:bg-zinc-50/90 -mx-1 px-1 rounded-md"
+      className={cn(
+        'group flex items-center gap-2.5 border-b border-zinc-100 py-2 last:border-0 last:pb-0 first:pt-0 transition-colors hover:bg-zinc-50/90 -mx-1 px-1 rounded-md',
+        emphasizeDebt && owes && 'bg-amber-50/40',
+      )}
     >
       <div
         className={cn(
