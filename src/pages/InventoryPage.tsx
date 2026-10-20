@@ -249,7 +249,7 @@ export function InventoryPage() {
   return (
     <PageLayout
       title="Inventory"
-      description="Stock by product and material"
+      description="Finished = accepted product lots · Raw = material on hand"
       actions={
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {canAdjust ? (
