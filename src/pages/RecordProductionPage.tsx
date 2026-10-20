@@ -478,6 +478,23 @@ export function RecordProductionPage() {
       return
     }
 
+    const shiftLogs = scorecardQuery.data?.shiftLogs || []
+    const shiftSource =
+      shiftLogs.find((s: ShiftLogItem) => s.status === 'ACTIVE') || shiftLogs[0]
+    const shiftId = shiftSource?.shiftId || runDetail.shiftId
+    const operatorId = shiftSource?.operatorId || undefined
+    const operatorName =
+      shiftSource?.operatorName || runDetail.operatorName || undefined
+
+    if (!shiftId) {
+      setRecordError('Clock in a shift (or set a shift on this run) before recording.')
+      return
+    }
+    if (!operatorName && !operatorId) {
+      setRecordError('Need an operator on this run. Clock in a shift with an operator first.')
+      return
+    }
+
     setIsRecording(true)
     setRecordError('')
     setRecordSuccess('')
@@ -488,22 +505,22 @@ export function RecordProductionPage() {
         })
       }
 
-      const produced = good + damage
-      await api.post(`/production/runs/${selectedRunId}/complete`, {
-        qtyProduced: produced > 0 ? produced : 1,
+      // Record only — keep run open (material may still be on the machine).
+      // Finalize closes the run when material is finished.
+      await api.post(`/production/runs/${selectedRunId}/record`, {
+        operatorId: operatorId ? Number(operatorId) : undefined,
+        operatorName: operatorName || undefined,
+        shiftId: Number(shiftId),
         qtyGood: good,
         qtyReject: damage,
         qtyWaste: waste,
-        runtimeMinutes: Number(runDetail.runtimeMinutes || 0),
-        downtimeMinutes: Number(runDetail.downtimeMinutes || 0),
-        autoRelease: true,
-        confirmUnusualRun: true,
+        complete: false,
       })
 
       setRecordSuccess(
         damage > 0
-          ? 'Production saved. Good pieces went to finished goods. Damage is saved for re-crush.'
-          : 'Production saved. Goods added to finished store.',
+          ? 'Saved. Good pieces are in finished goods. Run stays open until you Finalize.'
+          : 'Saved to finished goods. Run stays open — Finalize when material on the machine is done.',
       )
       setRecordGoodDozen('')
       setRecordGoodPcs('')
@@ -511,7 +528,7 @@ export function RecordProductionPage() {
       setRecordWasteKg('')
       await queryClient.invalidateQueries({ queryKey: ['production-runs'] })
       await queryClient.invalidateQueries({ queryKey: ['run-shifts-and-faults', selectedRunId] })
-      navigate('/production')
+      await queryClient.invalidateQueries({ queryKey: ['inventory-overview'] })
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { err?: string; message?: string; errors?: Record<string, string> } } }
       setRecordError(
@@ -834,14 +851,14 @@ export function RecordProductionPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center justify-between pt-1 gap-2">
                       <span className="text-[10px] text-zinc-400">
-                        Saves output and closes this run into finished goods.
+                        Adds to finished goods now. Run stays open — use Finalize when material is finished.
                       </span>
                       <Button
                         type="submit"
                         disabled={isRecording}
-                        className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                        className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 shrink-0"
                       >
                         <Check className="size-3.5" />
                         {isRecording ? 'Saving…' : 'Save production'}
@@ -1148,7 +1165,7 @@ export function RecordProductionPage() {
                       Finalize & Complete Run
                     </DialogTitle>
                     <DialogDescription className="text-xs text-zinc-600 mt-0.5">
-                      Confirm all issued material ({runDetail?.materialConsumed} kg) is consumed and complete this run.
+                      Confirm issued material ({runDetail?.materialConsumed} kg) is finished on the machine and close this run. Goods already recorded stay in finished goods.
                     </DialogDescription>
                   </div>
                 </div>

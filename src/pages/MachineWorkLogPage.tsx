@@ -368,7 +368,7 @@ export function MachineWorkLogPage() {
     },
     onSuccess: async () => {
       setFinalizeOpen(false)
-      setBanner({ type: 'ok', text: 'Run finalized — goods released to finished store' })
+      setBanner({ type: 'ok', text: 'Run finalized — machine run closed (goods were already in finished store when recorded)' })
       await invalidate()
       navigate('/production')
     },

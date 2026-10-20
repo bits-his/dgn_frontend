@@ -1,5 +1,16 @@
+/**
+ * Whole pieces for dz/pcs display. Truncate — never Math.round —
+ * so 220.6 stays 220 (18 dz · 4 pcs), not 221 (18 dz · 5 pcs).
+ */
+export function toWholePcs(qty: number | null | undefined) {
+  const n = Number(qty)
+  if (!Number.isFinite(n) || n === 0) return 0
+  // Tiny epsilon clears float dust (219.999999 → 220) without rounding up real fractions
+  return Math.trunc(n + (n >= 0 ? 1e-9 : -1e-9))
+}
+
 export function fmtDozenPcs(qty: number | null | undefined, perDozen?: number | null) {
-  const pcsTotal = Math.round(Number(qty) || 0)
+  const pcsTotal = toWholePcs(qty)
   const per = perDozenOf(perDozen)
   const dz = Math.floor(pcsTotal / per)
   const rem = pcsTotal % per
@@ -20,21 +31,21 @@ export function isPieceUom(uom?: string | null) {
 }
 
 export function fmtDozen(qty: number | null | undefined, perDozen?: number | null) {
-  const pcsTotal = Math.round(Number(qty) || 0)
+  const pcsTotal = toWholePcs(qty)
   const per = perDozenOf(perDozen)
   const dz = Math.floor(pcsTotal / per)
   return `${dz} dz`
 }
 
 export function dozenCount(qty: number | null | undefined, perDozen?: number | null) {
-  const pcsTotal = Math.round(Number(qty) || 0)
+  const pcsTotal = toWholePcs(qty)
   const per = perDozenOf(perDozen)
   return Math.floor(pcsTotal / per)
 }
 
 export function pcsFromDozen(dozen: number | string, perDozen?: number | null) {
   const per = perDozenOf(perDozen)
-  return Math.round((Number(dozen) || 0) * per)
+  return toWholePcs((Number(dozen) || 0) * per)
 }
 
 export function dozenPriceFromUnit(unitPrice: number, perDozen?: number | null) {
