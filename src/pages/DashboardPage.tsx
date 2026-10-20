@@ -761,34 +761,35 @@ export function DashboardPage() {
                           : tone === 'second'
                             ? 'text-amber-700 dark:text-amber-400'
                             : 'text-zinc-800 dark:text-zinc-200'
+                    const cellBorder =
+                      'border border-zinc-200 px-1.5 py-1 dark:border-zinc-700'
                     return (
                       <table className="mt-2 w-full border-collapse overflow-hidden rounded-md border border-zinc-200 text-[11px] leading-tight dark:border-zinc-700">
                         <thead>
-                          <tr className="border-b border-zinc-200 bg-zinc-50 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/80">
-                            <th className="border-r border-zinc-200 px-1.5 py-1 text-left font-semibold dark:border-zinc-700">
-                              Type
-                            </th>
-                            <th className="border-r border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
-                              kg
-                            </th>
-                            <th className="px-1.5 py-1 text-right font-semibold">₦</th>
+                          <tr className="bg-zinc-50 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-900/80">
+                            <th className={cn(cellBorder, 'text-left font-semibold')}>Type</th>
+                            <th className={cn(cellBorder, 'text-right font-semibold')}>kg</th>
+                            <th className={cn(cellBorder, 'text-right font-semibold')}>₦</th>
                           </tr>
                         </thead>
                         <tbody>
                           {rows.map((row) => (
                             <tr
                               key={row.label}
-                              className={cn(
-                                'border-b border-zinc-100 last:border-b-0 dark:border-zinc-800',
-                                row.divider && 'border-t-2 border-t-zinc-200 dark:border-t-zinc-600',
-                              )}
+                              className={cn(row.divider && 'bg-zinc-50/70 dark:bg-zinc-900/40')}
                             >
-                              <td className="max-w-[7.5rem] truncate border-r border-zinc-100 px-1.5 py-1 text-zinc-500 dark:border-zinc-800">
+                              <td
+                                className={cn(
+                                  cellBorder,
+                                  'max-w-[7.5rem] truncate text-zinc-500',
+                                )}
+                              >
                                 {row.label}
                               </td>
                               <td
                                 className={cn(
-                                  'whitespace-nowrap border-r border-zinc-100 px-1.5 py-1 text-right tabular-nums font-semibold dark:border-zinc-800',
+                                  cellBorder,
+                                  'whitespace-nowrap text-right tabular-nums font-semibold',
                                   toneClass(row.tone),
                                 )}
                               >
@@ -796,7 +797,8 @@ export function DashboardPage() {
                               </td>
                               <td
                                 className={cn(
-                                  'whitespace-nowrap px-1.5 py-1 text-right tabular-nums font-bold',
+                                  cellBorder,
+                                  'whitespace-nowrap text-right tabular-nums font-bold',
                                   toneClass(row.tone),
                                 )}
                               >
@@ -820,7 +822,7 @@ export function DashboardPage() {
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-indigo-700 dark:group-hover:text-indigo-400 transition-colors">
-                      Production
+                      Total production
                     </span>
                     <div className="flex size-6 items-center justify-center rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400 shrink-0">
                       <Factory className="size-3.5" />
@@ -828,9 +830,6 @@ export function DashboardPage() {
                   </div>
                   <p className="mt-1.5 text-base font-bold tabular-nums text-foreground">
                     {fmtDozenPcs(d.production.unitsProduced ?? d.production.unitsGood)}
-                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                      total
-                    </span>
                   </p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">
                     {d.range.label}
@@ -843,23 +842,22 @@ export function DashboardPage() {
                   ) : (
                     <table className="mt-2 w-full border-collapse overflow-hidden rounded-md border border-zinc-200 text-[11px] leading-tight dark:border-zinc-700">
                       <thead>
-                        <tr className="border-b border-zinc-200 bg-zinc-50 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/80">
-                          <th className="border-r border-zinc-200 px-1.5 py-1 text-left font-semibold dark:border-zinc-700">
+                        <tr className="bg-zinc-50 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-900/80">
+                          <th className="border border-zinc-200 px-1.5 py-1 text-left font-semibold dark:border-zinc-700">
                             Product
                           </th>
-                          <th className="px-1.5 py-1 text-right font-semibold">Total</th>
+                          <th className="border border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
+                            Total
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {(d.productionByProduct || []).slice(0, 6).map((row) => (
-                          <tr
-                            key={row.productId ?? row.productName}
-                            className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800"
-                          >
-                            <td className="max-w-[8rem] truncate border-r border-zinc-100 px-1.5 py-1 text-zinc-500 dark:border-zinc-800">
+                          <tr key={row.productId ?? row.productName}>
+                            <td className="max-w-[8rem] truncate border border-zinc-200 px-1.5 py-1 text-zinc-500 dark:border-zinc-700">
                               {row.productName}
                             </td>
-                            <td className="whitespace-nowrap px-1.5 py-1 text-right tabular-nums font-semibold text-zinc-800 dark:text-zinc-200">
+                            <td className="whitespace-nowrap border border-zinc-200 px-1.5 py-1 text-right tabular-nums font-semibold text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">
                               {fmtDozenPcs(row.qtyProduced ?? row.qtyGood)}
                             </td>
                           </tr>
@@ -867,10 +865,10 @@ export function DashboardPage() {
                       </tbody>
                       {(d.productionByProduct || []).length > 6 ? (
                         <tfoot>
-                          <tr className="border-t border-zinc-200 bg-zinc-50/80 dark:border-zinc-700 dark:bg-zinc-900/50">
+                          <tr>
                             <td
                               colSpan={2}
-                              className="px-1.5 py-1 text-[10px] font-medium text-indigo-600"
+                              className="border border-zinc-200 px-1.5 py-1 text-[10px] font-medium text-indigo-600 dark:border-zinc-700"
                             >
                               +{(d.productionByProduct || []).length - 6} more
                             </td>
@@ -891,7 +889,7 @@ export function DashboardPage() {
                 >
                   <div className="flex items-center justify-between gap-1">
                     <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors">
-                      Finished Goods
+                      Factory store
                     </span>
                     <div className="flex size-6 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-400 shrink-0">
                       <PackageCheck className="size-3.5" />
@@ -908,24 +906,30 @@ export function DashboardPage() {
                   {(d.finishedGoodsStock || []).length === 0 ? (
                     <p className="mt-2 text-xs text-muted-foreground">No product stock on hand</p>
                   ) : (
-                    <table className="mt-2 w-full border-collapse text-[11px] leading-tight">
+                    <table className="mt-2 w-full border-collapse overflow-hidden rounded-md border border-zinc-200 text-[11px] leading-tight dark:border-zinc-700">
                       <thead>
-                        <tr className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400">
-                          <th className="pb-1 pr-1 text-left font-semibold">Product</th>
-                          <th className="pb-1 px-1 text-right font-semibold">Qty</th>
-                          <th className="pb-1 pl-1 text-right font-semibold">₦</th>
+                        <tr className="bg-zinc-50 text-[9px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-900/80">
+                          <th className="border border-zinc-200 px-1.5 py-1 text-left font-semibold dark:border-zinc-700">
+                            Product
+                          </th>
+                          <th className="border border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
+                            Qty
+                          </th>
+                          <th className="border border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
+                            ₦
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {(d.finishedGoodsStock || []).slice(0, 8).map((row) => (
                           <tr key={row.productId}>
-                            <td className="max-w-[7.5rem] truncate py-0.5 pr-1 text-zinc-500">
+                            <td className="max-w-[7.5rem] truncate border border-zinc-200 px-1.5 py-1 text-zinc-500 dark:border-zinc-700">
                               {row.productName}
                             </td>
-                            <td className="whitespace-nowrap py-0.5 px-1 text-right tabular-nums font-semibold text-zinc-800 dark:text-zinc-200">
+                            <td className="whitespace-nowrap border border-zinc-200 px-1.5 py-1 text-right tabular-nums font-semibold text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">
                               {fmtDozenPcs(row.qtyOnHand)}
                             </td>
-                            <td className="whitespace-nowrap py-0.5 pl-1 text-right tabular-nums font-bold text-zinc-800 dark:text-zinc-200">
+                            <td className="whitespace-nowrap border border-zinc-200 px-1.5 py-1 text-right tabular-nums font-bold text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">
                               {money(row.stockValue)}
                             </td>
                           </tr>
@@ -936,7 +940,7 @@ export function DashboardPage() {
                           <tr>
                             <td
                               colSpan={3}
-                              className="pt-1 text-[10px] font-medium text-teal-600"
+                              className="border border-zinc-200 px-1.5 py-1 text-[10px] font-medium text-teal-600 dark:border-zinc-700"
                             >
                               +{(d.finishedGoodsStock || []).length - 8} more
                             </td>
@@ -947,7 +951,47 @@ export function DashboardPage() {
                   )}
                 </div>
 
-                {/* Card 4: Sales — factory + shop on separate lines */}
+                {/* Card 4: Market shops */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setActiveKpiModal('shops')}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('shops')}
+                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-violet-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-violet-700 dark:group-hover:text-violet-400 transition-colors truncate">
+                      Market shops
+                    </span>
+                    <div className="flex size-6 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400 shrink-0">
+                      <Store className="size-3.5" />
+                    </div>
+                  </div>
+                  <div className="mt-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
+                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
+                    </span>
+                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums text-right truncate">
+                      {money(d.factoryShops?.remainingValue ?? 0)}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Sold</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                        {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Sales</span>
+                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
+                        ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 5: Sales — under market shops */}
                 <div
                   role="button"
                   tabIndex={0}
@@ -994,46 +1038,6 @@ export function DashboardPage() {
                       <span>Payables</span>
                       <span className="text-[13px] font-semibold tabular-nums text-sky-600">
                         ₦{fmt(d.money.payables ?? d.customerBalances?.totalPayable ?? 0)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Card 5: Market shops */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setActiveKpiModal('shops')}
-                  onKeyDown={(e) => e.key === 'Enter' && setActiveKpiModal('shops')}
-                  className="cursor-pointer rounded-xl border border-zinc-200/80 bg-gradient-to-b from-white to-zinc-50/60 p-3 shadow-xs transition-all hover:border-violet-500 hover:shadow-md dark:border-zinc-800 dark:from-zinc-900 dark:to-zinc-950 group select-none"
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 group-hover:text-violet-700 dark:group-hover:text-violet-400 transition-colors truncate">
-                      Market shops
-                    </span>
-                    <div className="flex size-6 items-center justify-center rounded-md bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-400 shrink-0">
-                      <Store className="size-3.5" />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-baseline justify-between gap-2">
-                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums truncate">
-                      {fmtDozenPcs(d.factoryShops?.remainingQty ?? 0)}
-                    </span>
-                    <span className="text-base sm:text-lg font-bold tracking-tight text-foreground tabular-nums text-right truncate">
-                      {money(d.factoryShops?.remainingValue ?? 0)}
-                    </span>
-                  </div>
-                  <div className="mt-2 space-y-1.5 text-xs text-muted-foreground">
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Sold</span>
-                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
-                        {fmtDozenPcs(d.factoryShops?.soldAtShopQty ?? 0)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span>Sales</span>
-                      <span className="text-[13px] font-semibold tabular-nums text-foreground">
-                        ₦{fmt(d.sales.shopRevenue ?? d.factoryShops?.shopRetailGenerated ?? 0)}
                       </span>
                     </div>
                   </div>
@@ -1789,7 +1793,7 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <DialogTitle className="text-base font-bold tracking-tight text-foreground">
-                        Production
+                        Total production
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                         Good output by product for {d.range.label} (batch business date)
@@ -1897,7 +1901,7 @@ export function DashboardPage() {
                     </div>
                     <div>
                       <DialogTitle className="text-base font-bold tracking-tight text-foreground">
-                        Finished Goods
+                        Factory store
                       </DialogTitle>
                       <DialogDescription className="text-xs text-muted-foreground mt-0.5">
                         Factory stock on hand by product (same balances as Inventory · no QC filter)
