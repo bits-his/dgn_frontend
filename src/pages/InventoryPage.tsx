@@ -26,7 +26,12 @@ import {
 import CustomTable1 from '@/components/CustomTable1'
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
-import { fmtDozenPcs, pcsFromDozen, perDozenOf } from '@/lib/units'
+import {
+  dozenPriceFromUnit,
+  fmtDozenPcs,
+  pcsFromDozen,
+  perDozenOf,
+} from '@/lib/units'
 import { SORT_COLORS } from '@/lib/sortColors'
 import { cn } from '@/lib/utils'
 
@@ -74,7 +79,9 @@ type Overview = {
     rawMaterialQty: number
     wipQty: number
     finishedGoodsQty: number
+    finishedGoodsValue?: number
   }
+  currency?: string
   byMaterial: Array<{
     materialId: number
     code: string | null
@@ -88,6 +95,9 @@ type Overview = {
     name: string
     qty: number
     uom: string
+    sellingPrice?: number
+    unitsPerDozen?: number
+    stockValue?: number
   }>
 }
 
@@ -111,6 +121,10 @@ type TabKey = 'finished' | 'raw'
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 3 })
+}
+
+function money(n: number) {
+  return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
 
 function qtyLabel(qty: number, uom?: string | null) {
@@ -211,6 +225,37 @@ export function InventoryPage() {
           </span>
         ),
       },
+      {
+        id: 'price',
+        header: 'Price',
+        cell: ({ row }) => {
+          const unit = Number(row.original.sellingPrice || 0)
+          const per = perDozenOf(row.original.unitsPerDozen)
+          if (!(unit > 0)) {
+            return <span className="text-xs text-zinc-400">—</span>
+          }
+          return (
+            <div className="text-right">
+              <p className="text-xs font-semibold tabular-nums text-zinc-900">
+                {money(dozenPriceFromUnit(unit, per))}/dz
+              </p>
+              <p className="text-[11px] tabular-nums text-zinc-500">{money(unit)}/pc</p>
+            </div>
+          )
+        },
+      },
+      {
+        id: 'value',
+        header: 'Value',
+        cell: ({ row }) => {
+          const value = Number(row.original.stockValue || 0)
+          return (
+            <span className="text-sm font-bold tabular-nums text-zinc-900">
+              {value > 0 ? money(value) : '—'}
+            </span>
+          )
+        },
+      },
     ],
     [],
   )
@@ -244,6 +289,7 @@ export function InventoryPage() {
 
   const totals = overview.data?.totals
   const finishedTotal = Number(totals?.finishedGoodsQty || 0)
+  const finishedValue = Number(totals?.finishedGoodsValue || 0)
   const rawTotal = Number(totals?.rawMaterialQty || 0) + Number(totals?.wipQty || 0)
 
   return (
@@ -298,6 +344,11 @@ export function InventoryPage() {
             <p className="mt-0.5 text-base font-bold tabular-nums text-zinc-900">
               {fmtDozenPcs(finishedTotal)}
             </p>
+            {finishedValue > 0 ? (
+              <p className="mt-0.5 text-[11px] font-semibold tabular-nums text-emerald-700">
+                {money(finishedValue)}
+              </p>
+            ) : null}
           </button>
           <button
             type="button"
