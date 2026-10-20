@@ -96,6 +96,8 @@ type Dashboard = {
   production: {
     unitsProduced: number
     unitsGood: number
+    unitsGoodValue?: number
+    unitsProducedValue?: number
     unitsReject: number
     rejectPercent: number
     avgOeePercent: number | null
@@ -286,6 +288,8 @@ type Dashboard = {
     productName: string
     qtyGood: number
     qtyProduced: number
+    sellingPrice?: number
+    stockValue?: number
     dozen: number
     pcs: number
   }>
@@ -830,6 +834,11 @@ export function DashboardPage() {
                   </div>
                   <p className="mt-1.5 text-base font-bold tabular-nums text-foreground">
                     {fmtDozenPcs(d.production.unitsProduced ?? d.production.unitsGood)}
+                    {(d.production.unitsGoodValue ?? d.production.unitsProducedValue ?? 0) > 0 ? (
+                      <span className="ml-1.5 text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                        · {money(d.production.unitsGoodValue ?? d.production.unitsProducedValue)}
+                      </span>
+                    ) : null}
                   </p>
                   <p className="mt-0.5 text-[10px] text-muted-foreground">
                     {d.range.label}
@@ -849,16 +858,22 @@ export function DashboardPage() {
                           <th className="border border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
                             Total
                           </th>
+                          <th className="border border-zinc-200 px-1.5 py-1 text-right font-semibold dark:border-zinc-700">
+                            Value
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {(d.productionByProduct || []).slice(0, 6).map((row) => (
                           <tr key={row.productId ?? row.productName}>
-                            <td className="max-w-[8rem] truncate border border-zinc-200 px-1.5 py-1 text-zinc-500 dark:border-zinc-700">
+                            <td className="max-w-[7rem] truncate border border-zinc-200 px-1.5 py-1 text-zinc-500 dark:border-zinc-700">
                               {row.productName}
                             </td>
                             <td className="whitespace-nowrap border border-zinc-200 px-1.5 py-1 text-right tabular-nums font-semibold text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">
                               {fmtDozenPcs(row.qtyProduced ?? row.qtyGood)}
+                            </td>
+                            <td className="whitespace-nowrap border border-zinc-200 px-1.5 py-1 text-right tabular-nums font-semibold text-emerald-700 dark:border-zinc-700 dark:text-emerald-400">
+                              {(row.stockValue || 0) > 0 ? money(row.stockValue) : '—'}
                             </td>
                           </tr>
                         ))}
@@ -867,7 +882,7 @@ export function DashboardPage() {
                         <tfoot>
                           <tr>
                             <td
-                              colSpan={2}
+                              colSpan={3}
                               className="border border-zinc-200 px-1.5 py-1 text-[10px] font-medium text-indigo-600 dark:border-zinc-700"
                             >
                               +{(d.productionByProduct || []).length - 6} more
@@ -1808,14 +1823,26 @@ export function DashboardPage() {
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-foreground">
                       {fmtDozenPcs(d.production.unitsProduced)}
                     </p>
-                    <span className="text-[10px] text-muted-foreground">Dozen and pieces</span>
+                    {(d.production.unitsGoodValue ?? d.production.unitsProducedValue ?? 0) > 0 ? (
+                      <span className="text-[10px] font-semibold tabular-nums text-emerald-700">
+                        {money(d.production.unitsGoodValue ?? d.production.unitsProducedValue)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground">Dozen and pieces</span>
+                    )}
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Good Quality</span>
                     <p className="mt-0.5 text-lg font-bold tabular-nums text-emerald-600">
                       {fmtDozenPcs(d.production.unitsGood)}
                     </p>
-                    <span className="text-[10px] text-emerald-600 font-medium">Passed inspection</span>
+                    {(d.production.unitsGoodValue ?? 0) > 0 ? (
+                      <span className="text-[10px] font-semibold tabular-nums text-emerald-700">
+                        {money(d.production.unitsGoodValue)}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-emerald-600 font-medium">Passed inspection</span>
+                    )}
                   </div>
                   <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Reject Rate</span>
@@ -1850,6 +1877,7 @@ export function DashboardPage() {
                             <th className="py-2.5 px-3 text-right">Quantity</th>
                             <th className="py-2.5 px-3 text-right">Dozen</th>
                             <th className="py-2.5 px-3 text-right">Pcs</th>
+                            <th className="py-2.5 px-3 text-right">Value</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -1869,6 +1897,9 @@ export function DashboardPage() {
                               </td>
                               <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top">
                                 {row.pcs}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums align-top font-semibold text-emerald-700">
+                                {(row.stockValue || 0) > 0 ? money(row.stockValue) : '—'}
                               </td>
                             </tr>
                           ))}

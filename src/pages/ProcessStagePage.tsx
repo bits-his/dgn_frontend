@@ -2039,15 +2039,52 @@ export function ProcessStageForm({
                         <span className="flex items-center gap-1.5">
                           <span>⚖️</span>
                           <span>
-                            Calculated {meta.title.toLowerCase()} labour (₦{Number(watch('labourRatePerKg')).toLocaleString()}/kg × {((isMultiLotStage ? (lotTotalUsable > 0 ? lotTotalUsable : lotTotalIn) : (isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput)) || 0).toLocaleString()} kg):
+                            {(() => {
+                              const baseKg = isMultiLotStage
+                                ? (lotTotalUsable > 0 ? lotTotalUsable : lotTotalIn)
+                                : isColorAllocation && colorUsable > 0
+                                  ? colorUsable
+                                  : qtyUsable > 0
+                                    ? qtyUsable
+                                    : qtyInput
+                              // Wash labour includes second grade (usable + 2nd grade)
+                              const labourKg =
+                                (Number(baseKg) || 0) + (isWashing ? secondGradeKg : 0)
+                              return (
+                                <>
+                                  Calculated {meta.title.toLowerCase()} labour (₦
+                                  {Number(watch('labourRatePerKg')).toLocaleString()}/kg ×{' '}
+                                  {labourKg.toLocaleString()} kg
+                                  {isWashing && secondGradeKg > 0
+                                    ? ` · usable + ${secondGradeKg.toLocaleString()} kg 2nd grade`
+                                    : ''}
+                                  ):
+                                </>
+                              )
+                            })()}
                           </span>
                         </span>
                         <span className="font-bold text-xs sm:text-sm text-emerald-700">
                           ₦
-                          {(
-                            Number(watch('labourRatePerKg') || 0) *
-                            ((isMultiLotStage ? (lotTotalUsable > 0 ? lotTotalUsable : lotTotalIn) : (isColorAllocation && colorUsable > 0 ? colorUsable : qtyUsable > 0 ? qtyUsable : qtyInput)) || 0)
-                          ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {(() => {
+                            const baseKg =
+                              (isMultiLotStage
+                                ? lotTotalUsable > 0
+                                  ? lotTotalUsable
+                                  : lotTotalIn
+                                : isColorAllocation && colorUsable > 0
+                                  ? colorUsable
+                                  : qtyUsable > 0
+                                    ? qtyUsable
+                                    : qtyInput) || 0
+                            const labourKg = Number(baseKg) + (isWashing ? secondGradeKg : 0)
+                            return (
+                              Number(watch('labourRatePerKg') || 0) * labourKg
+                            ).toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })
+                          })()}
                         </span>
                       </div>
                     )}

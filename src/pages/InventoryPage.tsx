@@ -69,7 +69,7 @@ const RM_STAGES = [
   {
     code: 'RECYCLE',
     label: 'Recycled pellets',
-    location: 'PROD-STORE',
+    location: 'RECYCLE-STORE',
     needsColor: true,
   },
 ] as const

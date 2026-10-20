@@ -410,7 +410,7 @@ export function ScrapReceivingPage() {
                 {
                   value: 'RECYCLED' as const,
                   title: 'Recycled',
-                  desc: 'By colour → Material store',
+                  desc: 'By colour → Recycle store',
                 },
               ] as const
             ).map((opt) => (
@@ -475,8 +475,8 @@ export function ScrapReceivingPage() {
                 <p className="mt-1 text-xs text-[var(--ink-muted)]">
                   {inboundForm === 'RECYCLED'
                     ? isEdit
-                      ? 'Edit colour lines and weights. This lot stays in the material store.'
-                      : 'Add each colour and kg. Goes straight to the material store — no wash, dry, or recrush.'
+                      ? 'Edit colour lines and weights. This lot stays in the recycle store until moved to material store.'
+                      : 'Add each colour and kg. Goes to the recycle store — move to material store when ready to issue.'
                     : isEdit
                       ? 'Edit colour lines and weights. All colours remain in the same batch for washing.'
                       : 'Add each colour and kg. All colours are received in a single batch ready for washing.'}
