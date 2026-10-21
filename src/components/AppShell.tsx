@@ -143,6 +143,7 @@ const MENU_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   washing: Droplets,
   second_grade: Layers,
   // drying: Sun, // retired stage
+  recycle_store: Recycle,
   recrushing: RotateCcw,
   recycling: Recycle,
   production_store: Warehouse,

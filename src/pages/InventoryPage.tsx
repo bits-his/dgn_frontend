@@ -68,7 +68,7 @@ const RM_STAGES = [
   },
   {
     code: 'RECYCLE',
-    label: 'Recycled pellets',
+    label: 'Recycle store (washed / bought)',
     location: 'RECYCLE-STORE',
     needsColor: true,
   },
@@ -207,9 +207,10 @@ export function InventoryPage() {
       {
         id: 'name',
         header: 'Product',
+        meta: { className: 'w-full min-w-[8rem]' },
         cell: ({ row }) => (
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-zinc-900">{row.original.name}</p>
+          <div className="min-w-0 max-w-[14rem]">
+            <p className="text-sm font-semibold text-zinc-900 truncate">{row.original.name}</p>
             {row.original.code ? (
               <p className="text-[11px] font-mono text-zinc-500">{row.original.code}</p>
             ) : null}
@@ -219,8 +220,9 @@ export function InventoryPage() {
       {
         id: 'qty',
         header: 'Stock',
+        meta: { className: 'w-[1%] whitespace-nowrap' },
         cell: ({ row }) => (
-          <span className="text-sm font-bold tabular-nums text-emerald-700">
+          <span className="text-sm font-bold tabular-nums text-emerald-700 whitespace-nowrap">
             {qtyLabel(row.original.qty, row.original.uom)}
           </span>
         ),
@@ -228,6 +230,7 @@ export function InventoryPage() {
       {
         id: 'price',
         header: 'Price',
+        meta: { className: 'w-[1%] whitespace-nowrap text-right' },
         cell: ({ row }) => {
           const unit = Number(row.original.sellingPrice || 0)
           const per = perDozenOf(row.original.unitsPerDozen)
@@ -235,7 +238,7 @@ export function InventoryPage() {
             return <span className="text-xs text-zinc-400">—</span>
           }
           return (
-            <div className="text-right">
+            <div className="text-right whitespace-nowrap leading-tight">
               <p className="text-xs font-semibold tabular-nums text-zinc-900">
                 {money(dozenPriceFromUnit(unit, per))}/dz
               </p>
@@ -247,14 +250,25 @@ export function InventoryPage() {
       {
         id: 'value',
         header: 'Value',
+        meta: { className: 'w-[1%] whitespace-nowrap text-right' },
         cell: ({ row }) => {
           const value = Number(row.original.stockValue || 0)
           return (
-            <span className="text-sm font-bold tabular-nums text-zinc-900">
+            <span className="block text-right text-sm font-bold tabular-nums text-zinc-900 whitespace-nowrap">
               {value > 0 ? money(value) : '—'}
             </span>
           )
         },
+      },
+      {
+        id: 'movements',
+        header: '',
+        meta: { className: 'w-[1%] whitespace-nowrap text-right' },
+        cell: ({ row }) => (
+          <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs font-semibold" asChild>
+            <Link to={`/inventory/products/${row.original.productId}`}>Movements</Link>
+          </Button>
+        ),
       },
     ],
     [],

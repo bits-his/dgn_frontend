@@ -321,11 +321,18 @@ export default function CustomTable1<TData = any>({
                 className="border-b border-zinc-200/80 dark:border-zinc-800 hover:bg-transparent"
               >
                 {headerGroup.headers.map((header) => {
+                  const meta = header.column.columnDef.meta as
+                    | { className?: string; headerClassName?: string }
+                    | undefined
                   return (
                     <TableHead
                       key={header.id}
                       colSpan={header.colSpan}
-                      className="h-9 px-3 py-2 text-left align-middle text-xs font-semibold text-zinc-600 dark:text-zinc-300 whitespace-nowrap"
+                      className={cn(
+                        "h-9 px-3 py-2 text-left align-middle text-xs font-semibold text-zinc-600 dark:text-zinc-300 whitespace-nowrap",
+                        meta?.headerClassName,
+                        meta?.className,
+                      )}
                     >
                       {header.isPlaceholder
                         ? null
@@ -357,17 +364,26 @@ export default function CustomTable1<TData = any>({
                     key={row.id}
                     className="border-b border-zinc-100 dark:border-zinc-800 transition-colors hover:bg-zinc-50/60 dark:hover:bg-zinc-900/50"
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className="px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 align-middle"
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext()
-                        )}
-                      </TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const meta = cell.column.columnDef.meta as
+                        | { className?: string; cellClassName?: string }
+                        | undefined
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className={cn(
+                            "px-3 py-2 text-xs text-zinc-700 dark:text-zinc-200 align-middle",
+                            meta?.cellClassName,
+                            meta?.className,
+                          )}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext()
+                          )}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 ))
               ) : (

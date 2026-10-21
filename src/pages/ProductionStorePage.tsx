@@ -157,8 +157,7 @@ export function ProductionStorePage() {
   const [showActiveFloor, setShowActiveFloor] = useState(false)
   const [showFinishedGoods, setShowFinishedGoods] = useState(false)
   const [showColorStock, setShowColorStock] = useState(false)
-  const [showRecycleStore, setShowRecycleStore] = useState(true)
-  const [movingBatch, setMovingBatch] = useState<string | null>(null)
+  const [showMixStock, setShowMixStock] = useState(true)
 
   // Notifications
   const [successBanner, setSuccessBanner] = useState('')
@@ -171,14 +170,6 @@ export function ProductionStorePage() {
     queryKey: ['production-store'],
     queryFn: async () => {
       const { data } = await api.get('/production/store')
-      return (data.data || []) as BatchItem[]
-    },
-  })
-
-  const recycleStoreQuery = useQuery({
-    queryKey: ['recycle-store'],
-    queryFn: async () => {
-      const { data } = await api.get('/production/recycle-store')
       return (data.data || []) as BatchItem[]
     },
   })
@@ -211,86 +202,7 @@ export function ProductionStorePage() {
   })
 
   const storeBatches = storeQuery.data || []
-  const recycleBatches = recycleStoreQuery.data || []
   const allRuns = runsQuery.data || []
-  const totalRecycleKg = useMemo(
-    () => recycleBatches.reduce((sum, b) => sum + Number(b.qtyRemaining || 0), 0),
-    [recycleBatches],
-  )
-
-  const handleMoveToMaterialStore = async (batchNumber: string) => {
-    setMovingBatch(batchNumber)
-    setErrorBanner('')
-    try {
-      const { data } = await api.post('/production/store/transfer', { batchNumber })
-      setSuccessBanner(data.message || `Moved ${batchNumber} to Material Store`)
-      await queryClient.invalidateQueries({ queryKey: ['recycle-store'] })
-      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { err?: string; message?: string } } }
-      setErrorBanner(
-        axiosErr.response?.data?.err ||
-          axiosErr.response?.data?.message ||
-          'Could not move to Material Store',
-      )
-    } finally {
-      setMovingBatch(null)
-    }
-  }
-
-  const recycleColumns: ColumnDef<BatchItem>[] = useMemo(
-    () => [
-      {
-        id: 'batchNumber',
-        header: 'Batch',
-        cell: ({ row }) => (
-          <Link
-            to={`/batches/${row.original.batchNumber}`}
-            className="font-semibold text-xs text-[var(--accent-strong)] hover:underline font-mono"
-          >
-            {row.original.batchNumber}
-          </Link>
-        ),
-      },
-      {
-        id: 'color',
-        header: 'Color',
-        cell: ({ row }) => (
-          <span className="text-xs font-medium text-zinc-800">
-            {colorName(row.original.sortColor) ||
-              (row.original.colorItems || []).map((c) => colorName(c.color)).filter(Boolean).join(', ') ||
-              '—'}
-          </span>
-        ),
-      },
-      {
-        id: 'qty',
-        header: 'Available',
-        cell: ({ row }) => (
-          <span className="font-bold tabular-nums text-teal-700 text-xs">
-            {fmt(Number(row.original.qtyRemaining || 0), 1)} kg
-          </span>
-        ),
-      },
-      {
-        id: 'actions',
-        header: '',
-        cell: ({ row }) => (
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 px-2.5 text-xs font-semibold gap-1 bg-teal-600 hover:bg-teal-700 text-white"
-            disabled={movingBatch === row.original.batchNumber}
-            onClick={() => handleMoveToMaterialStore(row.original.batchNumber)}
-          >
-            <PackageCheck className="size-3" />
-            {movingBatch === row.original.batchNumber ? 'Moving…' : 'To material store'}
-          </Button>
-        ),
-      },
-    ],
-    [movingBatch],
-  )
 
   // Filter ONLY production machines
   const productionMachines = useMemo(() => {
@@ -970,6 +882,65 @@ export function ProductionStorePage() {
     []
   )
 
+  const mixColumns: ColumnDef<StoreMixRow>[] = useMemo(
+    () => [
+      {
+        id: 'mixNumber',
+        header: 'Mix',
+        cell: ({ row }) => (
+          <span className="font-mono text-xs font-bold text-zinc-900">
+            {row.original.mixNumber || row.original.batchNumber}
+          </span>
+        ),
+      },
+      {
+        id: 'contents',
+        header: 'Contains',
+        cell: ({ row }) => (
+          <span className="text-xs text-zinc-700">
+            {(row.original.lines || [])
+              .map(
+                (l) =>
+                  `${fmt(l.qtyKg, 1)} kg ${l.color ? colorName(l.color) : l.batchNumber}`,
+              )
+              .join(' + ') || row.original.sortColor || 'Mix'}
+          </span>
+        ),
+      },
+      {
+        id: 'qtyRemaining',
+        header: 'Available',
+        cell: ({ row }) => (
+          <span className="font-bold tabular-nums text-violet-700 text-xs">
+            {fmt(Number(row.original.qtyRemaining || 0), 1)} kg
+          </span>
+        ),
+      },
+      {
+        id: 'actions',
+        header: '',
+        cell: ({ row }) => (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-7 px-2.5 text-xs font-semibold gap-1"
+            onClick={() => {
+              setIssueMixId(String(row.original.id))
+              setIssueKg(String(Number(row.original.qtyRemaining || 0)))
+              setIssueModalError('')
+              setIsIssueModalOpen(true)
+            }}
+          >
+            <Send className="size-3" />
+            Issue
+          </Button>
+        ),
+      },
+    ],
+    [],
+  )
+
   return (
     <PageLayout
       title="Material Store"
@@ -1058,42 +1029,10 @@ export function ProductionStorePage() {
           </div>
         )}
 
-        {recycleBatches.length > 0 && (
-          <div className="space-y-2 rounded-xl border border-teal-200 bg-teal-50/40 p-3">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
-              onClick={() => setShowRecycleStore((prev) => !prev)}
-            >
-              <span className="text-xs font-bold text-teal-950 flex items-center gap-1.5">
-                <PackageCheck className="size-3.5 text-teal-700" />
-                Recycle store ({recycleBatches.length} · {fmt(totalRecycleKg, 1)} kg)
-              </span>
-              {showRecycleStore ? (
-                <ChevronUp className="size-3 text-teal-600" />
-              ) : (
-                <ChevronDown className="size-3 text-teal-600" />
-              )}
-            </button>
-            <p className="text-[11px] text-teal-800/80">
-              Bought recycled pellets. Move to Material store before mix / issue.
-            </p>
-            {showRecycleStore && (
-              <CustomTable1
-                data={recycleBatches}
-                columns={recycleColumns}
-                filter={false}
-                loading={recycleStoreQuery.isLoading}
-                card={true}
-              />
-            )}
-          </div>
-        )}
-
         <div className="space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <h2 className="text-sm font-bold text-zinc-900">Raw material</h2>
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center gap-2 text-xs flex-wrap justify-end">
               <div className="relative w-full sm:w-56">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
                 <Input
@@ -1104,6 +1043,19 @@ export function ProductionStorePage() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
+              {availableMixes.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-zinc-600 gap-1"
+                  onClick={() => setShowMixStock((prev) => !prev)}
+                >
+                  <Blend className="size-3.5 text-violet-600" />
+                  Mixes ({availableMixes.length})
+                  {showMixStock ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+                </Button>
+              )}
               {colorBatches.length > 0 && (
                 <Button
                   type="button"
@@ -1119,6 +1071,25 @@ export function ProductionStorePage() {
               )}
             </div>
           </div>
+
+          {showMixStock && availableMixes.length > 0 && (
+            <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-2">
+              <span className="text-xs font-bold text-violet-950">
+                Material mixes ·{' '}
+                {availableMixes
+                  .reduce((sum, m) => sum + Number(m.qtyRemaining || 0), 0)
+                  .toFixed(1)}{' '}
+                kg
+              </span>
+              <CustomTable1
+                data={availableMixes}
+                columns={mixColumns}
+                filter={false}
+                loading={mixesQuery.isLoading}
+                card={true}
+              />
+            </div>
+          )}
 
           {showColorStock && (
             <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-2">

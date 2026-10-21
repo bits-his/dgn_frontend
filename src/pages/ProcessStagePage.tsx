@@ -112,7 +112,7 @@ export const STAGE_META: Record<
     title: 'Drying (retired)',
     eyebrow: 'Retired stage',
     queueTitle: 'Drying is no longer used',
-    emptyHint: 'Drying has been removed. Wash and move lots to the material store.',
+    emptyHint: 'Drying has been removed. Wash into Recycle store, then transfer to Material store.',
     showDryFields: false,
     showMachine: false,
     showTeam: false,
@@ -1024,9 +1024,8 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
 
       if (isWashing) {
-        navigate(
-          `/process/recrushing/new?batch=${encodeURIComponent(resultingBatch)}`,
-        )
+        await queryClient.invalidateQueries({ queryKey: ['recycle-store'] })
+        navigate('/production/recycle-store')
       } else if (isRecrushing) {
         // Stay on page — StoreBatchLabelModal is open.
       } else if (isRecycling) {
@@ -2158,7 +2157,7 @@ export function ProcessStageForm({
               </Card>
             )}
 
-            {/* Washing → re-crushing. Material store button retired for washing. */}
+            {/* Washing → Recycle store → transfer to Material store. */}
             {isWashing || isDrying ? (
               <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                 <Button
@@ -2178,32 +2177,9 @@ export function ProcessStageForm({
                       <span>Saving…</span>
                     </>
                   ) : (
-                    <span>{isWashing ? 'Move to Re-crushing' : `Complete ${meta.title}`}</span>
+                    <span>{isWashing ? 'Move to Recycle store' : `Complete ${meta.title}`}</span>
                   )}
                 </Button>
-                {/* Move to Material Store — retired; wash goes to re-crushing.
-                {(isWashing || isDrying) && (
-                <Button
-                  type="button"
-                  size="default"
-                  disabled={
-                    formState.isSubmitting ||
-                    (isMultiLotStage
-                      ? !lotLines.length || lotMissingUsable || measuredOverIn
-                      : !selected || !(qtyUsable > 0) || measuredOverIn)
-                  }
-                  className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold inline-flex items-center justify-center gap-2 leading-none shadow-xs cursor-pointer"
-                  onClick={handleSubmit((values) => submitPayload(values, false, 'production'))}
-                >
-                  <Warehouse className="size-3.5 sm:size-4 shrink-0" />
-                  <span>
-                    {formState.isSubmitting && submitAction === 'production'
-                      ? 'Moving to Material…'
-                      : 'Move to Material Store'}
-                  </span>
-                </Button>
-                )}
-                */}
               </div>
             ) : (
               <Button
@@ -2255,9 +2231,9 @@ export function ProcessStageForm({
 
 export function ProcessStagePage() {
   const { stage = 'sorting' } = useParams()
-  // Drying removed from workflow — wash → re-crushing → material store.
+  // Drying removed from workflow — wash → recycle store → material store.
   if (stage === 'drying') {
-    return <Navigate to="/process/recrushing" replace />
+    return <Navigate to="/production/recycle-store" replace />
   }
   return <ProcessStageForm stage={stage} />
 }

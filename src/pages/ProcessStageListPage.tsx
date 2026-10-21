@@ -22,9 +22,9 @@ export function ProcessStageListPage() {
   const { stage = 'sorting' } = useParams()
   const [searchParams] = useSearchParams()
 
-  // Drying removed from workflow — wash → material store.
+  // Drying removed from workflow — wash → recycle store → material store.
   if (stage === 'drying') {
-    return <Navigate to="/production/store" replace />
+    return <Navigate to="/production/recycle-store" replace />
   }
 
   const meta = STAGE_META[stage] || STAGE_META.sorting

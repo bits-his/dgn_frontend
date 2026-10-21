@@ -22,6 +22,8 @@ import { ProductionPage } from '@/pages/ProductionPage'
 import { MachineProductionPage } from '@/pages/MachineProductionPage'
 import { MachineWorkLogPage } from '@/pages/MachineWorkLogPage'
 import { ProductionStorePage } from '@/pages/ProductionStorePage'
+import { RecycleStorePage } from '@/pages/RecycleStorePage'
+import { RecycleStoreHistoryPage } from '@/pages/RecycleStoreHistoryPage'
 import { StoreLabelsReprintPage } from '@/pages/StoreLabelsReprintPage'
 import { StoreAdditivePurchasePage } from '@/pages/StoreAdditivePurchasePage'
 import { BatchLabelVerifyPage } from '@/pages/BatchLabelVerifyPage'
@@ -36,6 +38,7 @@ import { MachinePerformancePage } from '@/pages/MachinePerformancePage'
 import { MachineDetailPage } from '@/pages/MachineDetailPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { StockLedgerPage } from '@/pages/StockLedgerPage'
+import { ProductStockMovementsPage } from '@/pages/ProductStockMovementsPage'
 import { QcPage } from '@/pages/QcPage'
 import { QcTrendsPage } from '@/pages/QcTrendsPage'
 import { SalesPage } from '@/pages/SalesPage'
@@ -138,6 +141,11 @@ function App() {
                 <Route path="/process/:stage/new" element={<ProcessStagePage />} />
                 <Route path="/production" element={<ProductionPage />} />
                 <Route path="/production/store" element={<ProductionStorePage />} />
+                <Route path="/production/recycle-store" element={<RecycleStorePage />} />
+                <Route
+                  path="/production/recycle-store/history"
+                  element={<RecycleStoreHistoryPage />}
+                />
                 <Route path="/production/store/purchase" element={<StoreAdditivePurchasePage />} />
                 <Route path="/production/store/labels" element={<StoreLabelsReprintPage />} />
                 <Route path="/production/store/history" element={<MaterialIssueHistoryPage />} />
@@ -156,6 +164,10 @@ function App() {
                 <Route path="/machines/:id" element={<MachineDetailPage />} />
                 <Route path="/inventory" element={<InventoryPage />} />
                 <Route path="/inventory/ledger" element={<StockLedgerPage />} />
+                <Route
+                  path="/inventory/products/:productId"
+                  element={<ProductStockMovementsPage />}
+                />
                 <Route path="/qc" element={<QcPage />} />
                 <Route path="/qc/trends" element={<QcTrendsPage />} />
                 <Route path="/sales" element={<SalesPage />} />
