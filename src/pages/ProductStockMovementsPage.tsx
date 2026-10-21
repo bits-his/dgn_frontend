@@ -33,7 +33,7 @@ import {
 import { hasPermission } from '@/lib/auth'
 import { useAuthStore } from '@/stores/auth-store'
 import { formatDateTime } from '@/lib/dates'
-import { fmtDozenPcs } from '@/lib/units'
+import { fmtDozenPcs, isPieceUom, perDozenOf } from '@/lib/units'
 import { cn } from '@/lib/utils'
 
 type Mismatch = {
@@ -221,17 +221,50 @@ export function ProductStockMovementsPage() {
       {
         id: 'qty',
         header: 'Qty',
-        cell: ({ row }) => (
-          <span
-            className={cn(
-              'font-bold tabular-nums text-xs',
-              row.original.direction === 'IN' ? 'text-emerald-700' : 'text-amber-800',
-            )}
-          >
-            {row.original.direction === 'IN' ? '+' : '−'}
-            {fmt(row.original.qty)} {row.original.uom}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const inn = row.original.direction === 'IN'
+          const qty = Number(row.original.qty || 0)
+          const pieceUom = isPieceUom(row.original.uom || product?.uom)
+          const per = perDozenOf(product?.unitsPerDozen)
+
+          if (!pieceUom) {
+            return (
+              <span
+                className={cn(
+                  'font-bold tabular-nums text-xs',
+                  inn ? 'text-emerald-700' : 'text-amber-800',
+                )}
+              >
+                {inn ? '+' : '−'}
+                {fmt(qty)} {row.original.uom}
+              </span>
+            )
+          }
+
+          const dz = Math.floor(qty / per)
+          const rem = Math.round(qty % per)
+          const remLabel = rem > 0 ? `${rem} ${rem === 1 ? 'pc' : 'pcs'}` : ''
+          const dzLabel =
+            dz > 0 && rem > 0 ? `${dz} dz · ${remLabel}` : dz > 0 ? `${dz} dz` : remLabel || '0 pc'
+
+          return (
+            <div className="leading-tight">
+              <span
+                className={cn(
+                  'font-bold tabular-nums text-xs block',
+                  inn ? 'text-emerald-700' : 'text-amber-800',
+                )}
+              >
+                {inn ? '+' : '−'}
+                {dzLabel}
+              </span>
+              <span className="text-[11px] tabular-nums text-zinc-500 block">
+                {inn ? '+' : '−'}
+                {fmt(qty)} pc
+              </span>
+            </div>
+          )
+        },
       },
       {
         id: 'reason',
@@ -387,19 +420,47 @@ export function ProductStockMovementsPage() {
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           <StatPill
             label="On hand"
-            value={product ? fmtDozenPcs(d?.balanceOnHand || 0) : '—'}
+            value={
+              product
+                ? isPieceUom(product.uom)
+                  ? fmtDozenPcs(d?.balanceOnHand || 0, product.unitsPerDozen)
+                  : `${fmt(d?.balanceOnHand || 0)} ${product.uom || ''}`.trim()
+                : '—'
+            }
+            hint={
+              product && isPieceUom(product.uom)
+                ? `${fmt(d?.balanceOnHand || 0)} pc`
+                : undefined
+            }
             tone="success"
           />
           <StatPill
             label="Ledger net"
-            value={fmt(d?.ledgerNet || 0)}
+            value={
+              product && isPieceUom(product.uom)
+                ? fmtDozenPcs(d?.ledgerNet || 0, product.unitsPerDozen)
+                : fmt(d?.ledgerNet || 0)
+            }
             tone={d?.mismatches.some((m) => m.code === 'BALANCE_VS_LEDGER') ? 'danger' : 'default'}
-            hint={`IN ${fmt(d?.totalIn || 0)} · OUT ${fmt(d?.totalOut || 0)}`}
+            hint={
+              product && isPieceUom(product.uom)
+                ? `${fmt(d?.ledgerNet || 0)} pc · IN ${fmt(d?.totalIn || 0)} · OUT ${fmt(d?.totalOut || 0)}`
+                : `IN ${fmt(d?.totalIn || 0)} · OUT ${fmt(d?.totalOut || 0)}`
+            }
           />
           <StatPill
             label="Batch remaining"
-            value={fmt(d?.batchRemainingSum || 0)}
+            value={
+              product && isPieceUom(product.uom)
+                ? fmtDozenPcs(d?.batchRemainingSum || 0, product.unitsPerDozen)
+                : fmt(d?.batchRemainingSum || 0)
+            }
             tone={d?.mismatches.some((m) => m.code === 'BALANCE_VS_BATCH') ? 'danger' : 'default'}
+            hint={
+              product && isPieceUom(product.uom)
+                ? `${fmt(d?.batchRemainingSum || 0)} pc`
+                : undefined
+            }
           />
           <StatPill
             label="Movements"
@@ -470,9 +531,18 @@ export function ProductStockMovementsPage() {
                       </>
                     ) : null}
                   </span>
-                  <span className="font-bold tabular-nums text-emerald-700">
-                    {fmt(line.qtyOnHand)}
-                  </span>
+                  <div className="text-right leading-tight">
+                    <span className="font-bold tabular-nums text-emerald-700 block">
+                      {isPieceUom(product?.uom)
+                        ? fmtDozenPcs(line.qtyOnHand, product?.unitsPerDozen)
+                        : fmt(line.qtyOnHand)}
+                    </span>
+                    {isPieceUom(product?.uom) ? (
+                      <span className="text-[11px] tabular-nums text-zinc-500 block">
+                        {fmt(line.qtyOnHand)} pc
+                      </span>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -513,20 +583,42 @@ export function ProductStockMovementsPage() {
               reconcile.mutate()
             }}
           >
-            <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-xs space-y-1">
-              <div className="flex justify-between">
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-xs space-y-1.5">
+              <div className="flex justify-between items-baseline">
                 <span className="text-muted-foreground">System on hand</span>
-                <span className="font-bold tabular-nums">{fmt(d?.balanceOnHand || 0)}</span>
+                <div className="text-right leading-tight">
+                  <span className="font-bold tabular-nums">
+                    {product && isPieceUom(product.uom)
+                      ? fmtDozenPcs(d?.balanceOnHand || 0, product.unitsPerDozen)
+                      : fmt(d?.balanceOnHand || 0)}
+                  </span>
+                  {product && isPieceUom(product.uom) ? (
+                    <span className="text-[11px] tabular-nums text-zinc-500 block">
+                      {fmt(d?.balanceOnHand || 0)} pc
+                    </span>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-baseline">
                 <span className="text-muted-foreground">Ledger net</span>
-                <span className="font-bold tabular-nums">{fmt(d?.ledgerNet || 0)}</span>
+                <div className="text-right leading-tight">
+                  <span className="font-bold tabular-nums">
+                    {product && isPieceUom(product.uom)
+                      ? fmtDozenPcs(d?.ledgerNet || 0, product.unitsPerDozen)
+                      : fmt(d?.ledgerNet || 0)}
+                  </span>
+                  {product && isPieceUom(product.uom) ? (
+                    <span className="text-[11px] tabular-nums text-zinc-500 block">
+                      {fmt(d?.ledgerNet || 0)} pc
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
 
             <div>
               <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                Correct on hand
+                Correct on hand ({product?.uom || 'pc'})
               </label>
               <Input
                 type="number"
@@ -541,8 +633,14 @@ export function ProductStockMovementsPage() {
                 <p className="mt-1 text-[11px] text-zinc-600">
                   Will post ADJUSTMENT {deltaPreview > 0 ? 'IN' : 'OUT'}{' '}
                   <strong>
-                    {Math.abs(deltaPreview)} {product?.uom || 'pcs'}
+                    {Math.abs(deltaPreview)} {product?.uom || 'pc'}
                   </strong>
+                  {product && isPieceUom(product.uom) ? (
+                    <span className="text-zinc-500">
+                      {' '}
+                      ({fmtDozenPcs(Math.abs(deltaPreview), product.unitsPerDozen)})
+                    </span>
+                  ) : null}
                 </p>
               ) : (
                 <p className="mt-1 text-[11px] text-zinc-500">

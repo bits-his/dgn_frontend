@@ -14,10 +14,11 @@ export function fmtDozenPcs(qty: number | null | undefined, perDozen?: number | 
   const per = perDozenOf(perDozen)
   const dz = Math.floor(pcsTotal / per)
   const rem = pcsTotal % per
-  if (dz === 0 && rem === 0) return '0 pcs'
-  if (dz === 0) return `${rem} pcs`
+  const pcUnit = rem === 1 ? 'pc' : 'pcs'
+  if (dz === 0 && rem === 0) return '0 pc'
+  if (dz === 0) return `${rem} ${pcUnit}`
   if (rem === 0) return `${dz} dz`
-  return `${dz} dz · ${rem} pcs`
+  return `${dz} dz · ${rem} ${pcUnit}`
 }
 
 export function perDozenOf(value?: number | string | null) {
