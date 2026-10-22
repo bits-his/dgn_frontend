@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { api } from '@/lib/api'
 import { Field, NairaAmountInput } from '@/components/ui'
-import { CheckCircle2, ArrowRight, ShieldCheck, Wallet } from 'lucide-react'
+import { CheckCircle2, ShieldCheck, Wallet } from 'lucide-react'
 
 export type UnpaidInvoice = {
   saleNumber: string
@@ -165,7 +165,6 @@ export function DistributorPaymentForm({
               value={amount}
               onChange={setAmount}
               placeholder="0"
-              autoFocus
             />
             {totalDebt > 0.001 && (
               <div className="flex items-center gap-1.5 text-[11px]">

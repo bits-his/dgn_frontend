@@ -462,6 +462,9 @@ export function SaleDetailPage() {
       {payOpen && (
         <Dialog title="Record payment" onClose={() => setPayOpen(false)}>
           <DistributorPaymentForm
+            distributorIdOrCode={s.customer?.code || s.customer?.id || ''}
+            distributorName={s.customer?.name}
+            totalOutstanding={s.balanceDue}
             unpaid={[
               {
                 saleNumber: s.saleNumber,

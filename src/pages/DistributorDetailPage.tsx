@@ -20,7 +20,7 @@ import { formatBusinessDate } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
-import { BookPanel, DataRow, StatusChip } from '@/components/outlet/OutletBookUi'
+import { BookPanel, StatusChip } from '@/components/outlet/OutletBookUi'
 import {
   ShopCustomersBoard,
   type ShopBuyerRow,
