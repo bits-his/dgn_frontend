@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Plus } from 'lucide-react'
+import { ChevronDown, Plus, ExternalLink } from 'lucide-react'
 import { fmtDozenPcs, isPieceUom, qtyDozenLabel } from '@/lib/units'
 import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
@@ -41,9 +41,11 @@ type SaleRow = {
   driverName: string | null
   soldBy: string | null
   lineCount: number
+  isOutletSale?: boolean
+  outletName?: string | null
   lines: {
     id: number
-    batchNumber: string | null
+    batchNumber?: string | null
     productName: string | null
     qty: number
     qtyReturned: number
@@ -221,21 +223,35 @@ function buildLedgerFromServer(
     }
 
     const saleNo = t.saleNumber || t.reference || null
+    let cleanNote = t.notes ? String(t.notes).trim() : null
+    if (cleanNote && saleNo && cleanNote.toLowerCase().includes(saleNo.toLowerCase())) {
+      cleanNote = null
+    }
+    if (
+      cleanNote &&
+      (cleanNote === 'Sale invoice' ||
+        cleanNote === 'Backfill advance balance snapshot' ||
+        cleanNote.startsWith('Backfill payments on'))
+    ) {
+      cleanNote = null
+    }
+
     return {
       id: `txn-${t.id}`,
       dateLabel: formatBusinessDate(t.businessDate) || '—',
       title: saleNo
         ? `${entryTypeLabel(t.entryType)} · ${saleNo}`
         : entryTypeLabel(t.entryType),
-      meta: [t.paymentMethod, t.notes].filter(Boolean).join(' · ') || undefined,
+      meta: [t.paymentMethod, cleanNote].filter(Boolean).join(' · ') || undefined,
       debit,
       credit,
       balanceAfter: netDue,
       saleNumber: saleNo,
       entryType,
-      // Only factory Sale rows expand with line items; shop refs stay flat
+      // Factory and shop sales expand with line items
       expandable:
-        (entryType === 'SALE' || entryType === 'SALE_RETURN') && Boolean(t.saleId),
+        (entryType === 'SALE' || entryType === 'SALE_RETURN') &&
+        Boolean(t.saleId || t.saleNumber || t.reference),
     }
   })
 
@@ -536,6 +552,11 @@ export function DistributorDetailPage() {
     await qc.invalidateQueries({ queryKey: ['distributor', code] })
     await qc.invalidateQueries({ queryKey: ['distributors'] })
     await qc.invalidateQueries({ queryKey: ['sales'] })
+    await qc.invalidateQueries({ queryKey: ['outlet-sales'] })
+    await qc.invalidateQueries({ queryKey: ['outlet-sales-list'] })
+    await qc.invalidateQueries({ queryKey: ['outlet-sales-overview'] })
+    await qc.invalidateQueries({ queryKey: ['outlet-buyers'] })
+    await qc.invalidateQueries({ queryKey: ['outlet-stock'] })
   }
 
   return (
@@ -885,12 +906,17 @@ export function DistributorDetailPage() {
                           >
                             <div className="min-w-0">
                               <Link
-                                to={`/sales/${row.saleNumber}`}
-                                className="font-mono text-[11px] font-semibold text-amber-800"
+                                to={row.isOutletSale ? `/shop/sales/${row.saleNumber}` : `/sales/${row.saleNumber}`}
+                                className="font-mono text-[11px] font-semibold text-amber-800 hover:underline"
                               >
                                 {row.saleNumber}
                               </Link>
                               <p className="text-[10px] text-zinc-500">
+                                {row.isOutletSale ? (
+                                  <span className="font-medium text-emerald-800">
+                                    Shop{row.outletName ? ` · ${row.outletName}` : ''} ·{' '}
+                                  </span>
+                                ) : null}
                                 {row.ageDays ?? 0}d
                                 {row.overdue ? ' · overdue' : ''}
                               </p>
@@ -1092,25 +1118,25 @@ export function DistributorDetailPage() {
                 </div>
 
                 <article className="overflow-hidden rounded-lg border border-zinc-300 bg-white shadow-xs sm:rounded-xl">
-                  <header className="space-y-3 border-b border-zinc-300 px-3.5 py-3 sm:flex sm:items-start sm:justify-between sm:gap-3 sm:space-y-0 sm:px-5 sm:py-4">
+                  <header className="space-y-2 border-b border-zinc-300 px-3 py-2.5 sm:space-y-0 sm:flex sm:items-start sm:justify-between sm:gap-3 sm:px-5 sm:py-4">
                     <div className="min-w-0 w-full sm:w-auto">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                      <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                         Account statement
                       </p>
-                      <p className="mt-0.5 text-sm font-semibold text-zinc-900">{d.name}</p>
-                      <p className="font-mono text-[11px] text-zinc-600">{d.code}</p>
+                      <p className="mt-0.5 text-xs sm:text-sm font-semibold text-zinc-900">{d.name}</p>
+                      <p className="font-mono text-[10px] sm:text-[11px] text-zinc-600">{d.code}</p>
                       {d.region ? (
-                        <p className="mt-0.5 text-[11px] text-zinc-500">{d.region}</p>
+                        <p className="mt-0.5 text-[10px] sm:text-[11px] text-zinc-500">{d.region}</p>
                       ) : null}
                     </div>
-                    <div className="flex w-full items-end justify-between gap-3 border-t border-zinc-200 pt-2.5 sm:w-auto sm:flex-col sm:items-end sm:border-0 sm:pt-0 sm:text-right">
+                    <div className="flex w-full items-end justify-between gap-3 border-t border-zinc-200 pt-2 sm:w-auto sm:flex-col sm:items-end sm:border-0 sm:pt-0 sm:text-right">
                       <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                        <p className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
                           Balance due
                         </p>
                         <p
                           className={cn(
-                            'mt-0.5 text-base font-black tabular-nums',
+                            'mt-0.5 text-sm sm:text-base font-black tabular-nums',
                             (d.ledger?.net ?? c.outstanding) > 0.001
                               ? 'text-red-700'
                               : 'text-teal-800',
@@ -1119,7 +1145,7 @@ export function DistributorDetailPage() {
                           {money(d.ledger?.net ?? c.outstanding)}
                         </p>
                       </div>
-                      <div className="max-w-[12rem] text-right text-[10px] leading-snug text-zinc-500 sm:max-w-none sm:text-[11px]">
+                      <div className="max-w-[12rem] text-right text-[9.5px] leading-snug text-zinc-500 sm:max-w-none sm:text-[11px]">
                         <p>Debit = they owe · Credit = paid / advance</p>
                         {d.ledger ? (
                           <p className="mt-0.5">
@@ -1135,124 +1161,175 @@ export function DistributorDetailPage() {
                       No ledger transactions yet.
                     </p>
                   ) : (
-                    <div className="border-b border-zinc-200">
-                      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2 border-b border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 sm:px-4">
-                        <span className="w-4" />
-                        <span>Particulars</span>
-                        <span className="w-14 text-right sm:w-20">Debit</span>
-                        <span className="w-14 text-right sm:w-20">Credit</span>
-                        <span className="w-14 text-right sm:w-20">Balance</span>
-                      </div>
-                      <div className="divide-y divide-zinc-100">
-                        {[...ledger].reverse().map((row) => {
-                          const isDebit = row.debit > 0.001
-                          const open = expandedLedgerId === row.id
-                          const sale = row.saleNumber
-                            ? d.sales.find((s) => s.saleNumber === row.saleNumber)
-                            : null
-                          const lines = sale?.lines || []
-                          const canExpand = Boolean(row.expandable && row.saleNumber)
-                          return (
-                            <div key={row.id}>
-                              <button
-                                type="button"
-                                disabled={!canExpand}
-                                onClick={() =>
-                                  canExpand &&
-                                  setExpandedLedgerId(open ? null : row.id)
-                                }
-                                className={cn(
-                                  'grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 px-2.5 py-2 text-left text-xs sm:px-4 sm:text-sm',
-                                  canExpand && 'hover:bg-zinc-50/80',
-                                  !canExpand && 'cursor-default',
-                                )}
-                              >
-                                <span className="flex w-4 items-center">
-                                  {canExpand ? (
-                                    <ChevronDown
-                                      className={cn(
-                                        'size-3.5 text-zinc-400 transition-transform',
-                                        open && 'rotate-180',
-                                      )}
-                                    />
-                                  ) : (
-                                    <span className="size-3.5" />
-                                  )}
-                                </span>
-                                <span className="min-w-0">
-                                  <span className="block truncate font-medium text-zinc-900">
-                                    {row.title}
-                                  </span>
-                                  <span className="mt-0.5 block whitespace-nowrap text-[10px] text-zinc-500 sm:text-[11px]">
-                                    {row.dateLabel}
-                                  </span>
-                                </span>
-                                <span
+                    <div className="overflow-x-auto border-b border-zinc-200">
+                      <div className="w-full sm:min-w-[640px]">
+                        <div className="grid grid-cols-[1rem_minmax(0,1.2fr)_3.9rem_3.9rem_4.4rem] sm:grid-cols-[2.25rem_minmax(220px,1.5fr)_8.5rem_8.5rem_9.5rem] items-center gap-x-1.5 sm:gap-x-4 border-b border-zinc-200 bg-zinc-50/90 px-2.5 py-1.5 sm:px-5 sm:py-2 text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                          <span className="w-4 sm:w-5" />
+                          <span>Particulars</span>
+                          <span className="text-right">Debit</span>
+                          <span className="text-right">Credit</span>
+                          <span className="text-right">Balance</span>
+                        </div>
+                        <div className="divide-y divide-zinc-100">
+                          {[...ledger].reverse().map((row) => {
+                            const isDebit = row.debit > 0.001
+                            const open = expandedLedgerId === row.id
+                            const sale = row.saleNumber
+                              ? d.sales.find((s) => s.saleNumber === row.saleNumber)
+                              : null
+                            const lines = sale?.lines || []
+                            const canExpand = Boolean(row.expandable && row.saleNumber)
+                            return (
+                              <div key={row.id}>
+                                <button
+                                  type="button"
+                                  disabled={!canExpand}
+                                  onClick={() =>
+                                    canExpand &&
+                                    setExpandedLedgerId(open ? null : row.id)
+                                  }
                                   className={cn(
-                                    'w-14 text-right tabular-nums sm:w-20',
-                                    isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                    'grid w-full grid-cols-[1rem_minmax(0,1.2fr)_3.9rem_3.9rem_4.4rem] sm:grid-cols-[2.25rem_minmax(220px,1.5fr)_8.5rem_8.5rem_9.5rem] items-center gap-x-1.5 sm:gap-x-4 px-2.5 py-2 sm:px-5 sm:py-2.5 text-left text-xs sm:text-sm transition-colors',
+                                    canExpand && 'hover:bg-zinc-50/80 cursor-pointer',
+                                    !canExpand && 'cursor-default',
                                   )}
                                 >
-                                  {isDebit ? money(row.debit) : '—'}
-                                </span>
-                                <span
-                                  className={cn(
-                                    'w-14 text-right tabular-nums sm:w-20',
-                                    !isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
-                                  )}
-                                >
-                                  {!isDebit ? money(row.credit) : '—'}
-                                </span>
-                                <span className="w-14 text-right tabular-nums text-zinc-700 sm:w-20">
-                                  {money(row.balanceAfter)}
-                                </span>
-                              </button>
-                              {open && canExpand ? (
-                                <div className="border-t border-zinc-100 bg-zinc-50/60 px-2.5 py-2 sm:px-4">
-                                  {lines.length === 0 ? (
-                                    <p className="text-[11px] text-zinc-500">No line items.</p>
-                                  ) : (
-                                    <table className="w-full text-left text-[11px]">
-                                      <thead className="text-zinc-500">
-                                        <tr>
-                                          <th className="py-1 pr-2 font-medium">Product</th>
-                                          <th className="py-1 px-2 text-right font-medium">Qty</th>
-                                          <th className="py-1 px-2 text-right font-medium">Unit</th>
-                                          <th className="py-1 pl-2 text-right font-medium">Value</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-zinc-100">
-                                        {lines.map((line) => (
-                                          <tr key={line.id}>
-                                            <td className="py-1.5 pr-2 font-medium text-zinc-900">
-                                              {line.productName || line.batchNumber || 'Item'}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right tabular-nums">
-                                              {isPieceUom(line.uom)
-                                                ? fmtDozenPcs(line.qty)
-                                                : `${fmt(line.qty)} ${line.uom || ''}`.trim()}
-                                            </td>
-                                            <td className="py-1.5 px-2 text-right tabular-nums text-zinc-500">
-                                              {money(line.unitPrice)}
-                                            </td>
-                                            <td className="py-1.5 pl-2 text-right font-semibold tabular-nums">
-                                              {money(line.lineTotal)}
-                                            </td>
+                                  <span className="flex w-4 sm:w-5 items-center justify-center">
+                                    {canExpand ? (
+                                      <ChevronDown
+                                        className={cn(
+                                          'size-3 sm:size-3.5 text-zinc-400 transition-transform duration-200',
+                                          open && 'rotate-180 text-zinc-700',
+                                        )}
+                                      />
+                                    ) : (
+                                      <span className="size-3 sm:size-3.5" />
+                                    )}
+                                  </span>
+                                  <span className="min-w-0 pr-1 sm:pr-2">
+                                    <span className="flex items-center gap-1 flex-wrap">
+                                      <span className="font-semibold text-zinc-900 text-[11px] sm:text-sm leading-tight">
+                                        {row.title}
+                                      </span>
+                                      {sale?.isOutletSale ? (
+                                        <span className="inline-flex items-center rounded bg-emerald-50 px-1 py-0.5 text-[9px] sm:text-[10px] font-semibold text-emerald-800 border border-emerald-200/80">
+                                          Shop{sale.outletName ? ` · ${sale.outletName}` : ''}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                    <span className="mt-0.5 block text-[9.5px] sm:text-[11px] text-zinc-500 leading-tight truncate">
+                                      {row.dateLabel}
+                                      {row.meta ? ` · ${row.meta}` : ''}
+                                    </span>
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'text-right tabular-nums whitespace-nowrap text-[10px] sm:text-sm tracking-tight sm:tracking-normal',
+                                      isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                    )}
+                                  >
+                                    {isDebit ? money(row.debit) : '—'}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'text-right tabular-nums whitespace-nowrap text-[10px] sm:text-sm tracking-tight sm:tracking-normal',
+                                      !isDebit ? 'font-semibold text-zinc-900' : 'text-zinc-300',
+                                    )}
+                                  >
+                                    {!isDebit ? money(row.credit) : '—'}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      'text-right tabular-nums font-semibold whitespace-nowrap text-[10px] sm:text-sm tracking-tight sm:tracking-normal',
+                                      row.balanceAfter > 0.001
+                                        ? 'text-zinc-900'
+                                        : row.balanceAfter < -0.001
+                                          ? 'text-teal-700'
+                                          : 'text-zinc-500',
+                                    )}
+                                  >
+                                    {money(row.balanceAfter)}
+                                  </span>
+                                </button>
+                                {open && canExpand ? (
+                                  <div className="border-t border-zinc-200/70 bg-zinc-50/70 py-2 sm:py-3 pl-[2rem] sm:pl-[4.5rem] pr-2.5 sm:pr-5">
+                                    {sale?.isOutletSale ? (
+                                      <div className="mb-2 flex items-center justify-between text-[11px] sm:text-xs">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] sm:text-[11px] font-semibold text-emerald-800">
+                                            Market Shop: {sale.outletName || 'Shop'}
+                                          </span>
+                                          <span className="text-zinc-500 text-[10px] sm:text-[11px]">
+                                            Sale #{sale.saleNumber}
+                                          </span>
+                                        </div>
+                                        <Link
+                                          to={`/shop/sales/${sale.saleNumber}`}
+                                          className="font-semibold text-emerald-700 hover:underline text-[11px] sm:text-xs flex items-center gap-1 shrink-0"
+                                        >
+                                          <span>View shop sale</span>
+                                          <ExternalLink className="size-3" />
+                                        </Link>
+                                      </div>
+                                    ) : (
+                                      <div className="mb-2 flex items-center justify-between text-[11px] sm:text-xs">
+                                        <span className="text-zinc-500 text-[10px] sm:text-[11px]">
+                                          Factory Sale #{sale?.saleNumber}
+                                        </span>
+                                        <Link
+                                          to={`/sales/${sale?.saleNumber}`}
+                                          className="font-semibold text-amber-800 hover:underline text-[11px] sm:text-xs flex items-center gap-1 shrink-0"
+                                        >
+                                          <span>View invoice</span>
+                                          <ExternalLink className="size-3" />
+                                        </Link>
+                                      </div>
+                                    )}
+                                    {lines.length === 0 ? (
+                                      <p className="text-[10px] sm:text-[11px] text-zinc-500">No line items.</p>
+                                    ) : (
+                                      <table className="w-full text-left text-[10px] sm:text-[11px]">
+                                        <thead className="text-zinc-500 border-b border-zinc-200">
+                                          <tr>
+                                            <th className="py-1 pr-1.5 sm:py-1.5 sm:pr-2 font-medium">Product</th>
+                                            <th className="py-1 px-1.5 sm:py-1.5 sm:px-2 text-right font-medium">Qty</th>
+                                            <th className="py-1 px-1.5 sm:py-1.5 sm:px-2 text-right font-medium">Unit Price</th>
+                                            <th className="py-1 pl-1.5 sm:py-1.5 sm:pl-2 text-right font-medium">Value</th>
                                           </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                </div>
-                              ) : null}
-                            </div>
-                          )
-                        })}
+                                        </thead>
+                                        <tbody className="divide-y divide-zinc-100">
+                                          {lines.map((line) => (
+                                            <tr key={line.id}>
+                                              <td className="py-1 pr-1.5 sm:py-1.5 sm:pr-2 font-medium text-zinc-900">
+                                                {line.productName || line.batchNumber || 'Item'}
+                                              </td>
+                                              <td className="py-1 px-1.5 sm:py-1.5 sm:px-2 text-right tabular-nums">
+                                                {isPieceUom(line.uom)
+                                                  ? fmtDozenPcs(line.qty)
+                                                  : `${fmt(line.qty)} ${line.uom || ''}`.trim()}
+                                              </td>
+                                              <td className="py-1 px-1.5 sm:py-1.5 sm:px-2 text-right tabular-nums text-zinc-500">
+                                                {money(line.unitPrice)}
+                                              </td>
+                                              <td className="py-1 pl-1.5 sm:py-1.5 sm:pl-2 text-right font-semibold tabular-nums">
+                                                {money(line.lineTotal)}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    )}
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  <section className="ml-auto w-full max-w-[14rem] space-y-1 px-3.5 py-3 text-xs sm:px-5 sm:py-4 sm:text-sm">
+                  <section className="ml-auto w-full max-w-[14rem] space-y-1 px-3 py-2.5 text-xs sm:px-5 sm:py-4 sm:text-sm">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-zinc-600">They owe</span>
                       <span className="font-semibold tabular-nums">

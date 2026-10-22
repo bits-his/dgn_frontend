@@ -12,6 +12,8 @@ export type UnpaidInvoice = {
   paymentStatus?: string
   saleType?: string
   isOpening?: boolean
+  isOutletSale?: boolean
+  outletName?: string
   ageDays?: number
   overdue?: boolean
 }
@@ -123,6 +125,7 @@ export function DistributorPaymentForm({
         receivedAt,
         reference: reference.trim() || undefined,
         notes: notes.trim() || undefined,
+        saleNumber: unpaid && unpaid.length === 1 ? unpaid[0].saleNumber : undefined,
       })
       onSaved()
     } catch (err: unknown) {
@@ -141,21 +144,43 @@ export function DistributorPaymentForm({
   return (
     <div className="space-y-4">
       {/* Top status info */}
-      <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50/70 p-3 text-xs">
-        <div>
-          <span className="text-zinc-500">Distributor: </span>
-          <strong className="text-zinc-900">{distributorName || 'Distributor'}</strong>
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-3 text-xs space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="text-zinc-500">Distributor: </span>
+            <strong className="text-zinc-900">{distributorName || 'Distributor'}</strong>
+          </div>
+          <div>
+            <span className="text-zinc-500">Current Debt: </span>
+            <span
+              className={`font-bold tabular-nums ${
+                totalDebt > 0.001 ? 'text-amber-800' : 'text-emerald-700'
+              }`}
+            >
+              {totalDebt > 0.001 ? money(totalDebt) : '₦0 (No debt)'}
+            </span>
+          </div>
         </div>
-        <div>
-          <span className="text-zinc-500">Current Debt: </span>
-          <span
-            className={`font-bold tabular-nums ${
-              totalDebt > 0.001 ? 'text-amber-800' : 'text-emerald-700'
-            }`}
-          >
-            {totalDebt > 0.001 ? money(totalDebt) : '₦0 (No debt)'}
-          </span>
-        </div>
+        {unpaid && unpaid.length === 1 ? (
+          <div className="border-t border-zinc-200/80 pt-2 flex items-center justify-between text-[11px]">
+            <span className="text-zinc-600">
+              Paying for invoice{' '}
+              <strong className="font-mono text-zinc-900">{unpaid[0].saleNumber}</strong>
+              {unpaid[0].isOutletSale ? (
+                <span className="ml-1.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                  Shop{unpaid[0].outletName ? ` · ${unpaid[0].outletName}` : ''}
+                </span>
+              ) : null}
+            </span>
+            <span className="font-semibold text-red-700 tabular-nums">
+              Due: {money(unpaid[0].balanceDue)}
+            </span>
+          </div>
+        ) : unpaid && unpaid.length > 1 ? (
+          <div className="border-t border-zinc-200/80 pt-1.5 text-[11px] text-zinc-500">
+            Payment applies to {unpaid.length} open invoices (oldest first across factory & shops)
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

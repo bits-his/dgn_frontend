@@ -119,7 +119,15 @@ export function kindLabel(kind?: string | null) {
 }
 
 export function money(n: number) {
-  return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  const num = Number(n || 0)
+  const isNeg = num < -0.001
+  const abs = Math.abs(num)
+  const hasDecimals = abs % 1 !== 0
+  const formatted = abs.toLocaleString(undefined, {
+    minimumFractionDigits: hasDecimals ? 2 : 0,
+    maximumFractionDigits: 2,
+  })
+  return isNeg ? `-₦${formatted}` : `₦${formatted}`
 }
 
 export function unpaidSummary(c: DistributorCredit) {
