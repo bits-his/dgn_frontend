@@ -24,6 +24,13 @@ import {
 } from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
 import { NairaAmountInput } from '@/components/ui'
+import {
+  isPieceUom,
+  fmtDozenPcs,
+  perDozenOf,
+  dozenPriceFromUnit,
+  unitPriceFromDozen,
+} from '@/lib/units'
 import type { ShopBuyerRow } from '@/components/outlet/ShopCustomersBoard'
 
 type StockRow = {
@@ -33,11 +40,15 @@ type StockRow = {
   remaining: number
   sellingPrice?: number | null
   standardPrice?: number | null
+  unitsPerDozen?: number | null
 }
 
 type LineInput = {
   qty: string
+  dozen: string
+  pcs: string
   unitPrice: string
+  dozenPrice: string
 }
 
 type DistributorOption = {
@@ -121,8 +132,29 @@ export function RecordOutletSalePage() {
     },
   })
 
-  const buyers = overview.data?.buyers || []
-  const distributors = overview.data?.distributors || []
+  const rawDistributors = overview.data?.distributors || []
+  const distributors = useMemo(() => {
+    return rawDistributors.filter(
+      (d) =>
+        String(d.distributorKind || '').toUpperCase() !== 'SHOP' &&
+        (!effectiveOutletId || Number(d.id) !== Number(effectiveOutletId)),
+    )
+  }, [rawDistributors, effectiveOutletId])
+
+  const rawBuyers = overview.data?.buyers || []
+  const buyers = useMemo(() => {
+    const shopNames = new Set(
+      rawDistributors
+        .filter((d) => String(d.distributorKind || '').toUpperCase() === 'SHOP')
+        .map((d) => d.name.toLowerCase().trim()),
+    )
+    return rawBuyers.filter((b) => {
+      if (b.linkedCustomerId && Number(b.linkedCustomerId) === Number(effectiveOutletId)) return false
+      if (shopNames.has(b.name.toLowerCase().trim())) return false
+      return true
+    })
+  }, [rawBuyers, rawDistributors, effectiveOutletId])
+
   const stock = useMemo(
     () => (overview.data?.stock || []).filter((row) => row.remaining > 0.0001),
     [overview.data],
@@ -208,11 +240,30 @@ export function RecordOutletSalePage() {
       for (const row of stock) {
         const key = String(row.productId)
         const price = Number(row.standardPrice ?? row.sellingPrice)
-        const defaultPrice = Number.isFinite(price) && price > 0 ? String(price) : ''
+        const defaultUnitPrice = Number.isFinite(price) && price > 0 ? String(price) : ''
+        const per = perDozenOf(row.unitsPerDozen)
+        const defaultDozenPrice =
+          Number.isFinite(price) && price > 0 ? String(dozenPriceFromUnit(price, per)) : ''
+
         if (!next[key]) {
-          next[key] = { qty: '', unitPrice: defaultPrice }
-        } else if (!next[key].unitPrice && defaultPrice) {
-          next[key] = { ...next[key], unitPrice: defaultPrice }
+          next[key] = {
+            qty: '',
+            dozen: '',
+            pcs: '',
+            unitPrice: defaultUnitPrice,
+            dozenPrice: defaultDozenPrice,
+          }
+        } else {
+          const patch: Partial<LineInput> = {}
+          if (!next[key].unitPrice && defaultUnitPrice) {
+            patch.unitPrice = defaultUnitPrice
+          }
+          if (!next[key].dozenPrice && defaultDozenPrice) {
+            patch.dozenPrice = defaultDozenPrice
+          }
+          if (Object.keys(patch).length > 0) {
+            next[key] = { ...next[key], ...patch }
+          }
         }
       }
       return next
@@ -222,14 +273,29 @@ export function RecordOutletSalePage() {
   const activeLines = useMemo(() => {
     return stock
       .map((row) => {
-        const input = lineInputs[String(row.productId)] || { qty: '', unitPrice: '' }
+        const input = lineInputs[String(row.productId)] || {
+          qty: '',
+          dozen: '',
+          pcs: '',
+          unitPrice: '',
+          dozenPrice: '',
+        }
         const qty = Number(input.qty) || 0
         const unitPrice = Number(input.unitPrice) || 0
+        const isPiece = isPieceUom(row.uom)
+        const per = perDozenOf(row.unitsPerDozen)
+        const dz = isPiece ? Math.floor(qty / per) : 0
+        const remPcs = isPiece ? qty % per : 0
+        const dozenPrice =
+          Number(input.dozenPrice) || (unitPrice > 0 ? dozenPriceFromUnit(unitPrice, per) : 0)
         return {
           ...row,
           qty,
+          dozen: input.dozen || (dz > 0 ? String(dz) : ''),
+          pcs: input.pcs || (remPcs > 0 ? String(remPcs) : ''),
           unitPrice,
-          lineTotal: qty * unitPrice,
+          dozenPrice,
+          lineTotal: Math.round(qty * unitPrice * 100) / 100,
           exceeded: qty > row.remaining + 0.0001,
         }
       })
@@ -260,15 +326,59 @@ export function RecordOutletSalePage() {
     !typingCustomer &&
     !(balanceDueNow > 0.001 && isWalkIn)
 
-  const setLine = (productId: number, patch: Partial<LineInput>) => {
+  const setLine = (
+    productId: number,
+    patch: Partial<LineInput>,
+    rowContext?: StockRow,
+  ) => {
     const key = String(productId)
-    setLineInputs((prev) => ({
-      ...prev,
-      [key]: {
-        ...(prev[key] || { qty: '', unitPrice: '' }),
-        ...patch,
-      },
-    }))
+    setLineInputs((prev) => {
+      const current = prev[key] || {
+        qty: '',
+        dozen: '',
+        pcs: '',
+        unitPrice: '',
+        dozenPrice: '',
+      }
+      const next: LineInput = { ...current, ...patch }
+      const stockRow = rowContext || stock.find((s) => s.productId === productId)
+      const isPiece = isPieceUom(stockRow?.uom)
+      const per = perDozenOf(stockRow?.unitsPerDozen)
+
+      if (isPiece) {
+        if ('dozen' in patch || 'pcs' in patch) {
+          const dz = Number(next.dozen) || 0
+          const pcs = Number(next.pcs) || 0
+          const totalPcs = dz * per + pcs
+          next.qty = totalPcs > 0 ? String(totalPcs) : ''
+        } else if ('qty' in patch) {
+          const totalPcs = Number(next.qty) || 0
+          next.dozen = totalPcs > 0 ? String(Math.floor(totalPcs / per)) : ''
+          next.pcs = totalPcs > 0 ? String(totalPcs % per) : ''
+        }
+
+        if ('dozenPrice' in patch) {
+          const dzP = Number(next.dozenPrice)
+          if (Number.isFinite(dzP) && dzP > 0) {
+            next.unitPrice = String(unitPriceFromDozen(dzP, per))
+          } else if (next.dozenPrice === '') {
+            next.unitPrice = ''
+          }
+        } else if ('unitPrice' in patch) {
+          const uP = Number(next.unitPrice)
+          if (Number.isFinite(uP) && uP > 0) {
+            next.dozenPrice = String(dozenPriceFromUnit(uP, per))
+          } else if (next.unitPrice === '') {
+            next.dozenPrice = ''
+          }
+        }
+      }
+
+      return {
+        ...prev,
+        [key]: next,
+      }
+    })
   }
 
   const pickBuyer = (row: BuyerPick) => {
@@ -539,12 +649,20 @@ export function RecordOutletSalePage() {
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {filteredStock.map((row) => {
-              const input = lineInputs[String(row.productId)] || { qty: '', unitPrice: '' }
+              const input = lineInputs[String(row.productId)] || {
+                qty: '',
+                dozen: '',
+                pcs: '',
+                unitPrice: '',
+                dozenPrice: '',
+              }
               const enteredQty = Number(input.qty) || 0
               const isSelected = enteredQty > 0
               const unitPriceNum = Number(input.unitPrice) || 0
-              const lineTotal = enteredQty * unitPriceNum
+              const lineTotal = Math.round(enteredQty * unitPriceNum * 100) / 100
               const isExceeded = enteredQty > row.remaining + 0.0001
+              const isPiece = isPieceUom(row.uom)
+              const per = perDozenOf(row.unitsPerDozen)
 
               return (
                 <div
@@ -565,83 +683,265 @@ export function RecordOutletSalePage() {
                           <Check className="size-2.5" /> In sale
                         </span>
                       ) : (
-                        <span className="text-[10px] font-medium text-zinc-400">{row.uom}</span>
+                        <span className="text-[10px] font-medium text-zinc-400">
+                          {isPiece ? 'dz · pcs' : row.uom}
+                        </span>
                       )}
                     </div>
                     <p className="text-[11px] text-zinc-500">
                       Available:{' '}
                       <strong className="text-zinc-800">
-                        {fmt(row.remaining)} {row.uom}
+                        {isPiece ? fmtDozenPcs(row.remaining, per) : `${fmt(row.remaining)} ${row.uom}`}
                       </strong>
+                      {isPiece && row.remaining > 0 && (
+                        <span className="ml-1 text-[10px] font-normal text-zinc-400">
+                          ({fmt(row.remaining)} pcs)
+                        </span>
+                      )}
                     </p>
                   </div>
 
                   <div className="mt-3 border-t border-zinc-100 pt-2.5">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <div className="mb-1 flex items-center justify-between">
-                          <label className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
-                            Quantity ({row.uom})
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setLine(row.productId, { qty: String(row.remaining) })}
-                              className="cursor-pointer text-[10px] font-bold text-emerald-600 hover:text-emerald-700"
-                            >
-                              Max
-                            </button>
-                            {isSelected && (
+                    {isPiece ? (
+                      <div className="space-y-2.5">
+                        {/* Quantity section with Dozen and Pcs */}
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <label className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                              Quantity
+                            </label>
+                            <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => setLine(row.productId, { qty: '' })}
-                                className="ml-1 cursor-pointer text-[10px] text-zinc-400 hover:text-red-600"
+                                onClick={() => {
+                                  const dz = Math.floor(row.remaining / per)
+                                  const rem = row.remaining % per
+                                  setLine(
+                                    row.productId,
+                                    {
+                                      dozen: dz > 0 ? String(dz) : '0',
+                                      pcs: rem > 0 ? String(rem) : '0',
+                                      qty: String(row.remaining),
+                                    },
+                                    row,
+                                  )
+                                }}
+                                className="cursor-pointer text-[10px] font-bold text-emerald-600 hover:text-emerald-700"
                               >
-                                ✕
+                                Max ({fmtDozenPcs(row.remaining, per)})
                               </button>
-                            )}
+                              {isSelected && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLine(row.productId, { dozen: '', pcs: '', qty: '' }, row)
+                                  }
+                                  className="cursor-pointer text-[10px] text-zinc-400 hover:text-red-600"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  placeholder="0"
+                                  value={input.dozen}
+                                  onChange={(e) =>
+                                    setLine(row.productId, { dozen: e.target.value }, row)
+                                  }
+                                  className={`h-8 pr-7 text-xs font-semibold tabular-nums ${
+                                    isExceeded
+                                      ? 'border-red-400 bg-red-50/50'
+                                      : isSelected
+                                        ? 'border-emerald-400 bg-white'
+                                        : ''
+                                  }`}
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400">
+                                  dz
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[9px] text-zinc-400">Dozen</p>
+                            </div>
+                            <div>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  placeholder="0"
+                                  value={input.pcs}
+                                  onChange={(e) =>
+                                    setLine(row.productId, { pcs: e.target.value }, row)
+                                  }
+                                  className={`h-8 pr-7 text-xs font-semibold tabular-nums ${
+                                    isExceeded
+                                      ? 'border-red-400 bg-red-50/50'
+                                      : isSelected
+                                        ? 'border-emerald-400 bg-white'
+                                        : ''
+                                  }`}
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-400">
+                                  pcs
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[9px] text-zinc-400">Pieces</p>
+                            </div>
+                          </div>
+                          {isExceeded && (
+                            <p className="mt-1 text-[10px] text-red-600">
+                              Exceeds stock ({fmtDozenPcs(row.remaining, per)})
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Price section with Price/dz and Price/pc */}
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <label className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                              Price (₦)
+                            </label>
+                            <span className="text-[9px] text-zinc-400">auto-converts</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  placeholder="0.00"
+                                  value={input.dozenPrice}
+                                  onChange={(e) =>
+                                    setLine(row.productId, { dozenPrice: e.target.value }, row)
+                                  }
+                                  className="h-8 pr-8 text-xs font-semibold tabular-nums"
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-zinc-400">
+                                  /dz
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[9px] text-zinc-400">Per dozen</p>
+                            </div>
+                            <div>
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  placeholder="0.00"
+                                  value={input.unitPrice}
+                                  onChange={(e) =>
+                                    setLine(row.productId, { unitPrice: e.target.value }, row)
+                                  }
+                                  className="h-8 pr-8 text-xs font-semibold tabular-nums"
+                                />
+                                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-zinc-400">
+                                  /pc
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[9px] text-zinc-400">Per piece</p>
+                            </div>
                           </div>
                         </div>
-                        <Input
-                          type="number"
-                          min="0"
-                          max={row.remaining}
-                          step="any"
-                          placeholder="0"
-                          value={input.qty}
-                          onChange={(e) => setLine(row.productId, { qty: e.target.value })}
-                          className={`h-8 text-xs font-semibold tabular-nums ${
-                            isExceeded
-                              ? 'border-red-400 bg-red-50/50 focus-visible:ring-red-400'
-                              : isSelected
-                                ? 'border-emerald-400 bg-white focus-visible:ring-emerald-400'
-                                : ''
-                          }`}
-                        />
-                        {isExceeded && (
-                          <p className="mt-0.5 text-[10px] text-red-600">
-                            Exceeds stock ({fmt(row.remaining)})
-                          </p>
-                        )}
                       </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
-                          Unit price (₦)
-                        </label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="0.00"
-                          value={input.unitPrice}
-                          onChange={(e) => setLine(row.productId, { unitPrice: e.target.value })}
-                          className="h-8 text-xs font-semibold tabular-nums"
-                        />
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <label className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                              Quantity ({row.uom})
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setLine(row.productId, { qty: String(row.remaining) }, row)
+                                }
+                                className="cursor-pointer text-[10px] font-bold text-emerald-600 hover:text-emerald-700"
+                              >
+                                Max
+                              </button>
+                              {isSelected && (
+                                <button
+                                  type="button"
+                                  onClick={() => setLine(row.productId, { qty: '' }, row)}
+                                  className="ml-1 cursor-pointer text-[10px] text-zinc-400 hover:text-red-600"
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          <Input
+                            type="number"
+                            min="0"
+                            max={row.remaining}
+                            step="any"
+                            placeholder="0"
+                            value={input.qty}
+                            onChange={(e) =>
+                              setLine(row.productId, { qty: e.target.value }, row)
+                            }
+                            className={`h-8 text-xs font-semibold tabular-nums ${
+                              isExceeded
+                                ? 'border-red-400 bg-red-50/50 focus-visible:ring-red-400'
+                                : isSelected
+                                  ? 'border-emerald-400 bg-white focus-visible:ring-emerald-400'
+                                  : ''
+                            }`}
+                          />
+                          {isExceeded && (
+                            <p className="mt-0.5 text-[10px] text-red-600">
+                              Exceeds stock ({fmt(row.remaining)})
+                            </p>
+                          )}
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
+                            Unit price (₦)
+                          </label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="0.00"
+                            value={input.unitPrice}
+                            onChange={(e) =>
+                              setLine(row.productId, { unitPrice: e.target.value }, row)
+                            }
+                            className="h-8 text-xs font-semibold tabular-nums"
+                          />
+                        </div>
                       </div>
-                    </div>
+                    )}
+
                     {isSelected && (
-                      <div className="mt-2.5 flex items-center justify-between border-t border-emerald-200/50 pt-2 text-[11px]">
-                        <span className="font-bold text-emerald-800">{money(lineTotal)}</span>
+                      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-1 border-t border-emerald-200/50 pt-2 text-[11px]">
+                        <div>
+                          {isPiece ? (
+                            <span className="text-[10px] text-zinc-600 font-medium">
+                              {fmtDozenPcs(enteredQty, per)} ({enteredQty} pcs)
+                              {Number(input.dozenPrice) > 0
+                                ? ` · @ ${money(Number(input.dozenPrice))}/dz`
+                                : ''}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-zinc-600 font-medium">
+                              {enteredQty} {row.uom} × {money(unitPriceNum)}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs font-bold text-emerald-800 tabular-nums">
+                          {money(lineTotal)}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -776,6 +1076,38 @@ export function RecordOutletSalePage() {
                   : 'Starts at 0 (credit) · Pay full or enter a part payment.'}
               </p>
             </div>
+
+            {activeLines.length > 0 && (
+              <div className="space-y-1.5 rounded-xl border border-zinc-100 bg-zinc-50/50 p-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Items in sale ({activeLines.length})
+                </p>
+                <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+                  {activeLines.map((line) => {
+                    const per = perDozenOf(line.unitsPerDozen)
+                    const isPiece = isPieceUom(line.uom)
+                    return (
+                      <div
+                        key={line.productId}
+                        className="flex items-start justify-between gap-2 border-b border-zinc-100/80 pb-1.5 text-xs last:border-0 last:pb-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-zinc-900">{line.productName}</p>
+                          <p className="text-[10px] text-zinc-500">
+                            {isPiece
+                              ? `${fmtDozenPcs(line.qty, per)} (${line.qty} pcs) · ${money(line.dozenPrice)}/dz`
+                              : `${line.qty} ${line.uom} · ${money(line.unitPrice)}/${line.uom}`}
+                          </p>
+                        </div>
+                        <span className="font-bold text-zinc-900 tabular-nums shrink-0">
+                          {money(line.lineTotal)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2 rounded-xl border border-zinc-100 bg-zinc-50/70 p-3.5 text-xs">
               <div className="flex justify-between text-zinc-600">

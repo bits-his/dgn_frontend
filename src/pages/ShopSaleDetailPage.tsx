@@ -1,11 +1,14 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileText, Printer } from 'lucide-react'
+import { FileText, Printer, UserCheck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
 import { BookPanel, DataRow } from '@/components/outlet/OutletBookUi'
 import { useAuthStore } from '@/stores/auth-store'
+import { hasPermission } from '@/lib/auth'
+import { ChangeOutletCustomerDialog } from '@/components/outlet/ChangeOutletCustomerDialog'
 import {
   isOutletScoped,
   outletHomePath,
@@ -17,6 +20,7 @@ import {
 import { formatBusinessDate } from '@/lib/dates'
 import { money } from '@/pages/DistributorsPage'
 import { cn } from '@/lib/utils'
+import { fmtDozenPcs, isPieceUom } from '@/lib/units'
 
 type ShopSaleDetail = {
   id: number
@@ -51,6 +55,8 @@ export function ShopSaleDetailPage() {
   const { saleNumber } = useParams()
   const user = useAuthStore((s) => s.user)
   const scoped = isOutletScoped(user)
+  const [changeCustomerOpen, setChangeCustomerOpen] = useState(false)
+  const canChangeCustomer = hasPermission(user, 'outlet.sell') || hasPermission(user, 'sales.create') || !scoped
 
   const sale = useQuery({
     queryKey: ['outlet-sale', saleNumber],
@@ -143,7 +149,21 @@ export function ShopSaleDetailPage() {
             </div>
           </div>
 
-          <BookPanel title="Customer">
+          <BookPanel
+            title="Customer"
+            action={
+              canChangeCustomer ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-[11px] font-semibold text-teal-800 hover:underline"
+                  onClick={() => setChangeCustomerOpen(true)}
+                >
+                  <UserCheck className="size-3.5" />
+                  Change / Reassign
+                </button>
+              ) : null
+            }
+          >
             {s.outletBuyerId ? (
               <Link
                 to={shopBuyerPath(
@@ -165,15 +185,32 @@ export function ShopSaleDetailPage() {
           </BookPanel>
 
           <BookPanel title="Lines">
-            {s.lines.map((line) => (
-              <DataRow
-                key={line.id}
-                title={line.productName || 'Item'}
-                meta={`${line.qty} ${line.uom} · ${money(line.unitPrice)} each`}
-                value={money(line.lineTotal)}
-              />
-            ))}
+            {s.lines.map((line) => {
+              const isPiece = isPieceUom(line.uom)
+              return (
+                <DataRow
+                  key={line.id}
+                  title={line.productName || 'Item'}
+                  meta={
+                    isPiece
+                      ? `${fmtDozenPcs(line.qty)} (${line.qty} pcs) · ${money(line.unitPrice)}/pc`
+                      : `${line.qty} ${line.uom} · ${money(line.unitPrice)} each`
+                  }
+                  value={money(line.lineTotal)}
+                />
+              )
+            })}
           </BookPanel>
+
+          <ChangeOutletCustomerDialog
+            open={changeCustomerOpen}
+            onClose={() => setChangeCustomerOpen(false)}
+            saleId={s.id}
+            currentBuyerName={s.buyerName}
+            outletId={s.outlet?.id}
+            totalAmount={s.totalAmount}
+            currentAmountPaid={s.amountPaid}
+          />
         </div>
       )}
     </PageLayout>

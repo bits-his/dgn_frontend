@@ -360,14 +360,7 @@ export function DistributorDetailPage() {
   const [expandedLedgerId, setExpandedLedgerId] = useState<string | null>(null)
   const [shopTab, setShopTab] = useState<'overview' | 'customers'>('overview')
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
-  const [advanceOpen, setAdvanceOpen] = useState(false)
   const [openingOpen, setOpeningOpen] = useState(false)
-  const [advanceForm, setAdvanceForm] = useState({
-    amount: '',
-    paymentMethod: 'TRANSFER',
-    reference: '',
-    notes: '',
-  })
   const [openingForm, setOpeningForm] = useState({
     receivableAmount: '',
     advanceAmount: '',
@@ -468,41 +461,6 @@ export function DistributorDetailPage() {
     },
   })
 
-  const advanceMutation = useMutation({
-    mutationFn: async () => {
-      if (!detail.data) throw new Error('Missing distributor')
-      const { data } = await api.post(`/distributors/${detail.data.code}/advance`, {
-        amount: Number(advanceForm.amount),
-        paymentMethod: advanceForm.paymentMethod,
-        reference: advanceForm.reference.trim() || null,
-        notes: advanceForm.notes.trim() || null,
-      })
-      return data.data
-    },
-    onSuccess: async () => {
-      setMessage('Advance deposit recorded')
-      setError('')
-      setAdvanceOpen(false)
-      setAdvanceForm({ amount: '', paymentMethod: 'TRANSFER', reference: '', notes: '' })
-      await qc.invalidateQueries({ queryKey: ['distributor', code] })
-      await qc.invalidateQueries({ queryKey: ['distributors'] })
-      await qc.invalidateQueries({ queryKey: ['distributor-credit'] })
-    },
-    onError: (err: unknown) => {
-      const axiosErr = err as {
-        response?: { data?: { err?: string; errors?: Record<string, string> } }
-        message?: string
-      }
-      const errors = axiosErr.response?.data?.errors
-      setMessage('')
-      setError(
-        (errors && Object.values(errors).join(' · ')) ||
-          axiosErr.response?.data?.err ||
-          axiosErr.message ||
-          'Could not record advance',
-      )
-    },
-  })
 
   const openingMutation = useMutation({
     mutationFn: async () => {
@@ -607,23 +565,36 @@ export function DistributorDetailPage() {
               >
                 Opening balance
               </Button>
-              <Button
-                size="sm"
-                className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap"
-                onClick={() => {
-                  setError('')
-                  setAdvanceOpen(true)
-                }}
-              >
-                Record advance
-              </Button>
+              {!isShop && canSell ? (
+                <Button
+                  size="sm"
+                  className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 text-white"
+                  onClick={() => {
+                    setError('')
+                    setPaying(unpaid)
+                  }}
+                >
+                  Record payment
+                </Button>
+              ) : null}
             </>
           ) : null}
-          {/* Record sale CTA lives in the shop book hero */}
           {/* Issue stock lives on the distributors list — keep shop detail lean */}
           {!isOutletScoped(user) && canSell && !isShop ? (
             <Button size="sm" className="h-8 px-2.5 text-xs font-semibold whitespace-nowrap" asChild>
               <Link to={`/sales/new?customer=${d.id}`}>New sale</Link>
+            </Button>
+          ) : null}
+          {isShop && canOutletSell ? (
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 px-3 text-xs font-semibold whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 text-white"
+              asChild
+            >
+              <Link to={shopRecordSalePath(isOutletScoped(user) ? null : d.id)}>
+                <Plus className="size-3.5" />
+                Record sale
+              </Link>
             </Button>
           ) : null}
         </div>
@@ -669,14 +640,6 @@ export function DistributorDetailPage() {
                         </span>
                       </p>
                     </div>
-                    {canOutletSell ? (
-                      <Button size="sm" className="h-9 gap-1.5 px-3 text-xs font-semibold" asChild>
-                        <Link to={shopRecordSalePath(isOutletScoped(user) ? null : d.id)}>
-                          <Plus className="size-3.5" />
-                          Record sale
-                        </Link>
-                      </Button>
-                    ) : null}
                   </div>
                   <div className="grid grid-cols-3 divide-x divide-zinc-100">
                     <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
@@ -760,72 +723,117 @@ export function DistributorDetailPage() {
                     limit={200}
                   />
                 ) : (
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-3">
                     <BookPanel title="Stock on hand">
                       {(d.outlet?.stock || []).length === 0 ? (
-                        <p className="py-3 text-center text-xs text-zinc-500">
-                          No stock yet — issue from the factory first.
+                        <p className="py-4 text-center text-xs text-zinc-500">
+                          No stock yet — issue goods from the factory first.
                         </p>
                       ) : (
-                        d.outlet!.stock.map((row) => (
-                          <DataRow
-                            key={row.productId}
-                            title={row.productName}
-                            meta={`${
-                              isPieceUom(row.uom)
-                                ? fmtDozenPcs(row.sold)
-                                : `${fmt(row.sold)} ${row.uom}`
-                            } sold`}
-                            value={
-                              isPieceUom(row.uom)
-                                ? fmtDozenPcs(row.remaining)
-                                : qtyDozenLabel(row.remaining, row.uom)
-                            }
-                          />
-                        ))
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                          {d.outlet!.stock.map((row) => (
+                            <div
+                              key={row.productId}
+                              className="flex flex-col justify-between rounded-lg border border-zinc-100 bg-zinc-50/60 p-2.5"
+                            >
+                              <div>
+                                <h4 className="text-xs font-semibold text-zinc-900 truncate">
+                                  {row.productName}
+                                </h4>
+                                <p className="mt-0.5 text-[10px] text-zinc-500">
+                                  {isPieceUom(row.uom)
+                                    ? fmtDozenPcs(row.sold)
+                                    : `${fmt(row.sold)} ${row.uom}`}{' '}
+                                  sold
+                                </p>
+                              </div>
+                              <div className="mt-2 flex items-baseline justify-between border-t border-zinc-200/50 pt-1.5">
+                                <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+                                  On hand
+                                </span>
+                                <span className="text-xs font-bold text-zinc-900 tabular-nums">
+                                  {isPieceUom(row.uom)
+                                    ? fmtDozenPcs(row.remaining)
+                                    : qtyDozenLabel(row.remaining, row.uom)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </BookPanel>
+
                     <BookPanel
                       title="Recent sales"
                       action={
                         (d.outlet?.money.saleCount || 0) > 0 ? (
-                          <Link
-                            to={shopSalesListPath(
-                              isOutletScoped(user) ? null : d.id,
-                              d.code,
-                            )}
-                            className="text-[11px] font-semibold text-teal-800"
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 shadow-sm"
+                            asChild
                           >
-                            View all {d.outlet?.money.saleCount || ''} →
-                          </Link>
+                            <Link
+                              to={shopSalesListPath(
+                                isOutletScoped(user) ? null : d.id,
+                                d.code,
+                              )}
+                            >
+                              View all ({d.outlet?.money.saleCount || 0})
+                            </Link>
+                          </Button>
                         ) : null
                       }
                     >
                       {(d.outlet?.sales || []).length === 0 ? (
-                        <p className="py-3 text-center text-xs text-zinc-500">
+                        <p className="py-4 text-center text-xs text-zinc-500">
                           No sales recorded yet.
                         </p>
                       ) : (
-                        d.outlet!.sales.map((sale) => (
-                          <DataRow
-                            key={sale.id}
-                            title={
-                              <Link
-                                to={shopSalePath(sale.saleNumber)}
-                                className="hover:text-teal-800"
-                              >
-                                {sale.buyerName || 'Walk-in'}
-                              </Link>
-                            }
-                            meta={`${formatBusinessDate(sale.businessDate) || '—'} · ${sale.saleNumber}`}
-                            value={money(sale.totalAmount)}
-                            hint={
-                              sale.balanceDue > 0.001
-                                ? `Credit ${money(sale.balanceDue)}`
-                                : 'View / print →'
-                            }
-                          />
-                        ))
+                        <div className="divide-y divide-zinc-100">
+                          {(d.outlet?.sales || []).slice(0, 5).map((sale) => (
+                            <div
+                              key={sale.id}
+                              className="flex items-center justify-between gap-3 py-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <Link
+                                    to={shopSalePath(sale.saleNumber)}
+                                    className="truncate text-xs font-semibold text-zinc-900 hover:text-teal-800 hover:underline"
+                                  >
+                                    {sale.buyerName || 'Walk-in'}
+                                  </Link>
+                                  {sale.balanceDue > 0.001 ? (
+                                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 border border-amber-200">
+                                      Credit {money(sale.balanceDue)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-[10px] text-zinc-500">
+                                  {formatBusinessDate(sale.businessDate) || '—'} ·{' '}
+                                  <span className="font-mono">{sale.saleNumber}</span>
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className="text-xs font-bold tabular-nums text-zinc-900">
+                                  {money(sale.totalAmount)}
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2.5 text-xs font-semibold"
+                                  asChild
+                                >
+                                  <Link to={shopSalePath(sale.saleNumber)}>
+                                    View
+                                  </Link>
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       )}
                     </BookPanel>
                   </div>
@@ -833,12 +841,7 @@ export function DistributorDetailPage() {
               </div>
             ) : (
               <>
-                <div
-                  className={cn(
-                    'grid gap-2 sm:grid-cols-2',
-                    unpaid.length > 0 && 'lg:grid-cols-3',
-                  )}
-                >
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   <BookPanel title="Credit line">
                     <div className="flex items-baseline justify-between gap-2 text-xs">
                       <span className="text-zinc-600">{money(c.outstanding)} outstanding</span>
@@ -859,61 +862,68 @@ export function DistributorDetailPage() {
                     </p>
                   </BookPanel>
 
-                  {unpaid.length > 0 && (
-                    <BookPanel
-                      title="Unpaid"
-                      action={
-                        canSell ? (
-                          <button
-                            type="button"
-                            className="text-[11px] font-semibold text-amber-800"
-                            onClick={() => setPaying(unpaid)}
-                          >
-                            Collect all
-                          </button>
-                        ) : null
-                      }
-                    >
-                      {unpaid.slice(0, 4).map((row) => (
-                        <div
-                          key={row.saleNumber}
-                          className="flex items-center justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 last:pb-0 first:pt-0"
+                  <BookPanel
+                    title="Unpaid"
+                    action={
+                      canSell && (unpaid.length > 0 || c.outstanding > 0.001) ? (
+                        <button
+                          type="button"
+                          className="text-[11px] font-semibold text-amber-800 hover:underline"
+                          onClick={() => setPaying(unpaid)}
                         >
-                          <div className="min-w-0">
-                            <Link
-                              to={`/sales/${row.saleNumber}`}
-                              className="font-mono text-[11px] font-semibold text-amber-800"
-                            >
-                              {row.saleNumber}
-                            </Link>
-                            <p className="text-[10px] text-zinc-500">
-                              {row.ageDays ?? 0}d
-                              {row.overdue ? ' · overdue' : ''}
-                            </p>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="text-[11px] font-semibold tabular-nums text-red-700">
-                              {money(row.balanceDue)}
-                            </p>
-                            {canSell && (
-                              <button
-                                type="button"
-                                className="text-[10px] font-semibold text-amber-800"
-                                onClick={() => setPaying([row])}
+                          Record payment
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {unpaid.length > 0 ? (
+                      <>
+                        {unpaid.slice(0, 4).map((row) => (
+                          <div
+                            key={row.saleNumber}
+                            className="flex items-center justify-between gap-2 border-b border-zinc-100 py-1.5 last:border-0 last:pb-0 first:pt-0"
+                          >
+                            <div className="min-w-0">
+                              <Link
+                                to={`/sales/${row.saleNumber}`}
+                                className="font-mono text-[11px] font-semibold text-amber-800"
                               >
-                                Pay
-                              </button>
-                            )}
+                                {row.saleNumber}
+                              </Link>
+                              <p className="text-[10px] text-zinc-500">
+                                {row.ageDays ?? 0}d
+                                {row.overdue ? ' · overdue' : ''}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-[11px] font-semibold tabular-nums text-red-700">
+                                {money(row.balanceDue)}
+                              </p>
+                              {canSell && (
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-semibold text-amber-800 hover:underline"
+                                  onClick={() => setPaying([row])}
+                                >
+                                  Pay
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                      {unpaid.length > 4 ? (
-                        <p className="pt-1 text-[10px] text-zinc-400">
-                          +{unpaid.length - 4} more unpaid
-                        </p>
-                      ) : null}
-                    </BookPanel>
-                  )}
+                        ))}
+                        {unpaid.length > 4 ? (
+                          <p className="pt-1 text-[10px] text-zinc-400">
+                            +{unpaid.length - 4} more unpaid
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="py-2 text-xs">
+                        <p className="text-zinc-600 font-medium">No unpaid invoices</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-400">All sales are settled.</p>
+                      </div>
+                    )}
+                  </BookPanel>
 
                   <BookPanel
                     title="Details"
@@ -1455,78 +1465,12 @@ export function DistributorDetailPage() {
           <Dialog title="Record payment" onClose={() => setPaying(null)}>
             <DistributorPaymentForm
               key={paying.map((row) => row.saleNumber).join(',')}
+              distributorIdOrCode={d.code || d.id}
+              distributorName={d.name}
+              totalOutstanding={d.credit?.outstanding || d.ledger?.owed || 0}
               unpaid={paying}
               onSaved={refreshAfterPayment}
             />
-          </Dialog>
-        )}
-
-        {advanceOpen && (
-          <Dialog title="Record advance payment" onClose={() => setAdvanceOpen(false)}>
-            <p className="mb-4 text-sm text-zinc-700">
-              Use this when {d.name} pays money before buying goods. The amount is held as their
-              advance balance and can be deducted on the next sale.
-            </p>
-            <form
-              className="grid gap-3"
-              onSubmit={(e) => {
-                e.preventDefault()
-                advanceMutation.mutate()
-              }}
-            >
-              <Field label="Amount">
-                <NairaAmountInput
-                  value={advanceForm.amount}
-                  onChange={(value) => setAdvanceForm((f) => ({ ...f, amount: value }))}
-                  required
-                />
-              </Field>
-              <Field label="Payment method">
-                <select
-                  className="dgn-input"
-                  value={advanceForm.paymentMethod}
-                  onChange={(e) => setAdvanceForm((f) => ({ ...f, paymentMethod: e.target.value }))}
-                >
-                  <option value="TRANSFER">Transfer</option>
-                  <option value="CASH">Cash</option>
-                  <option value="POS">POS</option>
-                </select>
-              </Field>
-              <Field label="Reference">
-                <input
-                  className="dgn-input"
-                  value={advanceForm.reference}
-                  onChange={(e) => setAdvanceForm((f) => ({ ...f, reference: e.target.value }))}
-                  placeholder="Bank reference / receipt no."
-                />
-              </Field>
-              <Field label="Notes">
-                <textarea
-                  className="dgn-input"
-                  rows={2}
-                  value={advanceForm.notes}
-                  onChange={(e) => setAdvanceForm((f) => ({ ...f, notes: e.target.value }))}
-                  placeholder="Optional"
-                />
-              </Field>
-              {error && <p className="text-sm text-red-700">{error}</p>}
-              <div className="flex flex-wrap gap-2 pt-1">
-                <button
-                  type="submit"
-                  className="dgn-btn dgn-btn-primary"
-                  disabled={advanceMutation.isPending || !(Number(advanceForm.amount) > 0)}
-                >
-                  {advanceMutation.isPending ? 'Saving…' : 'Save advance'}
-                </button>
-                <button
-                  type="button"
-                  className="dgn-btn dgn-btn-ghost"
-                  onClick={() => setAdvanceOpen(false)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
           </Dialog>
         )}
 

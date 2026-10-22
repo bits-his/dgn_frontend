@@ -127,44 +127,55 @@ export function ShopSalesPage() {
               {rows.map((sale) => {
                 const owes = sale.balanceDue > 0.001
                 return (
-                  <Link
+                  <div
                     key={sale.id}
-                    to={shopSalePath(sale.saleNumber)}
-                    className="flex items-start justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                    className="flex items-center justify-between gap-3 px-3.5 py-2.5 transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
                   >
-                    <div className="min-w-0">
-                      <p className="font-mono text-[11px] font-semibold text-teal-800">
-                        {sale.saleNumber}
-                      </p>
-                      {sale.outletBuyerId ? (
-                        <span className="block truncate text-sm font-medium text-zinc-900">
-                          {sale.buyerName || 'Customer'}
-                        </span>
-                      ) : (
-                        <p className="truncate text-sm font-medium text-zinc-900">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={shopSalePath(sale.saleNumber)}
+                          className="truncate text-sm font-semibold text-zinc-900 hover:text-teal-800 hover:underline"
+                        >
                           {sale.buyerName || 'Walk-in'}
-                        </p>
-                      )}
+                        </Link>
+                        {owes ? (
+                          <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 border border-amber-200">
+                            Credit {money(sale.balanceDue)}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="text-[11px] text-zinc-500">
                         {formatBusinessDate(sale.businessDate) || '—'}
+                        {' · '}
+                        <span className="font-mono">{sale.saleNumber}</span>
                         {' · '}
                         {String(sale.saleType || '').toLowerCase()}
                         {sale.soldBy ? ` · ${sale.soldBy}` : ''}
                       </p>
                     </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-bold tabular-nums text-zinc-900">
-                        {money(sale.totalAmount)}
-                      </p>
-                      {owes ? (
-                        <p className="text-[11px] font-semibold tabular-nums text-amber-800">
-                          Credit {money(sale.balanceDue)}
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <p className="text-sm font-bold tabular-nums text-zinc-900">
+                          {money(sale.totalAmount)}
                         </p>
-                      ) : (
-                        <p className="text-[11px] text-teal-700">Paid</p>
-                      )}
+                        {!owes ? (
+                          <p className="text-[11px] text-teal-700">Paid</p>
+                        ) : null}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs font-semibold"
+                        asChild
+                      >
+                        <Link to={shopSalePath(sale.saleNumber)}>
+                          View
+                        </Link>
+                      </Button>
                     </div>
-                  </Link>
+                  </div>
                 )
               })}
             </div>

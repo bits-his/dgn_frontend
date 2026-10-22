@@ -1,13 +1,16 @@
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Printer } from 'lucide-react'
-import { useEffect } from 'react'
+import { ArrowLeft, Printer, UserCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { BrandMark } from '@/components/BrandMark'
 import { shopSalePath } from '@/lib/outlet'
 import { formatBusinessDate } from '@/lib/dates'
+import { ChangeOutletCustomerDialog } from '@/components/outlet/ChangeOutletCustomerDialog'
+import { fmtDozenPcs, isPieceUom } from '@/lib/units'
 
 type ShopDoc = {
+  id?: number
   saleNumber: string
   saleType: string
   businessDate: string | null
@@ -55,6 +58,7 @@ export function ShopSaleReceiptPage() {
 
 function ShopSaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
   const { saleNumber } = useParams()
+  const [changeCustomerOpen, setChangeCustomerOpen] = useState(false)
 
   const sale = useQuery({
     queryKey: ['outlet-sale', saleNumber],
@@ -144,9 +148,19 @@ function ShopSaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
 
         <section className="mt-6 grid gap-6 sm:grid-cols-2">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Bill to
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+                Bill to
+              </p>
+              <button
+                type="button"
+                className="dgn-print-hide flex items-center gap-1 text-[11px] font-semibold text-teal-800 hover:underline"
+                onClick={() => setChangeCustomerOpen(true)}
+              >
+                <UserCheck className="size-3" />
+                Change
+              </button>
+            </div>
             <p className="mt-1 font-semibold">{s.buyerName || 'Walk-in'}</p>
             {s.buyerPhone ? <p className="text-sm text-zinc-700">{s.buyerPhone}</p> : null}
           </div>
@@ -179,7 +193,14 @@ function ShopSaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
                     <td className="py-2.5 pr-3 text-zinc-500">{index + 1}</td>
                     <td className="py-2.5 pr-3 text-zinc-900">{line.productName || '—'}</td>
                     <td className="py-2.5 pr-3 text-right tabular-nums">
-                      {line.qty} {line.uom}
+                      {isPieceUom(line.uom) ? (
+                        <div>
+                          <span className="font-semibold text-zinc-900">{fmtDozenPcs(line.qty)}</span>
+                          <span className="block text-[10px] text-zinc-500">({line.qty} pcs)</span>
+                        </div>
+                      ) : (
+                        `${line.qty} ${line.uom}`
+                      )}
                     </td>
                     <td className="py-2.5 pr-3 text-right tabular-nums">{money(line.unitPrice)}</td>
                     <td className="py-2.5 text-right font-medium tabular-nums">
@@ -226,6 +247,18 @@ function ShopSaleDocument({ kind }: { kind: 'invoice' | 'receipt' }) {
           </div>
         </section>
       </article>
+
+      {s.id ? (
+        <ChangeOutletCustomerDialog
+          open={changeCustomerOpen}
+          onClose={() => setChangeCustomerOpen(false)}
+          saleId={s.id}
+          currentBuyerName={s.buyerName}
+          outletId={s.outlet ? (s as any).outletCustomerId : undefined}
+          totalAmount={s.totalAmount}
+          currentAmountPaid={s.amountPaid}
+        />
+      ) : null}
     </div>
   )
 }

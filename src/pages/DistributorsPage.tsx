@@ -160,7 +160,7 @@ export function DistributorsPage() {
   const filtered = useMemo(() => {
     const rows = distributors.data || []
     const q = query.trim().toLowerCase()
-    return rows.filter((row) => {
+    const result = rows.filter((row) => {
       if (!showInactive && row.isActive === false) return false
       if (filter === 'internal' && String(row.distributorKind || '').toUpperCase() !== 'INTERNAL') {
         return false
@@ -184,6 +184,13 @@ export function DistributorsPage() {
         String(row.region || '').toLowerCase().includes(q) ||
         String(row.contactPerson || '').toLowerCase().includes(q)
       )
+    })
+
+    return result.sort((a, b) => {
+      const aShop = String(a.distributorKind || '').toUpperCase() === 'SHOP' ? 0 : 1
+      const bShop = String(b.distributorKind || '').toUpperCase() === 'SHOP' ? 0 : 1
+      if (aShop !== bShop) return aShop - bShop
+      return a.name.localeCompare(b.name)
     })
   }, [distributors.data, query, showInactive, filter])
 
@@ -348,7 +355,7 @@ export function DistributorsPage() {
         header: 'Advance',
         cell: ({ row }) => {
           const adv = Number(
-            row.original.credit.advanceBalance ?? row.original.advanceBalance ?? 0,
+            row.original.credit?.advanceBalance ?? row.original.advanceBalance ?? 0,
           )
           return (
             <span
@@ -421,11 +428,11 @@ export function DistributorsPage() {
               </span>
             )
           }
-          if ((c.advanceBalance || 0) > 0.001) {
-            return <span className="text-xs font-medium text-sky-700">In credit</span>
-          }
           if (c.outstanding > 0.001) {
             return <span className="text-xs text-amber-700">{unpaidSummary(c)}</span>
+          }
+          if ((c.advanceBalance || 0) > 0.001) {
+            return <span className="text-xs font-medium text-sky-700">In credit</span>
           }
           return <span className="text-xs text-zinc-500">Clear</span>
         },
