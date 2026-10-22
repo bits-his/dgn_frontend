@@ -38,6 +38,13 @@ type SellableBatch = {
   sellingPrice?: number | null
   standardPrice?: number | null
   unitsPerDozen?: number | null
+  // API now returns one row per product with all contributing batches embedded
+  batches?: {
+    batchId: number
+    batchNumber: string
+    businessDate: string | null
+    qty: number
+  }[]
 }
 
 type SellableProduct = {
@@ -99,64 +106,85 @@ function productStockKey(batch: Pick<SellableBatch, 'productId' | 'productName' 
   return `${batch.productId ?? 'none'}::${batch.productName || 'Finished Product'}::${batch.uom || 'pcs'}`
 }
 
-function accumulateSellableProducts(batches: SellableBatch[]): SellableProduct[] {
-  const map = new Map<string, SellableProduct>()
-  for (const batch of batches) {
-    const key = productStockKey(batch)
-    const existing = map.get(key)
-    if (!existing) {
-      map.set(key, {
+function accumulateSellableProducts(rows: SellableBatch[]): SellableProduct[] {
+  // API returns one row per product with embedded batches[] in FIFO order.
+  // We just map directly — no need to group anymore.
+  return rows
+    .map((row) => {
+      // Build the batches list: prefer the embedded batches[] array from the API,
+      // fall back to a single synthetic entry using the top-level batchNumber.
+      const batchList: SellableProduct['batches'] =
+        row.batches && row.batches.length > 0
+          ? row.batches.map((b) => ({
+              id: b.batchId,
+              batchNumber: b.batchNumber,
+              productId: row.productId,
+              productCode: row.productCode,
+              productName: row.productName,
+              qtyAvailable: b.qty,
+              uom: row.uom,
+              locationId: row.locationId,
+              locationName: row.locationName,
+              unitCost: row.unitCost,
+              sellingPrice: row.sellingPrice ?? null,
+              standardPrice: row.standardPrice ?? null,
+              unitsPerDozen: row.unitsPerDozen ?? null,
+            }))
+          : row.batchNumber
+            ? [
+                {
+                  id: row.id,
+                  batchNumber: row.batchNumber,
+                  productId: row.productId,
+                  productCode: row.productCode,
+                  productName: row.productName,
+                  qtyAvailable: row.qtyAvailable,
+                  uom: row.uom,
+                  locationId: row.locationId,
+                  locationName: row.locationName,
+                  unitCost: row.unitCost,
+                  sellingPrice: row.sellingPrice ?? null,
+                  standardPrice: row.standardPrice ?? null,
+                  unitsPerDozen: row.unitsPerDozen ?? null,
+                },
+              ]
+            : []
+
+      const key = productStockKey(row)
+      return {
         key,
-        productId: batch.productId,
-        productCode: batch.productCode,
-        productName: batch.productName || 'Finished Product',
-        qtyAvailable: batch.qtyAvailable,
-        uom: batch.uom || 'pcs',
-        locationName: batch.locationName,
-        unitCost: batch.unitCost,
-        sellingPrice: batch.sellingPrice ?? null,
-        standardPrice: batch.standardPrice ?? null,
-        unitsPerDozen: perDozenOf(batch.unitsPerDozen),
-        batches: [batch],
-      })
-      continue
-    }
-    existing.qtyAvailable = round3(existing.qtyAvailable + batch.qtyAvailable)
-    existing.batches.push(batch)
-    if (!existing.productCode && batch.productCode) existing.productCode = batch.productCode
-    if (!existing.sellingPrice && batch.sellingPrice) existing.sellingPrice = batch.sellingPrice
-    if (!existing.standardPrice && batch.standardPrice) existing.standardPrice = batch.standardPrice
-    if (existing.locationName && batch.locationName && existing.locationName !== batch.locationName) {
-      existing.locationName = 'Several locations'
-    } else if (!existing.locationName && batch.locationName) {
-      existing.locationName = batch.locationName
-    }
-  }
-  for (const product of map.values()) {
-    const costed = product.batches.filter((b) => b.unitCost != null && Number.isFinite(Number(b.unitCost)))
-    const qty = costed.reduce((sum, b) => sum + b.qtyAvailable, 0)
-    const costSum = costed.reduce((sum, b) => sum + Number(b.unitCost) * b.qtyAvailable, 0)
-    product.unitCost = qty > 0 ? round3(costSum / qty) : null
-  }
-  return Array.from(map.values()).sort((a, b) => a.productName.localeCompare(b.productName))
+        productId: row.productId,
+        productCode: row.productCode,
+        productName: row.productName || 'Finished Product',
+        qtyAvailable: row.qtyAvailable,
+        uom: row.uom || 'pcs',
+        locationName: row.locationName,
+        unitCost: row.unitCost,
+        sellingPrice: row.sellingPrice ?? null,
+        standardPrice: row.standardPrice ?? null,
+        unitsPerDozen: perDozenOf(row.unitsPerDozen),
+        batches: batchList,
+      } as SellableProduct
+    })
+    .sort((a, b) => a.productName.localeCompare(b.productName))
 }
 
 function allocateQtyToBatches(product: SellableProduct, qty: number, unitPrice: number) {
-  let remaining = round3(qty)
-  const lines: { batchNumber: string; productId?: number; qty: number; unitPrice: number }[] = []
-  for (const batch of product.batches) {
-    if (remaining <= 0.0001) break
-    const take = round3(Math.min(batch.qtyAvailable, remaining))
-    if (!(take > 0)) continue
-    lines.push({
-      batchNumber: batch.batchNumber,
-      productId: batch.productId,
-      qty: take,
-      unitPrice,
-    })
-    remaining = round3(remaining - take)
+  // Backend handles FIFO internally — send one line per product.
+  // batchNumber is kept as a hint (oldest batch) so the backend can validate
+  // and resolve the product even if productId is missing.
+  const firstBatch = product.batches[0]
+  return {
+    lines: [
+      {
+        productId: product.productId,
+        batchNumber: firstBatch?.batchNumber ?? undefined,
+        qty: round3(qty),
+        unitPrice,
+      },
+    ],
+    remaining: 0,
   }
-  return { lines, remaining }
 }
 
 export function NewSalePage() {

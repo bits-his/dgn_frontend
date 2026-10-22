@@ -17,25 +17,19 @@ function money(n: number) {
   return `₦${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
 }
 
-type SellableBatch = {
+// API now returns one row per product with embedded batches[]
+type SellableProduct = {
   id: number
-  batchNumber: string
   productId: number | null
   productName: string | null
   qtyAvailable: number
   uom: string
-  locationName: string | null
   unitCost: number | null
   sellingPrice?: number | null
   standardPrice?: number | null
-}
-
-type ProductOption = {
-  id: string
-  name: string
-  uom: string
-  qty: number
-  batchCount: number
+  // oldest batchNumber kept for backward-compat hint to backend
+  batchNumber?: string | null
+  batches?: { batchId: number; batchNumber: string; qty: number }[]
 }
 
 function fmt(n: number) {
@@ -55,7 +49,6 @@ export function DistributorSaleForm({
 }) {
   const queryClient = useQueryClient()
   const [productKey, setProductKey] = useState('')
-  const [batchNumber, setBatchNumber] = useState('')
   const [qty, setQty] = useState('')
   const [unitPrice, setUnitPrice] = useState('')
   const [saleType, setSaleType] = useState('CASH')
@@ -69,40 +62,22 @@ export function DistributorSaleForm({
     queryKey: ['sellable-batches'],
     queryFn: async () => {
       const { data } = await api.get('/sales/sellable-batches')
-      return data.data as SellableBatch[]
+      return data.data as SellableProduct[]
     },
   })
 
+  // Products are already one-per-product from the API — just sort by name
   const products = useMemo(() => {
-    const map = new Map<string, ProductOption>()
-    for (const batch of sellable.data ?? []) {
-      const key = String(batch.productId ?? batch.productName ?? 'unknown')
-      const name = batch.productName || 'Finished goods'
-      const existing = map.get(key)
-      if (!existing) {
-        map.set(key, {
-          id: key,
-          name,
-          uom: batch.uom,
-          qty: batch.qtyAvailable,
-          batchCount: 1,
-        })
-      } else {
-        existing.qty += batch.qtyAvailable
-        existing.batchCount += 1
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+    return (sellable.data ?? [])
+      .slice()
+      .sort((a, b) => (a.productName || '').localeCompare(b.productName || ''))
   }, [sellable.data])
 
-  const batchesForProduct = useMemo(() => {
-    if (!productKey) return []
-    return (sellable.data ?? []).filter(
-      (batch) => String(batch.productId ?? batch.productName ?? 'unknown') === productKey,
-    )
-  }, [sellable.data, productKey])
+  const selectedProduct = useMemo(
+    () => products.find((p) => String(p.productId ?? p.id) === productKey) ?? null,
+    [products, productKey],
+  )
 
-  const selectedBatch = batchesForProduct.find((b) => b.batchNumber === batchNumber) || null
   const qtyNum = Number(qty) || 0
   const priceNum = Number(unitPrice) || 0
   const lineTotal = qtyNum * priceNum
@@ -113,12 +88,14 @@ export function DistributorSaleForm({
     thisSaleDue > 0.001 && projected > (credit.creditLimit || 0) + 0.001,
   )
 
+  const overQty = qtyNum > 0 && selectedProduct != null && qtyNum > selectedProduct.qtyAvailable
+
   const canSubmit = Boolean(
-    selectedBatch && qtyNum > 0 && priceNum > 0 && !saving && !creditBlocked,
+    selectedProduct && qtyNum > 0 && priceNum > 0 && !saving && !creditBlocked && !overQty,
   )
 
   const submit = async (confirmLowMargin: boolean) => {
-    if (!selectedBatch) return
+    if (!selectedProduct) return
     setError(null)
     setWarning(null)
     setSaving(true)
@@ -128,8 +105,9 @@ export function DistributorSaleForm({
         saleType,
         lines: [
           {
-            batchNumber: selectedBatch.batchNumber,
-            productId: selectedBatch.productId,
+            productId: selectedProduct.productId,
+            // batchNumber hint so backend can validate + resolve product if needed
+            batchNumber: selectedProduct.batchNumber ?? undefined,
             qty: qtyNum,
             unitPrice: priceNum,
           },
@@ -142,7 +120,7 @@ export function DistributorSaleForm({
       setQty('')
       setUnitPrice('')
       setAmountPaid('')
-      setBatchNumber('')
+      setProductKey('')
       await queryClient.invalidateQueries({ queryKey: ['sales'] })
       await queryClient.invalidateQueries({ queryKey: ['sales-overview'] })
       await queryClient.invalidateQueries({ queryKey: ['sellable-batches'] })
@@ -189,24 +167,21 @@ export function DistributorSaleForm({
     )
   }
 
-  const selectedProduct = products.find((p) => p.id === productKey) || null
-
   return (
     <Card className={wrapClass}>
       <h2 className="text-base font-semibold">{nested ? 'New sale' : 'Sell to this distributor'}</h2>
 
       <div className="mt-4 grid gap-3">
+        {/* Product picker — one row per product, qty is total across all batches */}
         <Field
           label="Product"
           hint={
             selectedProduct
               ? `${
                   isPieceUom(selectedProduct.uom)
-                    ? fmtDozenPcs(selectedProduct.qty)
-                    : `${fmt(selectedProduct.qty)} ${selectedProduct.uom}`
-                } ready in ${selectedProduct.batchCount} batch${
-                  selectedProduct.batchCount === 1 ? '' : 'es'
-                }`
+                    ? fmtDozenPcs(selectedProduct.qtyAvailable)
+                    : `${fmt(selectedProduct.qtyAvailable)} ${selectedProduct.uom}`
+                } available`
               : undefined
           }
         >
@@ -214,51 +189,30 @@ export function DistributorSaleForm({
             className="dgn-input"
             value={productKey}
             onChange={(e) => {
-              setProductKey(e.target.value)
-              setBatchNumber('')
+              const key = e.target.value
+              setProductKey(key)
               setQty('')
-              setUnitPrice('')
+              // Pre-fill the standard selling price when a product is chosen
+              const prod = products.find((p) => String(p.productId ?? p.id) === key)
+              const price = Number(prod?.standardPrice ?? prod?.sellingPrice)
+              setUnitPrice(Number.isFinite(price) && price > 0 ? String(price) : '')
             }}
           >
             <option value="">Select product</option>
             {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+              <option key={p.productId ?? p.id} value={String(p.productId ?? p.id)}>
+                {p.productName || 'Finished goods'} —{' '}
+                {isPieceUom(p.uom)
+                  ? fmtDozenPcs(p.qtyAvailable)
+                  : `${fmt(p.qtyAvailable)} ${p.uom}`}
               </option>
             ))}
           </select>
         </Field>
-        {productKey ? (
-          <Field label="Production batch">
-            <select
-              className="dgn-input"
-              value={batchNumber}
-              onChange={(e) => {
-                const nextBatch = e.target.value
-                setBatchNumber(nextBatch)
-                setQty('')
-                const batch = batchesForProduct.find((b) => b.batchNumber === nextBatch)
-                const price = Number(batch?.standardPrice ?? batch?.sellingPrice)
-                setUnitPrice(Number.isFinite(price) && price > 0 ? String(price) : '')
-              }}
-            >
-              <option value="">Select batch with stock</option>
-              {batchesForProduct.map((batch) => (
-                <option key={batch.batchNumber} value={batch.batchNumber}>
-                  {batch.batchNumber} — {
-                    isPieceUom(batch.uom)
-                      ? fmtDozenPcs(batch.qtyAvailable)
-                      : `${fmt(batch.qtyAvailable)} ${batch.uom}`
-                  } left
-                  {batch.locationName ? ` (${batch.locationName})` : ''}
-                </option>
-              ))}
-            </select>
-          </Field>
-        ) : null}
-        {selectedBatch ? (
+
+        {selectedProduct && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={`Quantity (${selectedBatch.uom})`}>
+            <Field label={`Quantity (${selectedProduct.uom})`}>
               <input
                 className="dgn-input"
                 type="number"
@@ -301,22 +255,23 @@ export function DistributorSaleForm({
               />
             </Field>
           </div>
-        ) : null}
+        )}
       </div>
 
-      {selectedBatch && lineTotal > 0 && (
+      {selectedProduct && lineTotal > 0 && (
         <p className="mt-3 text-sm font-semibold text-zinc-800">Total {money(lineTotal)}</p>
       )}
 
       {!sellable.isLoading && products.length === 0 && (
         <p className="mt-3 text-sm font-medium text-zinc-800">
-          No production batches are ready to sell. Quality control must accept finished goods first.
+          No finished goods ready to sell. Quality control must accept finished goods first.
         </p>
       )}
 
-      {qtyNum > 0 && selectedBatch && qtyNum > selectedBatch.qtyAvailable && (
+      {overQty && selectedProduct && (
         <p className="mt-2 text-sm font-semibold text-red-700">
-          Only {fmt(selectedBatch.qtyAvailable)} {selectedBatch.uom} left in this batch.
+          Only {fmt(selectedProduct.qtyAvailable)} {selectedProduct.uom} available for{' '}
+          {selectedProduct.productName}.
         </p>
       )}
 
@@ -342,11 +297,11 @@ export function DistributorSaleForm({
         </div>
       )}
 
-      {selectedBatch && (
+      {selectedProduct && (
         <button
           type="button"
           className="dgn-btn dgn-btn-primary mt-4"
-          disabled={!canSubmit || qtyNum > selectedBatch.qtyAvailable}
+          disabled={!canSubmit}
           onClick={() => submit(false)}
         >
           <Truck className="h-4 w-4" />
