@@ -143,12 +143,17 @@ function accumulateSellableProducts(batches: SellableBatch[]): SellableProduct[]
 
 function allocateQtyToBatches(product: SellableProduct, qty: number, unitPrice: number) {
   let remaining = round3(qty)
-  const lines: { batchNumber: string; qty: number; unitPrice: number }[] = []
+  const lines: { batchNumber: string; productId?: number; qty: number; unitPrice: number }[] = []
   for (const batch of product.batches) {
     if (remaining <= 0.0001) break
     const take = round3(Math.min(batch.qtyAvailable, remaining))
     if (!(take > 0)) continue
-    lines.push({ batchNumber: batch.batchNumber, qty: take, unitPrice })
+    lines.push({
+      batchNumber: batch.batchNumber,
+      productId: batch.productId,
+      qty: take,
+      unitPrice,
+    })
     remaining = round3(remaining - take)
   }
   return { lines, remaining }
@@ -246,10 +251,10 @@ export function NewSalePage() {
         // Gross ADVANCE wallet available to apply on a sale (not netted display)
         advanceBalance: Number(
           profile.ledger?.advance ??
-            (credit as { advanceGross?: number }).advanceGross ??
-            profile.advanceBalance ??
-            credit.advanceBalance ??
-            0,
+          (credit as { advanceGross?: number }).advanceGross ??
+          profile.advanceBalance ??
+          credit.advanceBalance ??
+          0,
         ),
         paymentTermsDays: Number(
           profile.paymentTermsDays ?? credit.paymentTermsDays ?? 14,
@@ -289,12 +294,12 @@ export function NewSalePage() {
     const filtered = !q
       ? list
       : list.filter(
-          (c) =>
-            c.name.toLowerCase().includes(q) ||
-            (c.code && c.code.toLowerCase().includes(q)) ||
-            (c.phone && c.phone.toLowerCase().includes(q)) ||
-            (c.customerType && c.customerType.toLowerCase().includes(q)),
-        )
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.code && c.code.toLowerCase().includes(q)) ||
+          (c.phone && c.phone.toLowerCase().includes(q)) ||
+          (c.customerType && c.customerType.toLowerCase().includes(q)),
+      )
     // Keep the selected customer visible even if search excludes them
     if (customerId) {
       const selected = list.find((c) => String(c.id) === String(customerId))
@@ -418,19 +423,19 @@ export function NewSalePage() {
   const projectedOutstanding = (credit?.outstanding || 0) + thisSaleDue
   const creditBlocked = Boolean(
     !isShopIssue &&
-      selectedIsDistributor &&
-      credit &&
-      thisSaleDue > 0.001 &&
-      projectedOutstanding > credit.creditLimit + 0.001,
+    selectedIsDistributor &&
+    credit &&
+    thisSaleDue > 0.001 &&
+    projectedOutstanding > credit.creditLimit + 0.001,
   )
   const minOrderQty = Number(
     credit?.minOrderQty ?? selectedCustomer?.minOrderQty ?? 0,
   )
   const belowMin = Boolean(
     !isShopIssue &&
-      selectedIsDistributor &&
-      minOrderQty > 0 &&
-      computed.qty + 0.0001 < minOrderQty,
+    selectedIsDistributor &&
+    minOrderQty > 0 &&
+    computed.qty + 0.0001 < minOrderQty,
   )
   const canSubmit = Boolean(
     customerId && activeLines.length > 0 && !saving && !creditBlocked && !belowMin,
@@ -672,22 +677,20 @@ export function NewSalePage() {
                 : enteredQty > product.qtyAvailable
               const costPerDozen =
                 product.unitCost != null ? dozenPriceFromUnit(product.unitCost, per) : null
-              const inputClass = `h-8 text-xs font-semibold tabular-nums ${
-                isExceeded
-                  ? 'border-red-400 focus-visible:ring-red-400 bg-red-50/50'
-                  : isSelected
-                    ? 'border-emerald-400 focus-visible:ring-emerald-400 bg-white'
-                    : ''
-              }`
+              const inputClass = `h-8 text-xs font-semibold tabular-nums ${isExceeded
+                ? 'border-red-400 focus-visible:ring-red-400 bg-red-50/50'
+                : isSelected
+                  ? 'border-emerald-400 focus-visible:ring-emerald-400 bg-white'
+                  : ''
+                }`
 
               return (
                 <div
                   key={product.key}
-                  className={`rounded-xl border p-3.5 transition-all duration-150 flex flex-col justify-between ${
-                    isSelected
-                      ? 'border-emerald-500 bg-emerald-50/20 shadow-xs ring-1 ring-emerald-500/20'
-                      : 'border-zinc-200/80 bg-white hover:border-zinc-300 shadow-2xs'
-                  }`}
+                  className={`rounded-xl border p-3.5 transition-all duration-150 flex flex-col justify-between ${isSelected
+                    ? 'border-emerald-500 bg-emerald-50/20 shadow-xs ring-1 ring-emerald-500/20'
+                    : 'border-zinc-200/80 bg-white hover:border-zinc-300 shadow-2xs'
+                    }`}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-1.5 mb-1.5">
@@ -774,13 +777,12 @@ export function NewSalePage() {
                           {isShopIssue ? 'Type' : pieceUom ? 'Price / dz' : 'Unit price'}
                         </label>
                         <div
-                          className={`h-8 px-2.5 flex items-center rounded-md border text-xs font-semibold tabular-nums ${
-                            isShopIssue
-                              ? 'border-sky-200 bg-sky-50 text-sky-900'
-                              : dozenPrice > 0 || unitPriceNum > 0
-                                ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
-                                : 'border-amber-200 bg-amber-50 text-amber-800'
-                          }`}
+                          className={`h-8 px-2.5 flex items-center rounded-md border text-xs font-semibold tabular-nums ${isShopIssue
+                            ? 'border-sky-200 bg-sky-50 text-sky-900'
+                            : dozenPrice > 0 || unitPriceNum > 0
+                              ? 'border-zinc-200 bg-zinc-50 text-zinc-900'
+                              : 'border-amber-200 bg-amber-50 text-amber-800'
+                            }`}
                         >
                           {isShopIssue
                             ? 'Transfer'
@@ -816,11 +818,10 @@ export function NewSalePage() {
                         <div className="flex items-center gap-1.5">
                           {!isShopIssue && unitPriceNum > 0 && product.unitCost != null && (
                             <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                lineMargin >= 0
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${lineMargin >= 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-red-100 text-red-800'
+                                }`}
                             >
                               {lineMarginPct.toFixed(1)}% margin
                             </span>
@@ -900,9 +901,8 @@ export function NewSalePage() {
                     autoComplete="off"
                   />
                   <ChevronDown
-                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none transition-transform ${
-                      customerMenuOpen ? 'rotate-180' : ''
-                    }`}
+                    className={`absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none transition-transform ${customerMenuOpen ? 'rotate-180' : ''
+                      }`}
                   />
                   {customerMenuOpen && (
                     <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto overscroll-contain rounded-md border border-zinc-200 bg-white p-1 shadow-md dark:border-zinc-800 dark:bg-zinc-950">
@@ -915,9 +915,8 @@ export function NewSalePage() {
                             <button
                               key={c.id}
                               type="button"
-                              className={`flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2.5 sm:py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
-                                selected ? 'bg-zinc-100 font-bold dark:bg-zinc-800' : ''
-                              }`}
+                              className={`flex w-full items-center justify-between gap-2 rounded-sm px-2 py-2.5 sm:py-1.5 text-left text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 ${selected ? 'bg-zinc-100 font-bold dark:bg-zinc-800' : ''
+                                }`}
                               onClick={() => {
                                 setCustomerId(String(c.id))
                                 setCustomerSearch('')
@@ -1013,37 +1012,37 @@ export function NewSalePage() {
             {!isShopIssue &&
               selectedIsDistributor &&
               Number(credit?.advanceBalance || 0) > 0.001 && (
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-zinc-700">
-                    Use from advance (₦)
-                  </label>
-                  <button
-                    type="button"
-                    className="text-[10px] font-bold text-teal-700 hover:text-teal-800"
-                    onClick={() => {
-                      const available = Number(credit?.advanceBalance || 0)
-                      const remaining = Math.max(0, computed.total - (Number(amountPaid) || 0))
-                      setAdvanceApplied(String(Math.min(available, remaining)))
-                    }}
-                  >
-                    Use max
-                  </button>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs font-medium text-zinc-700">
+                      Use from advance (₦)
+                    </label>
+                    <button
+                      type="button"
+                      className="text-[10px] font-bold text-teal-700 hover:text-teal-800"
+                      onClick={() => {
+                        const available = Number(credit?.advanceBalance || 0)
+                        const remaining = Math.max(0, computed.total - (Number(amountPaid) || 0))
+                        setAdvanceApplied(String(Math.min(available, remaining)))
+                      }}
+                    >
+                      Use max
+                    </button>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="0"
+                    value={advanceApplied}
+                    onChange={(e) => setAdvanceApplied(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                  />
+                  <p className="mt-1 text-[10px] text-zinc-400">
+                    Deducted from their {money(Number(credit?.advanceBalance || 0))} advance wallet
+                  </p>
                 </div>
-                <Input
-                  type="number"
-                  min="0"
-                  step="any"
-                  placeholder="0"
-                  value={advanceApplied}
-                  onChange={(e) => setAdvanceApplied(e.target.value)}
-                  className="h-8 text-xs tabular-nums"
-                />
-                <p className="mt-1 text-[10px] text-zinc-400">
-                  Deducted from their {money(Number(credit?.advanceBalance || 0))} advance wallet
-                </p>
-              </div>
-            )}
+              )}
 
             {/* Notes */}
             <div>
@@ -1093,9 +1092,8 @@ export function NewSalePage() {
                   <div className="flex justify-between text-zinc-600 text-[11px]">
                     <span>Estimated Margin</span>
                     <span
-                      className={`tabular-nums font-semibold ${
-                        computed.margin >= 0 ? 'text-emerald-700' : 'text-red-600'
-                      }`}
+                      className={`tabular-nums font-semibold ${computed.margin >= 0 ? 'text-emerald-700' : 'text-red-600'
+                        }`}
                     >
                       {money(computed.margin)} ({computed.marginPercent.toFixed(1)}%)
                     </span>
@@ -1113,9 +1111,8 @@ export function NewSalePage() {
                   <div className="flex justify-between font-bold">
                     <span className="text-zinc-900">Balance Due</span>
                     <span
-                      className={`tabular-nums ${
-                        computed.balance > 0 ? 'text-rose-700 font-bold' : 'text-zinc-800'
-                      }`}
+                      className={`tabular-nums ${computed.balance > 0 ? 'text-rose-700 font-bold' : 'text-zinc-800'
+                        }`}
                     >
                       {money(Math.max(0, computed.balance))}
                     </span>

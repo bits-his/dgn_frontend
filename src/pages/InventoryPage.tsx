@@ -481,10 +481,10 @@ function InitialStockDialog({
       }
       setError(
         e.response?.data?.err ||
-          (e.response?.data?.errors
-            ? Object.values(e.response.data.errors).join(', ')
-            : null) ||
-          'Could not add initial stock',
+        (e.response?.data?.errors
+          ? Object.values(e.response.data.errors).join(', ')
+          : null) ||
+        'Could not add initial stock',
       )
     },
   })
@@ -660,10 +660,10 @@ function InitialRmStockDialog({
       }
       setError(
         e.response?.data?.err ||
-          (e.response?.data?.errors
-            ? Object.values(e.response.data.errors).join(', ')
-            : null) ||
-          'Could not add initial stock',
+        (e.response?.data?.errors
+          ? Object.values(e.response.data.errors).join(', ')
+          : null) ||
+        'Could not add initial stock',
       )
     },
   })

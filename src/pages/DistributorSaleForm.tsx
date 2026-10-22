@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Truck } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card, Field } from '@/components/ui'
+import { fmtDozenPcs, isPieceUom } from '@/lib/units'
 
 type Credit = {
   creditLimit: number
@@ -128,6 +129,7 @@ export function DistributorSaleForm({
         lines: [
           {
             batchNumber: selectedBatch.batchNumber,
+            productId: selectedBatch.productId,
             qty: qtyNum,
             unitPrice: priceNum,
           },
@@ -198,7 +200,11 @@ export function DistributorSaleForm({
           label="Product"
           hint={
             selectedProduct
-              ? `${fmt(selectedProduct.qty)} ${selectedProduct.uom} ready in ${selectedProduct.batchCount} batch${
+              ? `${
+                  isPieceUom(selectedProduct.uom)
+                    ? fmtDozenPcs(selectedProduct.qty)
+                    : `${fmt(selectedProduct.qty)} ${selectedProduct.uom}`
+                } ready in ${selectedProduct.batchCount} batch${
                   selectedProduct.batchCount === 1 ? '' : 'es'
                 }`
               : undefined
@@ -239,7 +245,11 @@ export function DistributorSaleForm({
               <option value="">Select batch with stock</option>
               {batchesForProduct.map((batch) => (
                 <option key={batch.batchNumber} value={batch.batchNumber}>
-                  {batch.batchNumber} — {fmt(batch.qtyAvailable)} {batch.uom} left
+                  {batch.batchNumber} — {
+                    isPieceUom(batch.uom)
+                      ? fmtDozenPcs(batch.qtyAvailable)
+                      : `${fmt(batch.qtyAvailable)} ${batch.uom}`
+                  } left
                   {batch.locationName ? ` (${batch.locationName})` : ''}
                 </option>
               ))}

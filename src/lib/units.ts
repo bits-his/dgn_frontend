@@ -70,5 +70,6 @@ export function qtyDozenLabel(
     const n = Number(qty) || 0
     return `${n.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${uom || ''}`.trim()
   }
-  return fmtDozen(qty, perDozen)
+  return fmtDozenPcs(qty, perDozen)
 }
+
