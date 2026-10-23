@@ -15,6 +15,8 @@ import {
   PackageCheck,
   History,
   Blend,
+  RotateCcw,
+  Trash2,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -157,7 +159,7 @@ export function ProductionStorePage() {
   const [showActiveFloor, setShowActiveFloor] = useState(false)
   const [showFinishedGoods, setShowFinishedGoods] = useState(false)
   const [showColorStock, setShowColorStock] = useState(false)
-  const [showMixStock, setShowMixStock] = useState(true)
+  const [showMixStock, setShowMixStock] = useState(false)
 
   // Notifications
   const [successBanner, setSuccessBanner] = useState('')
@@ -638,6 +640,92 @@ export function ProductionStorePage() {
     )
   }, [activeFloorRuns, issueMachineId])
 
+  // -------------------------------------------------------------
+  // MODAL STATE: MOVE TO RECYCLE
+  // -------------------------------------------------------------
+  const [recycleTarget, setRecycleTarget] = useState<StoreMaterialLine | null>(null)
+  const [recycleQty, setRecycleQty] = useState('')
+  const [recycleError, setRecycleError] = useState('')
+  const [recycling, setRecycling] = useState(false)
+
+  const openRecycleModal = (line: StoreMaterialLine) => {
+    setRecycleTarget(line)
+    setRecycleQty(String(line.qtyRemaining))
+    setRecycleError('')
+  }
+
+  const closeRecycleModal = () => {
+    if (recycling) return
+    setRecycleTarget(null)
+    setRecycleQty('')
+    setRecycleError('')
+  }
+
+  const handleMoveToRecycle = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!recycleTarget) return
+    const qty = Number(recycleQty)
+    if (!(qty > 0)) { setRecycleError('Enter kg to move.'); return }
+    if (qty > recycleTarget.qtyRemaining + 0.001) {
+      setRecycleError(`Only ${recycleTarget.qtyRemaining} kg available.`)
+      return
+    }
+    setRecycling(true)
+    setRecycleError('')
+    try {
+      const { data } = await api.post('/production/store/transfer-to-recycle', {
+        batchNumber: recycleTarget.batchNumber,
+        qty,
+      })
+      setSuccessBanner(data.message || `Moved ${qty} kg to Recycle Store`)
+      setRecycleTarget(null)
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store-mixes'] })
+      await queryClient.invalidateQueries({ queryKey: ['recycle-store'] })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { err?: string } } }
+      setRecycleError(e.response?.data?.err || 'Could not move to Recycle Store')
+    } finally {
+      setRecycling(false)
+    }
+  }
+
+  // -------------------------------------------------------------
+  // MODAL STATE: DELETE BATCH
+  // -------------------------------------------------------------
+  const [deleteTarget, setDeleteTarget] = useState<StoreMaterialLine | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+
+  const openDeleteModal = (line: StoreMaterialLine) => {
+    setDeleteTarget(line)
+    setDeleteError('')
+  }
+
+  const closeDeleteModal = () => {
+    if (deleting) return
+    setDeleteTarget(null)
+    setDeleteError('')
+  }
+
+  const handleDeleteBatch = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      const { data } = await api.delete(`/production/store/${encodeURIComponent(deleteTarget.batchNumber)}`)
+      setSuccessBanner(data.message || `${deleteTarget.batchNumber} deleted`)
+      setDeleteTarget(null)
+      await queryClient.invalidateQueries({ queryKey: ['production-store'] })
+      await queryClient.invalidateQueries({ queryKey: ['production-store-mixes'] })
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { err?: string } } }
+      setDeleteError(e.response?.data?.err || 'Could not delete batch')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
 
 
   // -------------------------------------------------------------
@@ -695,20 +783,33 @@ export function ProductionStorePage() {
         id: 'actions',
         header: '',
         cell: ({ row }) => (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 px-2.5 text-xs font-semibold gap-1"
-            onClick={() => handleOpenMixModal(row.original)}
-          >
-            <Blend className="size-3" />
-            Mix
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5 text-xs font-semibold gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
+              title="Move this lot back to Recycle Store"
+              onClick={() => openRecycleModal(row.original)}
+            >
+              <RotateCcw className="size-3" />
+              To Recycle
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs font-semibold gap-1 text-red-600 border-red-200 hover:bg-red-50"
+              title="Delete this lot from the Material Store"
+              onClick={() => openDeleteModal(row.original)}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </div>
         ),
       },
     ],
-    []
+    [rawMaterialLines]
   )
 
   // -------------------------------------------------------------
@@ -1031,7 +1132,6 @@ export function ProductionStorePage() {
 
         <div className="space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <h2 className="text-sm font-bold text-zinc-900">Raw material</h2>
             <div className="flex items-center gap-2 text-xs flex-wrap justify-end">
               <div className="relative w-full sm:w-56">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-zinc-400 pointer-events-none" />
@@ -1445,6 +1545,142 @@ export function ProductionStorePage() {
                 </Button>
               </div>
             </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Move to Recycle Store modal ── */}
+        <Dialog open={Boolean(recycleTarget)} onOpenChange={(open) => { if (!open) closeRecycleModal() }}>
+          <DialogContent className="max-h-[92vh] w-[min(90vw,28rem)] max-w-[min(90vw,28rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <DialogHeader className="mb-0 pb-2 border-b border-zinc-100">
+              <DialogTitle className="text-base font-bold tracking-tight">
+                Move back to Recycle Store
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                Enter how many kg to move. The remainder stays in the Material Store.
+              </DialogDescription>
+            </DialogHeader>
+
+            {recycleTarget && (
+              <form className="mt-3 space-y-4" onSubmit={handleMoveToRecycle}>
+                <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-3 text-xs space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Lot</span>
+                    <span className="font-mono font-semibold">{recycleTarget.batchNumber}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Color</span>
+                    <span className="font-medium">{colorName(recycleTarget.color)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Available</span>
+                    <span className="font-bold tabular-nums text-emerald-700">
+                      {fmt(recycleTarget.qtyRemaining, 1)} kg
+                    </span>
+                  </div>
+                </div>
+
+                {recycleError && (
+                  <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
+                    {recycleError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
+                    kg to move
+                  </label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min={0}
+                    max={recycleTarget.qtyRemaining}
+                    className="h-10 text-sm font-semibold tabular-nums"
+                    value={recycleQty}
+                    onChange={(e) => setRecycleQty(e.target.value)}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="mt-1.5 text-[11px] font-semibold text-amber-700 hover:underline cursor-pointer"
+                    onClick={() => setRecycleQty(String(recycleTarget.qtyRemaining))}
+                  >
+                    Move all ({fmt(recycleTarget.qtyRemaining, 1)} kg)
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button type="button" variant="ghost" size="sm" disabled={recycling} onClick={closeRecycleModal}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={recycling}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold gap-1.5"
+                    size="sm"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    {recycling ? 'Moving…' : 'Move to Recycle Store'}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ── Delete batch modal ── */}
+        <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) closeDeleteModal() }}>
+          <DialogContent className="max-h-[92vh] w-[min(90vw,26rem)] max-w-[min(90vw,26rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <DialogHeader className="mb-0 pb-2 border-b border-zinc-100">
+              <DialogTitle className="text-base font-bold tracking-tight text-red-700">
+                Delete lot
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                This removes the lot from the Material Store and from any active mixes. This cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+
+            {deleteTarget && (
+              <div className="mt-3 space-y-4">
+                <div className="rounded-xl border border-red-100 bg-red-50/60 p-3 text-xs space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Lot</span>
+                    <span className="font-mono font-semibold">{deleteTarget.batchNumber}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Color</span>
+                    <span className="font-medium">{colorName(deleteTarget.color)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Qty</span>
+                    <span className="font-bold tabular-nums text-red-700">
+                      {fmt(deleteTarget.qtyRemaining, 1)} kg
+                    </span>
+                  </div>
+                </div>
+
+                {deleteError && (
+                  <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
+                    {deleteError}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
+                  <Button type="button" variant="ghost" size="sm" disabled={deleting} onClick={closeDeleteModal}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={deleting}
+                    className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5"
+                    size="sm"
+                    onClick={handleDeleteBatch}
+                  >
+                    <Trash2 className="size-3.5" />
+                    {deleting ? 'Deleting…' : 'Delete lot'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>
