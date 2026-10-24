@@ -250,12 +250,16 @@ export function ProductionStorePage() {
 
   // Purchased additives (masterbatch / virgin / pigment)
   const colorBatches = useMemo(() => {
-    return storeBatches.filter(isAdditiveBatch)
+    return storeBatches.filter(
+      (b) => isAdditiveBatch(b) && Number(b.qtyRemaining || 0) > 0.0001
+    )
   }, [storeBatches])
 
   // Recycled/process lots (exclude purchased additives from main store table metrics)
   const rawMaterialBatches = useMemo(() => {
-    return storeBatches.filter((b) => !isAdditiveBatch(b))
+    return storeBatches.filter(
+      (b) => !isAdditiveBatch(b) && Number(b.qtyRemaining || 0) > 0.0001
+    )
   }, [storeBatches])
 
   function additiveKindOf(b: BatchItem): StoreMaterialLine['additiveKind'] {
@@ -281,10 +285,9 @@ export function ProductionStorePage() {
     for (const b of rawMaterialBatches) {
       if (b.colorItems && b.colorItems.length > 0) {
         const positiveItems = b.colorItems.filter(
-          (c) => Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0) > 0
+          (c) => Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0) > 0.0001
         )
-        const itemsToUse = positiveItems.length > 0 ? positiveItems : b.colorItems
-        for (const c of itemsToUse) {
+        for (const c of positiveItems) {
           const label = colorName(c.color)
           lines.push({
             key: `${b.batchNumber}-${c.id}`,
@@ -310,53 +313,54 @@ export function ProductionStorePage() {
         }
         continue
       }
-      const label = colorName(b.sortColor) || b.sortColor || 'Natural'
-      lines.push({
-        key: `${b.batchNumber}-base`,
-        batchId: b.id,
-        batchNumber: b.batchNumber,
-        batchType: b.batchType,
-        materialName: materialKindLabel({
+      if (Number(b.qtyRemaining || 0) > 0.0001) {
+        const label = colorName(b.sortColor) || b.sortColor || 'Natural'
+        lines.push({
+          key: `${b.batchNumber}-base`,
+          batchId: b.id,
+          batchNumber: b.batchNumber,
           batchType: b.batchType,
-          materialName: b.material?.name,
-        }),
-        color: b.sortColor || 'Natural',
-        qtyRemaining: Number(b.qtyRemaining || 0),
-        uom: b.uom || 'kg',
-        receivedDate: b.businessDate || b.createdAt || b.updatedAt,
-        fromDamage:
-          b.batchType === 'DAMAGED' || String(b.notes || '').includes('production damage'),
-        batchItem: b,
-        additiveKind: null,
-        displayLabel: label,
-      })
+          materialName: materialKindLabel({
+            batchType: b.batchType,
+            materialName: b.material?.name,
+          }),
+          color: b.sortColor || 'Natural',
+          qtyRemaining: Number(b.qtyRemaining || 0),
+          uom: b.uom || 'kg',
+          receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+          fromDamage:
+            b.batchType === 'DAMAGED' || String(b.notes || '').includes('production damage'),
+          batchItem: b,
+          additiveKind: null,
+          displayLabel: label,
+        })
+      }
     }
 
     for (const b of colorBatches) {
-      const kind = additiveKindOf(b)
-      const name = additiveDisplayName(b)
-      const kindLabel =
-        kind === 'virgin' ? 'Virgin' : kind === 'masterbatch' ? 'Masterbatch' : 'Pigment'
-      lines.push({
-        key: `${b.batchNumber}-additive`,
-        batchId: b.id,
-        batchNumber: b.batchNumber,
-        batchType: b.batchType,
-        materialName: kindLabel,
-        color: b.sortColor || name,
-        qtyRemaining: Number(b.qtyRemaining || 0),
-        uom: b.uom || 'kg',
-        receivedDate: b.businessDate || b.createdAt || b.updatedAt,
-        batchItem: b,
-        additiveKind: kind,
-        displayLabel: `${kindLabel} · ${name}`,
-      })
+      if (Number(b.qtyRemaining || 0) > 0.0001) {
+        const kind = additiveKindOf(b)
+        const name = additiveDisplayName(b)
+        const kindLabel =
+          kind === 'virgin' ? 'Virgin' : kind === 'masterbatch' ? 'Masterbatch' : 'Pigment'
+        lines.push({
+          key: `${b.batchNumber}-additive`,
+          batchId: b.id,
+          batchNumber: b.batchNumber,
+          batchType: b.batchType,
+          materialName: kindLabel,
+          color: b.sortColor || name,
+          qtyRemaining: Number(b.qtyRemaining || 0),
+          uom: b.uom || 'kg',
+          receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+          batchItem: b,
+          additiveKind: kind,
+          displayLabel: `${kindLabel} · ${name}`,
+        })
+      }
     }
 
     lines.sort((a, b) => {
-      const aHasStock = a.qtyRemaining > 0.0001 ? 1 : 0
-      const bHasStock = b.qtyRemaining > 0.0001 ? 1 : 0
-      if (aHasStock !== bHasStock) return bHasStock - aHasStock
       const ta = a.receivedDate ? new Date(a.receivedDate).getTime() : 0
       const tb = b.receivedDate ? new Date(b.receivedDate).getTime() : 0
       return tb - ta
@@ -1100,7 +1104,7 @@ export function ProductionStorePage() {
             size="sm"
             className="h-9 shrink-0 gap-1.5 px-2.5 sm:px-3 text-xs font-semibold"
             onClick={() => handleOpenMixModal()}
-            disabled={rawMaterialLines.filter((l) => l.qtyRemaining > 0).length === 0}
+            disabled={rawMaterialLines.length === 0}
           >
             <Blend className="size-3.5" />
             Mix
@@ -1354,9 +1358,7 @@ export function ProductionStorePage() {
                           <SelectValue placeholder="Select color…" />
                         </SelectTrigger>
                         <SelectContent>
-                          {rawMaterialLines
-                            .filter((l) => l.qtyRemaining > 0)
-                            .map((l) => (
+                          {rawMaterialLines.map((l) => (
                               <SelectItem key={l.key} value={l.key}>
                                 {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
                               </SelectItem>
