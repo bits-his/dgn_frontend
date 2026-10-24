@@ -33,6 +33,7 @@ type HistoryRow = {
   color: string | null
   label: string | null
   byUser: string | null
+  targetBatchNumber?: string | null
   machineName: string | null
   productName: string | null
   productionBatchNumber: string | null
@@ -45,6 +46,22 @@ function prettyLabel(raw?: string | null) {
     .trim()
   const hit = SORT_COLORS.find((c) => c.code === cleaned)
   return hit ? hit.name : cleaned || raw
+}
+
+function eventBadgeClass(eventKind: string) {
+  switch (eventKind) {
+    case 'receive':
+      return 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+    case 'mix':
+      return 'bg-violet-50 text-violet-800 border border-violet-200'
+    case 'writeoff':
+      return 'bg-rose-50 text-rose-800 border border-rose-200'
+    case 'transfer':
+      return 'bg-amber-50 text-amber-900 border border-amber-200'
+    case 'issue':
+    default:
+      return 'bg-sky-50 text-sky-800 border border-sky-200'
+  }
 }
 
 function applyRangeToParams(current: URLSearchParams, next: DateRangeState) {
@@ -68,6 +85,8 @@ export function MaterialIssueHistoryPage() {
     | 'receive'
     | 'mix'
     | 'issue'
+    | 'writeoff'
+    | 'transfer'
   const rangeState: DateRangeState = {
     rangePreset: searchParams.get('rangePreset') || 'this_month',
     from: searchParams.get('from') || undefined,
@@ -95,6 +114,8 @@ export function MaterialIssueHistoryPage() {
         receivedKg: number
         issuedKg: number
         mixKg: number
+        writtenOffKg?: number
+        transferredKg?: number
         range: { label: string; from: string; to: string }
       }
     },
@@ -104,6 +125,8 @@ export function MaterialIssueHistoryPage() {
   const receivedKg = Number(query.data?.receivedKg || 0)
   const issuedKg = Number(query.data?.issuedKg || 0)
   const mixKg = Number(query.data?.mixKg || 0)
+  const writtenOffKg = Number(query.data?.writtenOffKg || 0)
+  const transferredKg = Number(query.data?.transferredKg || 0)
   const rangeLabelText = dateRangeLabel(rangeState, query.data?.range?.label)
 
   const columns = useMemo<ColumnDef<HistoryRow>[]>(
@@ -125,12 +148,8 @@ export function MaterialIssueHistoryPage() {
           return (
             <span
               className={cn(
-                'inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold',
-                kindKey === 'receive'
-                  ? 'bg-emerald-50 text-emerald-800'
-                  : kindKey === 'mix'
-                    ? 'bg-violet-50 text-violet-800'
-                    : 'bg-amber-50 text-amber-900',
+                'inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold shadow-2xs',
+                eventBadgeClass(kindKey),
               )}
             >
               {row.original.event}
@@ -163,6 +182,64 @@ export function MaterialIssueHistoryPage() {
               </div>
             )
           }
+
+          if (r.eventKind === 'transfer') {
+            return (
+              <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {r.batchNumber ? (
+                    <Link
+                      to={`/batches/${encodeURIComponent(r.batchNumber)}`}
+                      className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                    >
+                      {r.batchNumber}
+                    </Link>
+                  ) : null}
+                  {r.targetBatchNumber ? (
+                    <span className="text-[11px] text-zinc-500">
+                      →{' '}
+                      <Link
+                        to={`/batches/${encodeURIComponent(r.targetBatchNumber)}`}
+                        className="font-mono font-semibold text-amber-800 hover:underline"
+                      >
+                        {r.targetBatchNumber}
+                      </Link>
+                    </span>
+                  ) : null}
+                </div>
+                <p className="text-[11px] text-zinc-600 font-medium">
+                  {prettyLabel(r.color || r.label)}
+                </p>
+                {r.notes ? (
+                  <p className="text-[10px] text-zinc-400 truncate max-w-xs">{r.notes}</p>
+                ) : null}
+              </div>
+            )
+          }
+
+          if (r.eventKind === 'writeoff') {
+            return (
+              <div>
+                {r.batchNumber ? (
+                  <Link
+                    to={`/batches/${encodeURIComponent(r.batchNumber)}`}
+                    className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                  >
+                    {r.batchNumber}
+                  </Link>
+                ) : (
+                  <span className="text-xs text-zinc-400">—</span>
+                )}
+                <p className="text-[11px] text-zinc-600 font-medium">
+                  {prettyLabel(r.color || r.label)}
+                </p>
+                {r.notes ? (
+                  <p className="text-[10px] text-rose-500/80 truncate max-w-xs">{r.notes}</p>
+                ) : null}
+              </div>
+            )
+          }
+
           return (
             <div>
               {r.batchNumber ? (
@@ -178,6 +255,9 @@ export function MaterialIssueHistoryPage() {
               <p className="text-[11px] text-zinc-500">
                 {prettyLabel(r.label || r.color)}
               </p>
+              {r.notes && !r.notes.toLowerCase().includes('handover') ? (
+                <p className="text-[10px] text-zinc-400 truncate max-w-xs">{r.notes}</p>
+              ) : null}
             </div>
           )
         },
@@ -189,7 +269,11 @@ export function MaterialIssueHistoryPage() {
           <span
             className={cn(
               'font-bold tabular-nums text-xs',
-              row.original.direction === 'IN' ? 'text-emerald-700' : 'text-amber-800',
+              row.original.direction === 'IN'
+                ? 'text-emerald-700'
+                : row.original.eventKind === 'writeoff'
+                  ? 'text-rose-700'
+                  : 'text-amber-800',
             )}
           >
             {row.original.direction === 'IN' ? '+' : '−'}
@@ -214,7 +298,7 @@ export function MaterialIssueHistoryPage() {
   return (
     <PageLayout
       title="Material store history"
-      description={`Receiving, mixes, and issues to machines · ${rangeLabelText}`}
+      description={`Receiving, mixes, issues, transfers, and write-offs · ${rangeLabelText}`}
       actions={
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <DateRangePreset value={rangeState} onChange={setRange} />
@@ -238,6 +322,8 @@ export function MaterialIssueHistoryPage() {
               ['receive', 'Receiving'],
               ['mix', 'Mixes'],
               ['issue', 'Issues'],
+              ['writeoff', 'Write-offs'],
+              ['transfer', 'To Recycle'],
             ] as const
           ).map(([value, label]) => (
             <button
@@ -256,7 +342,7 @@ export function MaterialIssueHistoryPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           <StatPill label="Events" value={String(rows.length)} tone="accent" />
           <StatPill
             label="Received"
@@ -272,6 +358,16 @@ export function MaterialIssueHistoryPage() {
             label="Issued"
             value={`${issuedKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`}
             tone="default"
+          />
+          <StatPill
+            label="Written off"
+            value={`${writtenOffKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`}
+            tone={writtenOffKg > 0 ? 'danger' : 'default'}
+          />
+          <StatPill
+            label="To Recycle"
+            value={`${transferredKg.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`}
+            tone={transferredKg > 0 ? 'accent' : 'default'}
           />
         </div>
 
@@ -289,12 +385,8 @@ export function MaterialIssueHistoryPage() {
                 <div className="flex items-start justify-between gap-3">
                   <span
                     className={cn(
-                      'inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold',
-                      row.eventKind === 'receive'
-                        ? 'bg-emerald-50 text-emerald-800'
-                        : row.eventKind === 'mix'
-                          ? 'bg-violet-50 text-violet-800'
-                          : 'bg-amber-50 text-amber-900',
+                      'inline-flex rounded-md px-1.5 py-0.5 text-[11px] font-bold shadow-2xs',
+                      eventBadgeClass(row.eventKind),
                     )}
                   >
                     {row.event}
@@ -314,25 +406,49 @@ export function MaterialIssueHistoryPage() {
                           <p className="text-[11px] text-zinc-500">{row.productName}</p>
                         ) : null}
                       </>
-                    ) : row.batchNumber ? (
-                      <Link
-                        to={`/batches/${encodeURIComponent(row.batchNumber)}`}
-                        className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
-                      >
-                        {row.batchNumber}
-                      </Link>
                     ) : (
-                      <span className="text-xs text-zinc-400">—</span>
+                      <>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {row.batchNumber ? (
+                            <Link
+                              to={`/batches/${encodeURIComponent(row.batchNumber)}`}
+                              className="font-mono text-xs font-semibold text-[var(--accent-strong)] hover:underline"
+                            >
+                              {row.batchNumber}
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-zinc-400">—</span>
+                          )}
+                          {row.eventKind === 'transfer' && row.targetBatchNumber ? (
+                            <span className="text-[11px] text-zinc-500">
+                              →{' '}
+                              <Link
+                                to={`/batches/${encodeURIComponent(row.targetBatchNumber)}`}
+                                className="font-mono font-semibold text-amber-800 hover:underline"
+                              >
+                                {row.targetBatchNumber}
+                              </Link>
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-[11px] text-zinc-500">
+                          {prettyLabel(row.color || row.label)}
+                          {row.byUser ? ` · ${row.byUser}` : ''}
+                        </p>
+                        {row.notes && !row.notes.toLowerCase().includes('handover') ? (
+                          <p className="text-[10px] text-zinc-400 truncate max-w-xs">{row.notes}</p>
+                        ) : null}
+                      </>
                     )}
-                    <p className="text-[11px] text-zinc-500">
-                      {prettyLabel(row.label || row.color)}
-                      {row.byUser ? ` · ${row.byUser}` : ''}
-                    </p>
                   </div>
                   <span
                     className={cn(
                       'shrink-0 font-bold tabular-nums text-xs',
-                      row.direction === 'IN' ? 'text-emerald-700' : 'text-amber-800',
+                      row.direction === 'IN'
+                        ? 'text-emerald-700'
+                        : row.eventKind === 'writeoff'
+                          ? 'text-rose-700'
+                          : 'text-amber-800',
                     )}
                   >
                     {row.direction === 'IN' ? '+' : '−'}

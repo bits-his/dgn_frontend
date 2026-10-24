@@ -16,7 +16,7 @@ import {
   History,
   Blend,
   RotateCcw,
-  Trash2,
+  FileX,
 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { StatPill } from '@/components/ui'
@@ -283,33 +283,32 @@ export function ProductionStorePage() {
         const positiveItems = b.colorItems.filter(
           (c) => Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0) > 0
         )
-        if (positiveItems.length > 0) {
-          for (const c of positiveItems) {
-            const label = colorName(c.color)
-            lines.push({
-              key: `${b.batchNumber}-${c.id}`,
-              batchId: b.id,
-              batchNumber: b.batchNumber,
+        const itemsToUse = positiveItems.length > 0 ? positiveItems : b.colorItems
+        for (const c of itemsToUse) {
+          const label = colorName(c.color)
+          lines.push({
+            key: `${b.batchNumber}-${c.id}`,
+            batchId: b.id,
+            batchNumber: b.batchNumber,
+            batchType: b.batchType,
+            materialName: materialKindLabel({
               batchType: b.batchType,
-              materialName: materialKindLabel({
-                batchType: b.batchType,
-                materialName: b.material?.name,
-              }),
-              color: c.color,
-              colorItemId: c.id,
-              qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
-              uom: b.uom || 'kg',
-              receivedDate: b.businessDate || b.createdAt || b.updatedAt,
-              fromDamage:
-                b.batchType === 'DAMAGED' ||
-                String(b.notes || '').includes('production damage'),
-              batchItem: b,
-              additiveKind: null,
-              displayLabel: label,
-            })
-          }
-          continue
+              materialName: b.material?.name,
+            }),
+            color: c.color,
+            colorItemId: c.id,
+            qtyRemaining: Number(c.qtyDried ?? c.qtyWashed ?? c.qtyCrushed ?? 0),
+            uom: b.uom || 'kg',
+            receivedDate: b.businessDate || b.createdAt || b.updatedAt,
+            fromDamage:
+              b.batchType === 'DAMAGED' ||
+              String(b.notes || '').includes('production damage'),
+            batchItem: b,
+            additiveKind: null,
+            displayLabel: label,
+          })
         }
+        continue
       }
       const label = colorName(b.sortColor) || b.sortColor || 'Natural'
       lines.push({
@@ -355,6 +354,9 @@ export function ProductionStorePage() {
     }
 
     lines.sort((a, b) => {
+      const aHasStock = a.qtyRemaining > 0.0001 ? 1 : 0
+      const bHasStock = b.qtyRemaining > 0.0001 ? 1 : 0
+      if (aHasStock !== bHasStock) return bHasStock - aHasStock
       const ta = a.receivedDate ? new Date(a.receivedDate).getTime() : 0
       const tb = b.receivedDate ? new Date(b.receivedDate).getTime() : 0
       return tb - ta
@@ -455,10 +457,11 @@ export function ProductionStorePage() {
 
   const handleOpenMixModal = (preselected?: StoreMaterialLine) => {
     setMixModalError('')
+    const initialKey = preselected && preselected.qtyRemaining > 0 ? preselected.key : ''
     setMixLines([
       {
         id: String(Date.now()),
-        lineKey: preselected?.key || '',
+        lineKey: initialKey,
         qty: '',
       },
     ])
@@ -676,6 +679,8 @@ export function ProductionStorePage() {
       const { data } = await api.post('/production/store/transfer-to-recycle', {
         batchNumber: recycleTarget.batchNumber,
         qty,
+        colorItemId: recycleTarget.colorItemId,
+        color: recycleTarget.color,
       })
       setSuccessBanner(data.message || `Moved ${qty} kg to Recycle Store`)
       setRecycleTarget(null)
@@ -691,38 +696,46 @@ export function ProductionStorePage() {
   }
 
   // -------------------------------------------------------------
-  // MODAL STATE: DELETE BATCH
+  // MODAL STATE: WRITE OFF BATCH (ZERO BALANCE)
   // -------------------------------------------------------------
-  const [deleteTarget, setDeleteTarget] = useState<StoreMaterialLine | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState('')
+  const [writeOffTarget, setWriteOffTarget] = useState<StoreMaterialLine | null>(null)
+  const [writeOffQty, setWriteOffQty] = useState('')
+  const [writingOff, setWritingOff] = useState(false)
+  const [writeOffError, setWriteOffError] = useState('')
 
-  const openDeleteModal = (line: StoreMaterialLine) => {
-    setDeleteTarget(line)
-    setDeleteError('')
+  const openWriteOffModal = (line: StoreMaterialLine) => {
+    setWriteOffTarget(line)
+    setWriteOffQty(line.qtyRemaining > 0 ? String(line.qtyRemaining) : '')
+    setWriteOffError('')
   }
 
-  const closeDeleteModal = () => {
-    if (deleting) return
-    setDeleteTarget(null)
-    setDeleteError('')
+  const closeWriteOffModal = () => {
+    if (writingOff) return
+    setWriteOffTarget(null)
+    setWriteOffQty('')
+    setWriteOffError('')
   }
 
-  const handleDeleteBatch = async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    setDeleteError('')
+  const handleWriteOffBatch = async () => {
+    if (!writeOffTarget) return
+    setWritingOff(true)
+    setWriteOffError('')
     try {
-      const { data } = await api.delete(`/production/store/${encodeURIComponent(deleteTarget.batchNumber)}`)
-      setSuccessBanner(data.message || `${deleteTarget.batchNumber} deleted`)
-      setDeleteTarget(null)
+      const amount = Number(writeOffQty || writeOffTarget.qtyRemaining)
+      const { data } = await api.post(`/production/store/${encodeURIComponent(writeOffTarget.batchNumber)}/write-off`, {
+        colorItemId: writeOffTarget.colorItemId,
+        qty: amount,
+      })
+      setSuccessBanner(data.message || `${writeOffTarget.batchNumber} written off`)
+      setWriteOffTarget(null)
+      setWriteOffQty('')
       await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       await queryClient.invalidateQueries({ queryKey: ['production-store-mixes'] })
     } catch (err: unknown) {
       const e = err as { response?: { data?: { err?: string } } }
-      setDeleteError(e.response?.data?.err || 'Could not delete batch')
+      setWriteOffError(e.response?.data?.err || 'Could not write off batch')
     } finally {
-      setDeleting(false)
+      setWritingOff(false)
     }
   }
 
@@ -773,40 +786,61 @@ export function ProductionStorePage() {
         id: 'qtyRemaining',
         header: 'Available',
         accessorKey: 'qtyRemaining',
-        cell: ({ row }) => (
-          <span className="font-bold tabular-nums text-emerald-700 text-xs">
-            {fmt(row.original.qtyRemaining, 1)} kg
-          </span>
-        ),
+        cell: ({ row }) => {
+          const qty = Number(row.original.qtyRemaining || 0)
+          if (qty <= 0.0001) {
+            return (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold tabular-nums text-zinc-400 text-xs">
+                  0.0 kg
+                </span>
+                <span className="inline-flex items-center rounded-md bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-600 border border-zinc-200">
+                  Written off
+                </span>
+              </div>
+            )
+          }
+          return (
+            <span className="font-bold tabular-nums text-emerald-700 text-xs">
+              {fmt(qty, 1)} kg
+            </span>
+          )
+        },
       },
       {
         id: 'actions',
         header: '',
-        cell: ({ row }) => (
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 px-2.5 text-xs font-semibold gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
-              title="Move this lot back to Recycle Store"
-              onClick={() => openRecycleModal(row.original)}
-            >
-              <RotateCcw className="size-3" />
-              To Recycle
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 px-2 text-xs font-semibold gap-1 text-red-600 border-red-200 hover:bg-red-50"
-              title="Delete this lot from the Material Store"
-              onClick={() => openDeleteModal(row.original)}
-            >
-              <Trash2 className="size-3" />
-            </Button>
-          </div>
-        ),
+        cell: ({ row }) => {
+          const isWrittenOff = Number(row.original.qtyRemaining || 0) <= 0.0001
+          return (
+            <div className="flex items-center gap-1 justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isWrittenOff}
+                className="h-7 px-2.5 text-xs font-semibold gap-1 text-amber-700 border-amber-200 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isWrittenOff ? 'Balance is 0 kg' : 'Move this lot back to Recycle Store'}
+                onClick={() => openRecycleModal(row.original)}
+              >
+                <RotateCcw className="size-3" />
+                To Recycle
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={isWrittenOff}
+                className="h-7 px-2.5 text-xs font-semibold gap-1 text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={isWrittenOff ? 'Lot is already written off' : 'Write off this lot (set balance to 0 kg)'}
+                onClick={() => openWriteOffModal(row.original)}
+              >
+                <FileX className="size-3" />
+                <span>Write off</span>
+              </Button>
+            </div>
+          )
+        },
       },
     ],
     [rawMaterialLines]
@@ -1066,7 +1100,7 @@ export function ProductionStorePage() {
             size="sm"
             className="h-9 shrink-0 gap-1.5 px-2.5 sm:px-3 text-xs font-semibold"
             onClick={() => handleOpenMixModal()}
-            disabled={rawMaterialLines.length === 0}
+            disabled={rawMaterialLines.filter((l) => l.qtyRemaining > 0).length === 0}
           >
             <Blend className="size-3.5" />
             Mix
@@ -1320,11 +1354,13 @@ export function ProductionStorePage() {
                           <SelectValue placeholder="Select color…" />
                         </SelectTrigger>
                         <SelectContent>
-                          {rawMaterialLines.map((l) => (
-                            <SelectItem key={l.key} value={l.key}>
-                              {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
-                            </SelectItem>
-                          ))}
+                          {rawMaterialLines
+                            .filter((l) => l.qtyRemaining > 0)
+                            .map((l) => (
+                              <SelectItem key={l.key} value={l.key}>
+                                {l.displayLabel || colorName(l.color)} · {fmt(l.qtyRemaining, 1)} kg
+                              </SelectItem>
+                            ))}
                         </SelectContent>
                       </Select>
                       <input
@@ -1587,7 +1623,7 @@ export function ProductionStorePage() {
 
                 <div>
                   <label className="block text-[11px] font-semibold text-zinc-600 mb-1">
-                    kg to move
+                    kg to move to Recycle Store
                   </label>
                   <Input
                     type="number"
@@ -1627,59 +1663,99 @@ export function ProductionStorePage() {
           </DialogContent>
         </Dialog>
 
-        {/* ── Delete batch modal ── */}
-        <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!open) closeDeleteModal() }}>
+        {/* ── Write off batch modal ── */}
+        <Dialog open={Boolean(writeOffTarget)} onOpenChange={(open) => { if (!open) closeWriteOffModal() }}>
           <DialogContent className="max-h-[92vh] w-[min(90vw,26rem)] max-w-[min(90vw,26rem)] overflow-y-auto p-4 sm:p-5 max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:w-full max-sm:max-w-none max-sm:pt-[max(1.25rem,env(safe-area-inset-top))] max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <DialogHeader className="mb-0 pb-2 border-b border-zinc-100">
-              <DialogTitle className="text-base font-bold tracking-tight text-red-700">
-                Delete lot
+              <DialogTitle className="text-base font-bold tracking-tight text-red-700 flex items-center gap-1.5">
+                <FileX className="size-4" />
+                Write off lot line
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                This removes the lot from the Material Store and from any active mixes. This cannot be undone.
+                Adjust available balance for this lot line in the Material Store. The record and history will remain intact.
               </DialogDescription>
             </DialogHeader>
 
-            {deleteTarget && (
-              <div className="mt-3 space-y-4">
-                <div className="rounded-xl border border-red-100 bg-red-50/60 p-3 text-xs space-y-1">
+            {writeOffTarget && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  handleWriteOffBatch()
+                }}
+                className="mt-3 space-y-4"
+              >
+                <div className="rounded-xl border border-red-100 bg-red-50/60 p-3 text-xs space-y-1.5">
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground">Lot</span>
-                    <span className="font-mono font-semibold">{deleteTarget.batchNumber}</span>
+                    <span className="font-mono font-semibold">{writeOffTarget.batchNumber}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-muted-foreground">Material</span>
+                    <span className="font-medium text-zinc-900">{writeOffTarget.materialName}</span>
                   </div>
                   <div className="flex justify-between gap-2">
                     <span className="text-muted-foreground">Color</span>
-                    <span className="font-medium">{colorName(deleteTarget.color)}</span>
+                    <span className="font-medium">{colorName(writeOffTarget.color)}</span>
                   </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-muted-foreground">Qty</span>
-                    <span className="font-bold tabular-nums text-red-700">
-                      {fmt(deleteTarget.qtyRemaining, 1)} kg
+                  <div className="flex justify-between gap-2 pt-1 border-t border-red-100/80">
+                    <span className="text-muted-foreground">Available balance</span>
+                    <span className="font-bold tabular-nums text-emerald-700">
+                      {fmt(writeOffTarget.qtyRemaining, 1)} kg
                     </span>
                   </div>
                 </div>
 
-                {deleteError && (
+                <div className="space-y-1">
+                  <label className="block text-[11px] font-semibold text-zinc-700">
+                    Quantity to write off (kg)
+                  </label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0.001"
+                    max={writeOffTarget.qtyRemaining}
+                    value={writeOffQty}
+                    onChange={(e) => setWriteOffQty(e.target.value)}
+                    placeholder={String(writeOffTarget.qtyRemaining)}
+                    required
+                    className="h-9 text-xs font-semibold tabular-nums"
+                  />
+                  <p className="text-[10px] text-zinc-500">
+                    Remaining after write-off:{' '}
+                    <span className="font-semibold text-zinc-700">
+                      {fmt(
+                        Math.max(
+                          0,
+                          writeOffTarget.qtyRemaining - (Number(writeOffQty) || 0)
+                        ),
+                        1
+                      )}{' '}
+                      kg
+                    </span>
+                  </p>
+                </div>
+
+                {writeOffError && (
                   <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200">
-                    {deleteError}
+                    {writeOffError}
                   </div>
                 )}
 
                 <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-100">
-                  <Button type="button" variant="ghost" size="sm" disabled={deleting} onClick={closeDeleteModal}>
+                  <Button type="button" variant="ghost" size="sm" disabled={writingOff} onClick={closeWriteOffModal}>
                     Cancel
                   </Button>
                   <Button
-                    type="button"
-                    disabled={deleting}
+                    type="submit"
+                    disabled={writingOff || !writeOffQty || Number(writeOffQty) <= 0}
                     className="bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5"
                     size="sm"
-                    onClick={handleDeleteBatch}
                   >
-                    <Trash2 className="size-3.5" />
-                    {deleting ? 'Deleting…' : 'Delete lot'}
+                    <FileX className="size-3.5" />
+                    {writingOff ? 'Writing off…' : `Write off ${writeOffQty ? fmt(Number(writeOffQty), 1) : fmt(writeOffTarget.qtyRemaining, 1)} kg`}
                   </Button>
                 </div>
-              </div>
+              </form>
             )}
           </DialogContent>
         </Dialog>
