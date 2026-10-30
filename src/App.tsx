@@ -55,6 +55,7 @@ import {
   ShopSaleReceiptPage,
 } from '@/pages/ShopSaleDocumentPage'
 import { ShopBuyerDetailPage } from '@/pages/ShopBuyerDetailPage'
+import { ShopCustomersPage } from '@/pages/ShopCustomersPage'
 import { SalesMarginPage } from '@/pages/SalesMarginPage'
 import { ProductPricingPage } from '@/pages/ProductPricingPage'
 import { ProcessingMoneyPage } from '@/pages/ProcessingMoneyPage'
@@ -180,6 +181,7 @@ function App() {
                 <Route path="/shop/sales" element={<ShopSalesPage />} />
                 <Route path="/shop/sales/new" element={<RecordOutletSalePage />} />
                 <Route path="/shop/sales/:saleNumber" element={<ShopSaleDetailPage />} />
+                <Route path="/shop/customers" element={<ShopCustomersPage />} />
                 <Route path="/shop/customers/:buyerId" element={<ShopBuyerDetailPage />} />
                 <Route path="/batches" element={<BatchesPage />} />
                 <Route path="/batches/:batchNumber" element={<BatchDetailPage />} />

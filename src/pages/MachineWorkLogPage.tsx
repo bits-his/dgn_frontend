@@ -250,9 +250,12 @@ export function MachineWorkLogPage() {
   const [faultNotes, setFaultNotes] = useState('')
 
   const [transferOpen, setTransferOpen] = useState(false)
+  const [transferDest, setTransferDest] = useState<'machine' | 'store'>('machine')
   const [transferMachineId, setTransferMachineId] = useState('')
   const [transferKg, setTransferKg] = useState('')
   const [transferProductId, setTransferProductId] = useState('')
+  const [transferStoreColor, setTransferStoreColor] = useState('')
+  const [transferStoreNotes, setTransferStoreNotes] = useState('')
 
   const productsQuery = useQuery({
     queryKey: ['products'],
@@ -378,31 +381,49 @@ export function MachineWorkLogPage() {
   const transferMut = useMutation({
     mutationFn: async () => {
       if (!selectedRun) throw new Error('No open run')
-      if (!transferMachineId) throw new Error('Select a destination machine')
       const kg = Number(transferKg)
       if (!(kg > 0)) throw new Error('Enter the weighed leftover kg')
       const maxKg = Number(selectedRun.materialConsumed || 0)
       if (kg - maxKg > 0.001) {
         throw new Error(`Only ${fmt(maxKg)} kg issued on this run`)
       }
-      const { data } = await api.patch(`/production/runs/${selectedRun.id}/machine`, {
-        machineId: Number(transferMachineId),
-        materialKg: kg,
-        productId: transferProductId ? Number(transferProductId) : selectedRun.productId,
-      })
-      return data
+      if (transferDest === 'store') {
+        const { data } = await api.post(`/production/runs/${selectedRun.id}/return-to-store`, {
+          materialKg: kg,
+          color: transferStoreColor,
+          notes: transferStoreNotes,
+        })
+        return { destType: 'store' as const, data, kg }
+      } else {
+        if (!transferMachineId) throw new Error('Select a destination machine')
+        const { data } = await api.patch(`/production/runs/${selectedRun.id}/machine`, {
+          machineId: Number(transferMachineId),
+          materialKg: kg,
+          productId: transferProductId ? Number(transferProductId) : selectedRun.productId,
+        })
+        return { destType: 'machine' as const, data, kg }
+      }
     },
-    onSuccess: async (data) => {
-      const kg = Number(data?.materialKg || transferKg)
-      const destName = data?.data?.machine?.name || 'destination machine'
+    onSuccess: async (res) => {
       setTransferOpen(false)
       setTransferMachineId('')
       setTransferKg('')
       setTransferProductId('')
-      setBanner({
-        type: 'ok',
-        text: `Moved ${fmt(kg)} kg leftover to ${destName}. Production already made stays on this machine.`,
-      })
+      setTransferStoreColor('')
+      setTransferStoreNotes('')
+      if (res.destType === 'store') {
+        const batchNum = res.data?.batch?.batchNumber || 'new batch'
+        setBanner({
+          type: 'ok',
+          text: `Returned ${fmt(res.kg)} kg leftover (${res.data?.batch?.sortColor || transferStoreColor || 'Blend'}) to Material Store as ${batchNum}.`,
+        })
+      } else {
+        const destName = res.data?.data?.machine?.name || 'destination machine'
+        setBanner({
+          type: 'ok',
+          text: `Moved ${fmt(res.kg)} kg leftover to ${destName}. Production already made stays on this machine.`,
+        })
+      }
       await invalidate()
     },
     onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
@@ -470,11 +491,16 @@ export function MachineWorkLogPage() {
               className="h-7 sm:h-8 px-2 sm:px-3 text-[11px] sm:text-xs gap-1 bg-white"
               onClick={() => {
                 setBanner(null)
+                setTransferDest('machine')
                 setTransferKg('')
                 setTransferProductId(
                   selectedRun?.productId ? String(selectedRun.productId) : '',
                 )
                 setTransferMachineId('')
+                setTransferStoreColor(
+                  (selectedRun as any)?.inputBatchColor || 'Blend',
+                )
+                setTransferStoreNotes('')
                 setTransferOpen(true)
               }}
             >
@@ -855,51 +881,143 @@ export function MachineWorkLogPage() {
                 <ArrowRightLeft className="size-4" />
                 Transfer leftover material
               </DialogTitle>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Move unconsumed material to another machine or return it to the Material Store.
+              </p>
             </div>
-            <div>
-              <Label className="text-xs font-semibold mb-1 block">To machine</Label>
-              <SearchableSelect
-                value={transferMachineId}
-                onChange={setTransferMachineId}
-                options={machineOptions}
-                placeholder="Select machine…"
-                searchPlaceholder="Search machine…"
-                allowClear={false}
-                triggerClassName="h-8 text-xs"
-              />
+
+            {/* Destination Selector Tabs */}
+            <div className="grid grid-cols-2 p-1 bg-zinc-100 rounded-lg text-xs font-medium">
+              <button
+                type="button"
+                className={`py-1.5 rounded-md transition-colors ${
+                  transferDest === 'machine'
+                    ? 'bg-white text-zinc-900 shadow-sm font-semibold'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+                onClick={() => setTransferDest('machine')}
+              >
+                Another machine
+              </button>
+              <button
+                type="button"
+                className={`py-1.5 rounded-md transition-colors ${
+                  transferDest === 'store'
+                    ? 'bg-white text-zinc-900 shadow-sm font-semibold'
+                    : 'text-zinc-600 hover:text-zinc-900'
+                }`}
+                onClick={() => {
+                  setTransferDest('store')
+                  if (!transferStoreColor) {
+                    setTransferStoreColor(
+                      (selectedRun as any)?.inputBatchColor || 'Blend',
+                    )
+                  }
+                }}
+              >
+                Material Store (Return blend)
+              </button>
             </div>
-            <div>
-              <Label className="text-xs font-semibold mb-1 block">Leftover kg (weighed)</Label>
-              <Input
-                type="number"
-                step="any"
-                min={0}
-                className="h-8 text-xs"
-                placeholder="e.g. 45"
-                value={transferKg}
-                onChange={(e) => setTransferKg(e.target.value)}
-              />
-              {selectedRun ? (
-                <p className="text-[10px] text-zinc-500 mt-1">
-                  Issued on this run: {fmt(selectedRun.materialConsumed)}{' '}
-                  {selectedRun.materialUom || 'kg'} · enter only what you weighed out
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <Label className="text-xs font-semibold mb-1 block">
-                Product on destination (if starting fresh)
-              </Label>
-              <SearchableSelect
-                value={transferProductId}
-                onChange={setTransferProductId}
-                options={productOptions}
-                placeholder="Product they will run…"
-                searchPlaceholder="Search product…"
-                allowClear={false}
-                triggerClassName="h-8 text-xs"
-              />
-            </div>
+
+            {transferDest === 'machine' ? (
+              <>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">To machine</Label>
+                  <SearchableSelect
+                    value={transferMachineId}
+                    onChange={setTransferMachineId}
+                    options={machineOptions}
+                    placeholder="Select machine…"
+                    searchPlaceholder="Search machine…"
+                    allowClear={false}
+                    triggerClassName="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">Leftover kg (weighed)</Label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="h-8 text-xs"
+                    placeholder="e.g. 45"
+                    value={transferKg}
+                    onChange={(e) => setTransferKg(e.target.value)}
+                  />
+                  {selectedRun ? (
+                    <p className="text-[10px] text-zinc-500 mt-1">
+                      Issued on this run: {fmt(selectedRun.materialConsumed)}{' '}
+                      {selectedRun.materialUom || 'kg'} · enter only what you weighed out
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">
+                    Product on destination (if starting fresh)
+                  </Label>
+                  <SearchableSelect
+                    value={transferProductId}
+                    onChange={setTransferProductId}
+                    options={productOptions}
+                    placeholder="Product they will run…"
+                    searchPlaceholder="Search product…"
+                    allowClear={false}
+                    triggerClassName="h-8 text-xs"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">
+                    Leftover kg to return (weighed)
+                  </Label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min={0}
+                    className="h-8 text-xs"
+                    placeholder="e.g. 45"
+                    value={transferKg}
+                    onChange={(e) => setTransferKg(e.target.value)}
+                  />
+                  {selectedRun ? (
+                    <p className="text-[10px] text-zinc-500 mt-1">
+                      Issued on this run: {fmt(selectedRun.materialConsumed)}{' '}
+                      {selectedRun.materialUom || 'kg'} · enter weighed leftover to return
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">
+                    Color / Blend name (editable)
+                  </Label>
+                  <Input
+                    type="text"
+                    className="h-8 text-xs"
+                    placeholder="e.g. Blend, Blue, White Mix"
+                    value={transferStoreColor}
+                    onChange={(e) => setTransferStoreColor(e.target.value)}
+                  />
+                  <p className="text-[10px] text-zinc-500 mt-1">
+                    Defaulted from run input batch color. You can edit this if the blend color is different.
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold mb-1 block">
+                    Notes (optional)
+                  </Label>
+                  <Input
+                    type="text"
+                    className="h-8 text-xs"
+                    placeholder="e.g. Hopper cleanout, run ended early"
+                    value={transferStoreNotes}
+                    onChange={(e) => setTransferStoreNotes(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 type="button"
@@ -918,7 +1036,13 @@ export function MachineWorkLogPage() {
                 onClick={() => transferMut.mutate()}
               >
                 <Check className="size-3.5" />
-                {transferMut.isPending ? 'Moving kg…' : 'Transfer kg'}
+                {transferMut.isPending
+                  ? transferDest === 'store'
+                    ? 'Returning kg…'
+                    : 'Moving kg…'
+                  : transferDest === 'store'
+                  ? 'Return to store'
+                  : 'Transfer kg'}
               </Button>
             </div>
           </div>

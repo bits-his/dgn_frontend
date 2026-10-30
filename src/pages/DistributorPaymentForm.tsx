@@ -43,12 +43,14 @@ export function DistributorPaymentForm({
   distributorIdOrCode,
   distributorName,
   totalOutstanding = 0,
+  advanceBalance = 0,
   unpaid = [],
   onSaved,
 }: {
   distributorIdOrCode: string | number
   distributorName?: string
   totalOutstanding?: number
+  advanceBalance?: number
   unpaid?: UnpaidInvoice[]
   onSaved: () => void
 }) {
@@ -58,7 +60,7 @@ export function DistributorPaymentForm({
   }, [totalOutstanding, unpaid])
 
   const [amount, setAmount] = useState(totalDebt > 0.001 ? String(totalDebt) : '')
-  const [method, setMethod] = useState<'TRANSFER' | 'CASH' | 'POS'>('TRANSFER')
+  const [method, setMethod] = useState<'TRANSFER' | 'CASH' | 'POS' | 'ADVANCE'>('TRANSFER')
   const [receivedAt, setReceivedAt] = useState(lagosDateTimeLocal())
   const [reference, setReference] = useState('')
   const [notes, setNotes] = useState('')
@@ -108,7 +110,16 @@ export function DistributorPaymentForm({
       setError('Enter a payment amount greater than zero')
       return
     }
-    if (needsReference && !reference.trim()) {
+    if (method === 'ADVANCE') {
+      if (numAmount > advanceBalance + 0.001) {
+        setError(`Payment amount cannot exceed available advance of ${money(advanceBalance)}`)
+        return
+      }
+      if (totalDebt > 0.001 && numAmount > totalDebt + 0.001) {
+        setError(`Payment from advance cannot exceed the debt of ${money(totalDebt)}`)
+        return
+      }
+    } else if (needsReference && !reference.trim()) {
       setError(
         method === 'POS'
           ? 'Enter the POS slip or terminal reference'
@@ -181,10 +192,21 @@ export function DistributorPaymentForm({
             Payment applies to {unpaid.length} open invoices (oldest first across factory & shops)
           </div>
         ) : null}
+        {advanceBalance > 0.001 ? (
+          <div className="border-t border-zinc-200/80 pt-1.5 flex items-center justify-between text-[11px]">
+            <span className="text-zinc-600 flex items-center gap-1">
+              <Wallet className="size-3 text-sky-600" />
+              Advance balance available:
+            </span>
+            <span className="font-semibold text-sky-800 tabular-nums">
+              {money(advanceBalance)}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Amount received">
+        <Field label={method === 'ADVANCE' ? 'Amount to deduct from advance' : 'Amount received'}>
           <div className="space-y-1.5">
             <NairaAmountInput
               value={amount}
@@ -192,7 +214,7 @@ export function DistributorPaymentForm({
               placeholder="0"
             />
             {totalDebt > 0.001 && (
-              <div className="flex items-center gap-1.5 text-[11px]">
+              <div className="flex items-center gap-3 text-[11px] flex-wrap">
                 <button
                   type="button"
                   onClick={() => setAmount(String(totalDebt))}
@@ -200,6 +222,18 @@ export function DistributorPaymentForm({
                 >
                   Pay full debt ({money(totalDebt)})
                 </button>
+                {advanceBalance > 0.001 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMethod('ADVANCE')
+                      setAmount(String(Math.min(advanceBalance, totalDebt)))
+                    }}
+                    className="font-semibold text-sky-700 hover:underline"
+                  >
+                    Pay from advance ({money(Math.min(advanceBalance, totalDebt))})
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -209,11 +243,16 @@ export function DistributorPaymentForm({
           <select
             className="dgn-input font-medium"
             value={method}
-            onChange={(e) => setMethod(e.target.value as 'TRANSFER' | 'CASH' | 'POS')}
+            onChange={(e) => setMethod(e.target.value as 'TRANSFER' | 'CASH' | 'POS' | 'ADVANCE')}
           >
             <option value="TRANSFER">Bank transfer (Default)</option>
             <option value="CASH">Cash</option>
             <option value="POS">POS</option>
+            {advanceBalance > 0.001 && (
+              <option value="ADVANCE">
+                Advance wallet ({money(advanceBalance)} available)
+              </option>
+            )}
           </select>
         </Field>
 
@@ -267,7 +306,17 @@ export function DistributorPaymentForm({
       {/* Dynamic Breakdown Explanation */}
       {numAmount > 0.001 && (
         <div className="rounded-xl border p-3 text-xs transition-all">
-          {breakdown.mode === 'pure_advance' && (
+          {method === 'ADVANCE' ? (
+            <div className="flex items-start gap-2 text-sky-950 bg-sky-50/80 border-sky-200 -m-3 p-3 rounded-xl">
+              <Wallet className="size-4 shrink-0 text-sky-700 mt-0.5" />
+              <div>
+                <p className="font-semibold text-sky-900">Paid from Advance Balance</p>
+                <p className="mt-0.5 text-[11px] text-sky-800">
+                  <strong className="font-bold">{money(numAmount)}</strong> will be deducted from the distributor’s available advance wallet (balance: {money(advanceBalance)}) and applied to settle open invoices. No external bank transfer is required.
+                </p>
+              </div>
+            </div>
+          ) : breakdown.mode === 'pure_advance' ? (
             <div className="flex items-start gap-2 text-sky-900 bg-sky-50/70 border-sky-200 -m-3 p-3 rounded-xl">
               <Wallet className="size-4 shrink-0 text-sky-700 mt-0.5" />
               <div>
@@ -279,9 +328,7 @@ export function DistributorPaymentForm({
                 </p>
               </div>
             </div>
-          )}
-
-          {breakdown.mode === 'split' && (
+          ) : breakdown.mode === 'split' ? (
             <div className="flex items-start gap-2 text-emerald-950 bg-emerald-50/80 border-emerald-200 -m-3 p-3 rounded-xl">
               <CheckCircle2 className="size-4 shrink-0 text-emerald-700 mt-0.5" />
               <div>
@@ -293,9 +340,7 @@ export function DistributorPaymentForm({
                 </p>
               </div>
             </div>
-          )}
-
-          {breakdown.mode === 'repayment' && (
+          ) : breakdown.mode === 'repayment' ? (
             <div className="flex items-start gap-2 text-amber-950 bg-amber-50/80 border-amber-200 -m-3 p-3 rounded-xl">
               <ShieldCheck className="size-4 shrink-0 text-amber-700 mt-0.5" />
               <div>
@@ -313,7 +358,7 @@ export function DistributorPaymentForm({
                 </p>
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

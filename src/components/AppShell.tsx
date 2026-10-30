@@ -41,7 +41,7 @@ import { useAuthStore } from '@/stores/auth-store'
 import { hasPermission } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
-import { isOutletScoped, outletHomePath, outletNavLabel } from '@/lib/outlet'
+import { isOutletScoped, outletHomePath, outletNavLabel, shopCustomersPath } from '@/lib/outlet'
 import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt'
 import { usePwaInstall } from '@/hooks/usePwaInstall'
 import { BrandMark } from '@/components/BrandMark'
@@ -372,8 +372,14 @@ export function AppShell() {
               { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
               { to: '/shop/sales/new', label: 'Record sale', icon: Truck, permission: 'outlet.sell' },
               {
+                to: shopCustomersPath(),
+                label: 'Customers',
+                icon: Users,
+                permission: 'outlet.sell',
+              },
+              {
                 to: outletHomePath(user),
-                label: 'Customers & book',
+                label: 'Book',
                 icon: Store,
                 // Shop book always available to assigned sellers (menuAccess may omit distributors).
                 permission: 'sales.view',

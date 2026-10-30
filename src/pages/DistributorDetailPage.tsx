@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Plus, ExternalLink } from 'lucide-react'
+import {
+  ChevronDown,
+  Plus,
+  ExternalLink,
+  Boxes,
+  ShoppingBag,
+  Banknote,
+  Search,
+  CheckCircle2,
+  ChevronRight,
+} from 'lucide-react'
 import { fmtDozenPcs, isPieceUom, qtyDozenLabel } from '@/lib/units'
 import { api } from '@/lib/api'
 import { Card, Field, NairaAmountInput } from '@/components/ui'
@@ -13,14 +23,14 @@ import {
   isOutletScoped,
   shopBuyerPath,
   shopRecordSalePath,
-  shopSalesListPath,
   shopSalePath,
 } from '@/lib/outlet'
 import { formatBusinessDate } from '@/lib/dates'
 import { cn } from '@/lib/utils'
 import { CreditBar, kindLabel, money, unpaidSummary, type DistributorCredit } from '@/pages/DistributorsPage'
 import { DistributorPaymentForm, type UnpaidInvoice } from '@/pages/DistributorPaymentForm'
-import { BookPanel, StatusChip } from '@/components/outlet/OutletBookUi'
+import { BookPanel } from '@/components/outlet/OutletBookUi'
+import { ShopMoneyWithMeCard } from '@/components/outlet/ShopMoneyWithMeCard'
 import {
   ShopCustomersBoard,
   type ShopBuyerRow,
@@ -216,7 +226,12 @@ function buildLedgerFromServer(
     const credit = Number(t.credit || 0)
 
     if (account === 'RECEIVABLE') {
-      netDue = +(netDue + debit - credit).toFixed(2)
+      if (entryType === 'ADVANCE_APPLY') {
+        // Internal transfer: advance was already credited at deposit time.
+        // Applying it to an invoice settles the invoice without double-crediting net balance.
+      } else {
+        netDue = +(netDue + debit - credit).toFixed(2)
+      }
     } else if (account === 'ADVANCE') {
       // Deposit increases prepaid wallet → reduces net due.
       netDue = +(netDue - credit + debit).toFixed(2)
@@ -374,7 +389,10 @@ export function DistributorDetailPage() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [expandedLedgerId, setExpandedLedgerId] = useState<string | null>(null)
-  const [shopTab, setShopTab] = useState<'overview' | 'customers'>('overview')
+  type ShopBookTab = 'overview' | 'stock' | 'sales' | 'transfers' | 'customers' | 'details'
+  const [shopTab, setShopTab] = useState<ShopBookTab>('overview')
+  const [stockSearch, setStockSearch] = useState('')
+  const [salesSearch, setSalesSearch] = useState('')
   const [paying, setPaying] = useState<UnpaidInvoice[] | null>(null)
   const [openingOpen, setOpeningOpen] = useState(false)
   const [openingForm, setOpeningForm] = useState({
@@ -417,6 +435,8 @@ export function DistributorDetailPage() {
       })
       return data.data as {
         rows: ShopBuyerRow[]
+        factoryDistributors?: ShopBuyerRow[]
+        myCustomers?: ShopBuyerRow[]
         debtors: ShopBuyerRow[]
         totals: { customerCount: number; debtorCount: number; creditOutstanding: number }
       }
@@ -640,205 +660,511 @@ export function DistributorDetailPage() {
         )}
 
         {isShop ? (
-              <div className="w-full space-y-3">
-                {/* Today-at-a-glance */}
-                <section className="overflow-hidden rounded-xl border border-zinc-200/90 bg-white">
-                  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-100 bg-gradient-to-br from-teal-50/80 via-white to-zinc-50 px-3.5 py-3 sm:px-4">
-                    <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-teal-800/70">
-                        Shop book
-                      </p>
-                      <p className="mt-0.5 text-lg font-bold tabular-nums tracking-tight text-zinc-900">
-                        {money(d.outlet?.money.generated || 0)}
-                        <span className="ml-1.5 text-xs font-medium text-zinc-500">
-                          · {d.outlet?.money.saleCount || 0} sales
-                        </span>
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-zinc-500">
-                        Stock on hand{' '}
-                        <span className="font-semibold text-zinc-800">
-                          {fmtDozenPcs(d.outlet?.remainingQty || 0)}
-                        </span>
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 divide-x divide-zinc-100">
-                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                        Collected
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold tabular-nums text-teal-800">
-                        {money(d.outlet?.money.collected || 0)}
-                      </p>
-                    </div>
-                    <div className="px-3 py-2.5 text-center sm:px-4 sm:text-left">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                        Credit out
-                      </p>
-                      <p
-                        className={cn(
-                          'mt-0.5 text-sm font-bold tabular-nums',
-                          (d.outlet?.money.creditOutstanding || 0) > 0.001
-                            ? 'text-amber-800'
-                            : 'text-zinc-900',
-                        )}
-                      >
-                        {money(d.outlet?.money.creditOutstanding || 0)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShopTab('customers')}
-                      className="px-3 py-2.5 text-center sm:px-4 sm:text-left hover:bg-zinc-50/80"
-                    >
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                        Owing
-                      </p>
-                      <p className="mt-0.5 text-sm font-bold tabular-nums text-zinc-900">
-                        {shopBuyers.data?.totals.debtorCount || 0}
-                        <span className="ml-1 text-[10px] font-medium text-zinc-400">
-                          customers
-                        </span>
-                      </p>
-                    </button>
-                  </div>
-                </section>
+          <div className="w-full space-y-4">
+            {/* Top 4 Core Metrics Grid */}
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              {/* Sales Generated */}
+              <div className="rounded-2xl border border-teal-200/80 bg-gradient-to-b from-teal-50/90 to-white p-3.5 shadow-2xs sm:p-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-teal-800">
+                    <ShoppingBag className="size-3" />
+                    Generated
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xl font-bold tabular-nums tracking-tight text-teal-950 sm:text-2xl">
+                  {money(d.outlet?.money.generated || 0)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-teal-800/70">
+                  {d.outlet?.money.saleCount || 0} sales recorded
+                </p>
+              </div>
 
-                <div className="flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs font-semibold">
-                  {(
-                    [
-                      ['overview', 'Overview'],
-                      [
-                        'customers',
-                        `Customers${
-                          shopBuyers.data?.rows?.length
-                            ? ` · ${shopBuyers.data.rows.length}`
-                            : ''
-                        }`,
-                      ],
-                    ] as const
-                  ).map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setShopTab(id)}
+              {/* Cash & Transfers Collected */}
+              <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-b from-emerald-50/90 to-white p-3.5 shadow-2xs sm:p-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                    <CheckCircle2 className="size-3" />
+                    Collected
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xl font-bold tabular-nums tracking-tight text-emerald-950 sm:text-2xl">
+                  {money(d.outlet?.money.collected || 0)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-emerald-800/70">Received at stall</p>
+              </div>
+
+              {/* Credit Out */}
+              <button
+                type="button"
+                onClick={() => setShopTab('customers')}
+                className={cn(
+                  'rounded-2xl border p-3.5 text-left shadow-2xs transition-colors hover:border-amber-300 sm:p-4',
+                  (d.outlet?.money.creditOutstanding || 0) > 0.001
+                    ? 'border-amber-200/80 bg-gradient-to-b from-amber-50/90 to-white'
+                    : 'border-zinc-200/80 bg-gradient-to-b from-zinc-50 to-white',
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className={cn(
+                      'flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider',
+                      (d.outlet?.money.creditOutstanding || 0) > 0.001
+                        ? 'text-amber-800'
+                        : 'text-zinc-500',
+                    )}
+                  >
+                    <Banknote className="size-3" />
+                    Credit out
+                  </span>
+                  <ChevronRight className="size-3 text-amber-500/70" />
+                </div>
+                <p
+                  className={cn(
+                    'mt-1.5 text-xl font-bold tabular-nums tracking-tight sm:text-2xl',
+                    (d.outlet?.money.creditOutstanding || 0) > 0.001
+                      ? 'text-amber-950'
+                      : 'text-zinc-900',
+                  )}
+                >
+                  {money(d.outlet?.money.creditOutstanding || 0)}
+                </p>
+                <p
+                  className={cn(
+                    'mt-0.5 text-[11px]',
+                    (d.outlet?.money.creditOutstanding || 0) > 0.001
+                      ? 'text-amber-800/80 font-medium'
+                      : 'text-zinc-500',
+                  )}
+                >
+                  {shopBuyers.data?.totals.debtorCount || 0} customers owing →
+                </p>
+              </button>
+
+              {/* Stock on Hand */}
+              <button
+                type="button"
+                onClick={() => setShopTab('stock')}
+                className="rounded-2xl border border-zinc-200/80 bg-gradient-to-b from-zinc-50 to-white p-3.5 text-left shadow-2xs transition-colors hover:border-teal-300 sm:p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                    <Boxes className="size-3" />
+                    Stock
+                  </span>
+                  <ChevronRight className="size-3 text-zinc-400" />
+                </div>
+                <p className="mt-1.5 text-xl font-bold tabular-nums tracking-tight text-zinc-950 sm:text-2xl">
+                  {fmtDozenPcs(d.outlet?.remainingQty || 0)}
+                </p>
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  {(d.outlet?.stock || []).length} products in stall →
+                </p>
+              </button>
+            </div>
+
+            {/* Money with stall & transfer to company */}
+            <ShopMoneyWithMeCard
+              outletId={d.id}
+              canTransfer={isOutletScoped(user)}
+              isCompanyView={!isOutletScoped(user)}
+            />
+
+            {/* Book Tabs Navigation */}
+            <div className="flex overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 p-1 text-xs font-semibold shadow-2xs no-scrollbar">
+              {(
+                [
+                  ['overview', 'Overview', null],
+                  ['stock', 'Stock on hand', (d.outlet?.stock || []).length],
+                  [
+                    'sales',
+                    'Sales',
+                    d.outlet?.money.saleCount || (d.outlet?.sales || []).length || 0,
+                  ],
+                  ['transfers', 'Factory dispatches', d.sales.length],
+                  ['customers', 'Customers', shopBuyers.data?.rows?.length || 0],
+                  ['details', 'Stall info', null],
+                ] as const
+              ).map(([id, label, count]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setShopTab(id)}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-lg px-3 py-2 whitespace-nowrap transition-colors',
+                    shopTab === id
+                      ? 'bg-white text-zinc-900 shadow-xs'
+                      : 'text-zinc-600 hover:text-zinc-900',
+                  )}
+                >
+                  <span>{label}</span>
+                  {count !== null && count > 0 && (
+                    <span
                       className={cn(
-                        'flex-1 rounded-md px-3 py-2 transition-colors',
+                        'rounded-full px-1.5 py-0.2 text-[10px] font-semibold',
                         shopTab === id
-                          ? 'bg-white text-zinc-900 shadow-xs'
-                          : 'text-zinc-500 hover:text-zinc-800',
+                          ? 'bg-teal-100 text-teal-800'
+                          : 'bg-zinc-200/80 text-zinc-600',
                       )}
                     >
-                      {label}
-                    </button>
-                  ))}
+                      {count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* TAB: OVERVIEW */}
+            {shopTab === 'overview' && (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {/* Stock Preview */}
+                  <BookPanel
+                    title="Stock on hand"
+                    action={
+                      (d.outlet?.stock || []).length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setShopTab('stock')}
+                          className="text-[11px] font-semibold text-teal-800 hover:underline flex items-center gap-0.5"
+                        >
+                          View all {(d.outlet?.stock || []).length} →
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {(d.outlet?.stock || []).length === 0 ? (
+                      <p className="py-4 text-center text-xs text-zinc-500">
+                        No stock yet — goods issued from the factory will appear here.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {(d.outlet?.stock || []).slice(0, 4).map((row) => (
+                          <div
+                            key={row.productId}
+                            className="flex flex-col justify-between rounded-xl border border-zinc-100 bg-zinc-50/70 p-3"
+                          >
+                            <div>
+                              <h4 className="text-xs font-semibold text-zinc-900 truncate">
+                                {row.productName}
+                              </h4>
+                              <p className="mt-0.5 text-[10px] text-zinc-500">
+                                {isPieceUom(row.uom)
+                                  ? fmtDozenPcs(row.sold)
+                                  : `${fmt(row.sold)} ${row.uom}`}{' '}
+                                sold
+                              </p>
+                            </div>
+                            <div className="mt-2.5 flex items-baseline justify-between border-t border-zinc-200/50 pt-2">
+                              <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+                                On hand
+                              </span>
+                              <span className="text-xs font-bold text-zinc-900 tabular-nums">
+                                {isPieceUom(row.uom)
+                                  ? fmtDozenPcs(row.remaining)
+                                  : qtyDozenLabel(row.remaining, row.uom)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </BookPanel>
+
+                  {/* Recent Sales Preview */}
+                  <BookPanel
+                    title="Recent sales"
+                    action={
+                      (d.outlet?.money.saleCount || 0) > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setShopTab('sales')}
+                          className="text-[11px] font-semibold text-teal-800 hover:underline flex items-center gap-0.5"
+                        >
+                          View all ({d.outlet?.money.saleCount || 0}) →
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {(d.outlet?.sales || []).length === 0 ? (
+                      <p className="py-4 text-center text-xs text-zinc-500">
+                        No sales recorded yet. Use "Record sale" to start.
+                      </p>
+                    ) : (
+                      <div className="divide-y divide-zinc-100">
+                        {(d.outlet?.sales || []).slice(0, 5).map((sale) => (
+                          <div
+                            key={sale.id}
+                            className="flex items-center justify-between gap-3 py-2.5"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  to={
+                                    sale.outletBuyerId
+                                      ? shopBuyerPath(
+                                          sale.outletBuyerId,
+                                          isOutletScoped(user) ? null : d.id,
+                                          d.code,
+                                        )
+                                      : shopSalePath(sale.saleNumber)
+                                  }
+                                  className="truncate text-xs font-semibold text-zinc-900 hover:text-teal-800 hover:underline"
+                                >
+                                  {sale.buyerName || 'Walk-in'}
+                                </Link>
+                                {sale.balanceDue > 0.001 ? (
+                                  <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 border border-amber-200">
+                                    Owes {money(sale.balanceDue)}
+                                  </span>
+                                ) : (
+                                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                    Paid
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-zinc-500 mt-0.5">
+                                {formatBusinessDate(sale.businessDate) || '—'} ·{' '}
+                                <span className="font-mono text-zinc-400">
+                                  {sale.saleNumber}
+                                </span>
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <span className="text-xs font-bold tabular-nums text-zinc-900">
+                                {money(sale.totalAmount)}
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2.5 text-xs font-semibold"
+                                asChild
+                              >
+                                <Link to={shopSalePath(sale.saleNumber)}>View</Link>
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </BookPanel>
                 </div>
 
-                {shopTab === 'customers' ? (
-                  <ShopCustomersBoard
-                    buyers={shopBuyers.data?.rows || []}
-                    debtors={shopBuyers.data?.debtors || []}
-                    viewHref={(b) =>
-                      shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
-                    }
-                    limit={200}
-                  />
+                {/* Factory Dispatches Preview */}
+                <BookPanel
+                  title="Factory dispatches to stall"
+                  action={
+                    d.sales.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setShopTab('transfers')}
+                        className="text-[11px] font-semibold text-teal-800 hover:underline"
+                      >
+                        View all {d.sales.length} dispatches →
+                      </button>
+                    ) : null
+                  }
+                >
+                  {d.sales.length === 0 ? (
+                    <p className="py-4 text-center text-xs text-zinc-500">
+                      No stock issued from the factory yet.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-zinc-100">
+                      {d.sales.slice(0, 3).map((sale) => (
+                        <div
+                          key={sale.id}
+                          className="flex items-center justify-between py-2.5"
+                        >
+                          <div>
+                            <p className="text-xs font-semibold text-zinc-900">
+                              {formatBusinessDate(sale.businessDate) || 'Factory Dispatch'}
+                            </p>
+                            <p className="text-[11px] text-zinc-500 mt-0.5">
+                              {sale.lines.length} product{sale.lines.length === 1 ? '' : 's'}{' '}
+                              dispatched · {sale.saleNumber}
+                            </p>
+                          </div>
+                          <span className="rounded bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800 border border-teal-200/60">
+                            Received
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </BookPanel>
+              </div>
+            )}
+
+            {/* TAB: STOCK ON HAND */}
+            {shopTab === 'stock' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-zinc-200/90 bg-white p-3">
+                  <div className="flex items-center gap-2">
+                    <Boxes className="size-4 text-teal-700" />
+                    <h3 className="text-sm font-bold text-zinc-900">All Stall Inventory</h3>
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600">
+                      {(d.outlet?.stock || []).length} products
+                    </span>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      value={stockSearch}
+                      onChange={(e) => setStockSearch(e.target.value)}
+                      placeholder="Search product…"
+                      className="h-8 w-full rounded-lg border border-zinc-200 bg-white pl-8 pr-2.5 text-xs text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30"
+                    />
+                  </div>
+                </div>
+
+                {(d.outlet?.stock || []).length === 0 ? (
+                  <div className="rounded-xl border border-zinc-200/90 bg-white p-8 text-center text-xs text-zinc-500">
+                    No stock in this shop yet. Stock arrives when the factory issues a dispatch.
+                  </div>
                 ) : (
-                  <div className="space-y-3">
-                    <BookPanel title="Stock on hand">
-                      {(d.outlet?.stock || []).length === 0 ? (
-                        <p className="py-4 text-center text-xs text-zinc-500">
-                          No stock yet — issue goods from the factory first.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                          {d.outlet!.stock.map((row) => (
-                            <div
-                              key={row.productId}
-                              className="flex flex-col justify-between rounded-lg border border-zinc-100 bg-zinc-50/60 p-2.5"
-                            >
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                    {(d.outlet?.stock || [])
+                      .filter((row) =>
+                        stockSearch.trim()
+                          ? row.productName
+                              .toLowerCase()
+                              .includes(stockSearch.trim().toLowerCase())
+                          : true,
+                      )
+                      .map((row) => {
+                        const inStock = Number(row.remaining) > 0.001
+                        return (
+                          <div
+                            key={row.productId}
+                            className="flex flex-col justify-between rounded-xl border border-zinc-200/90 bg-white p-3.5 shadow-2xs"
+                          >
+                            <div className="flex items-start justify-between gap-2">
                               <div>
-                                <h4 className="text-xs font-semibold text-zinc-900 truncate">
+                                <h4 className="text-xs font-bold text-zinc-900">
                                   {row.productName}
                                 </h4>
-                                <p className="mt-0.5 text-[10px] text-zinc-500">
-                                  {isPieceUom(row.uom)
-                                    ? fmtDozenPcs(row.sold)
-                                    : `${fmt(row.sold)} ${row.uom}`}{' '}
-                                  sold
+                                <p className="text-[11px] text-zinc-500 mt-0.5">
+                                  Received: {Number(row.received).toLocaleString()}{' '}
+                                  {row.uom} · Sold: {Number(row.sold).toLocaleString()}
                                 </p>
                               </div>
-                              <div className="mt-2 flex items-baseline justify-between border-t border-zinc-200/50 pt-1.5">
-                                <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
-                                  On hand
-                                </span>
-                                <span className="text-xs font-bold text-zinc-900 tabular-nums">
+                              <span
+                                className={cn(
+                                  'rounded-full px-2 py-0.5 text-[9px] font-semibold border',
+                                  inStock
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-red-50 text-red-800 border-red-200',
+                                )}
+                              >
+                                {inStock ? 'In stock' : 'Out of stock'}
+                              </span>
+                            </div>
+
+                            <div className="mt-3.5 flex items-baseline justify-between border-t border-zinc-100 pt-2.5">
+                              <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">
+                                Balance on hand
+                              </span>
+                              <div className="text-right">
+                                <span className="text-sm font-bold tabular-nums text-zinc-950">
                                   {isPieceUom(row.uom)
                                     ? fmtDozenPcs(row.remaining)
                                     : qtyDozenLabel(row.remaining, row.uom)}
                                 </span>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </BookPanel>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+              </div>
+            )}
 
-                    <BookPanel
-                      title="Recent sales"
-                      action={
-                        (d.outlet?.money.saleCount || 0) > 0 ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs font-semibold text-zinc-700 hover:text-zinc-900 hover:bg-zinc-100 shadow-sm"
-                            asChild
-                          >
-                            <Link
-                              to={shopSalesListPath(
-                                isOutletScoped(user) ? null : d.id,
-                                d.code,
-                              )}
-                            >
-                              View all ({d.outlet?.money.saleCount || 0})
-                            </Link>
-                          </Button>
-                        ) : null
-                      }
-                    >
-                      {(d.outlet?.sales || []).length === 0 ? (
-                        <p className="py-4 text-center text-xs text-zinc-500">
-                          No sales recorded yet.
-                        </p>
-                      ) : (
-                        <div className="divide-y divide-zinc-100">
-                          {(d.outlet?.sales || []).slice(0, 5).map((sale) => (
+            {/* TAB: SALES HISTORY */}
+            {shopTab === 'sales' && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-zinc-200/90 bg-white p-3">
+                  <div className="flex items-center gap-2">
+                    <ShoppingBag className="size-4 text-teal-700" />
+                    <h3 className="text-sm font-bold text-zinc-900">Stall Sales History</h3>
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600">
+                      {d.outlet?.money.saleCount || (d.outlet?.sales || []).length} sales
+                    </span>
+                  </div>
+                  <div className="relative w-full sm:w-64">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+                    <input
+                      value={salesSearch}
+                      onChange={(e) => setSalesSearch(e.target.value)}
+                      placeholder="Search buyer or sale #…"
+                      className="h-8 w-full rounded-lg border border-zinc-200 bg-white pl-8 pr-2.5 text-xs text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-teal-500 focus:ring-1 focus:ring-teal-500/30"
+                    />
+                  </div>
+                </div>
+
+                {(d.outlet?.sales || []).length === 0 ? (
+                  <div className="rounded-xl border border-zinc-200/90 bg-white p-8 text-center text-xs text-zinc-500">
+                    No sales recorded at this stall yet.
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-zinc-200/90 bg-white shadow-2xs">
+                    <div className="divide-y divide-zinc-100">
+                      {(d.outlet?.sales || [])
+                        .filter((s) => {
+                          if (!salesSearch.trim()) return true
+                          const needle = salesSearch.trim().toLowerCase()
+                          return (
+                            (s.buyerName || '').toLowerCase().includes(needle) ||
+                            (s.saleNumber || '').toLowerCase().includes(needle)
+                          )
+                        })
+                        .map((sale) => {
+                          const owes = Number(sale.balanceDue || 0) > 0.001
+                          return (
                             <div
                               key={sale.id}
-                              className="flex items-center justify-between gap-3 py-2"
+                              className="flex items-center justify-between gap-3 p-3.5 hover:bg-zinc-50/70 transition-colors"
                             >
                               <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <Link
-                                    to={shopSalePath(sale.saleNumber)}
-                                    className="truncate text-xs font-semibold text-zinc-900 hover:text-teal-800 hover:underline"
+                                    to={
+                                      sale.outletBuyerId
+                                        ? shopBuyerPath(
+                                            sale.outletBuyerId,
+                                            isOutletScoped(user) ? null : d.id,
+                                            d.code,
+                                          )
+                                        : shopSalePath(sale.saleNumber)
+                                    }
+                                    className="text-xs font-bold text-zinc-900 hover:text-teal-800 hover:underline"
                                   >
                                     {sale.buyerName || 'Walk-in'}
                                   </Link>
-                                  {sale.balanceDue > 0.001 ? (
-                                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 border border-amber-200">
-                                      Credit {money(sale.balanceDue)}
+                                  <span className="font-mono text-[10px] text-zinc-400">
+                                    {sale.saleNumber}
+                                  </span>
+                                  {owes ? (
+                                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 border border-amber-200">
+                                      Credit: owes {money(sale.balanceDue)}
                                     </span>
-                                  ) : null}
+                                  ) : (
+                                    <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-800">
+                                      Settled
+                                    </span>
+                                  )}
                                 </div>
-                                <p className="text-[10px] text-zinc-500">
+                                <p className="text-[11px] text-zinc-500 mt-0.5">
                                   {formatBusinessDate(sale.businessDate) || '—'} ·{' '}
-                                  <span className="font-mono">{sale.saleNumber}</span>
+                                  <span className="uppercase text-[10px]">
+                                    {sale.saleType || 'Sale'}
+                                  </span>
                                 </p>
                               </div>
 
                               <div className="flex items-center gap-3 shrink-0">
-                                <span className="text-xs font-bold tabular-nums text-zinc-900">
+                                <span className="text-xs font-bold tabular-nums text-zinc-950">
                                   {money(sale.totalAmount)}
                                 </span>
                                 <Button
@@ -847,20 +1173,245 @@ export function DistributorDetailPage() {
                                   className="h-7 px-2.5 text-xs font-semibold"
                                   asChild
                                 >
-                                  <Link to={shopSalePath(sale.saleNumber)}>
-                                    View
-                                  </Link>
+                                  <Link to={shopSalePath(sale.saleNumber)}>View</Link>
                                 </Button>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </BookPanel>
+                          )
+                        })}
+                    </div>
                   </div>
                 )}
               </div>
-            ) : (
+            )}
+
+            {/* TAB: FACTORY DISPATCHES */}
+            {shopTab === 'transfers' && (
+              <div className="space-y-3">
+                <BookPanel
+                  title="Stock issued from Factory to Stall"
+                  action={
+                    <span className="text-xs font-semibold text-zinc-500">
+                      {d.sales.length} dispatches
+                    </span>
+                  }
+                >
+                  {d.sales.length === 0 ? (
+                    <p className="py-6 text-center text-xs text-zinc-500">
+                      No stock transfers recorded from the factory yet.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-zinc-100">
+                      {d.sales.map((sale) => {
+                        const open = expandedLedgerId === `xfer-${sale.id}`
+                        return (
+                          <div key={sale.id} className="py-2.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedLedgerId(open ? null : `xfer-${sale.id}`)
+                              }
+                              className="flex w-full items-center justify-between text-left"
+                            >
+                              <div className="flex items-center gap-2">
+                                <ChevronDown
+                                  className={cn(
+                                    'size-4 text-zinc-400 transition-transform',
+                                    open && 'rotate-180',
+                                  )}
+                                />
+                                <div>
+                                  <p className="text-xs font-bold text-zinc-900">
+                                    {formatBusinessDate(sale.businessDate) || 'Dispatch'}
+                                    <span className="font-mono text-zinc-400 font-normal ml-2">
+                                      {sale.saleNumber}
+                                    </span>
+                                  </p>
+                                  <p className="text-[11px] text-zinc-500 mt-0.5">
+                                    {sale.lines.length} item{sale.lines.length === 1 ? '' : 's'}{' '}
+                                    transferred
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="rounded bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800 border border-teal-200">
+                                Received
+                              </span>
+                            </button>
+
+                            {open && (
+                              <div className="mt-2.5 ml-6 overflow-hidden rounded-lg border border-zinc-100 bg-zinc-50/70 p-3">
+                                <table className="w-full text-left text-xs">
+                                  <thead>
+                                    <tr className="border-b border-zinc-200 text-[10px] uppercase font-semibold text-zinc-500">
+                                      <th className="py-1">Product</th>
+                                      <th className="py-1 text-right">Quantity</th>
+                                      <th className="py-1 text-right">Unit Price</th>
+                                      <th className="py-1 text-right">Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-zinc-100">
+                                    {sale.lines.map((l) => (
+                                      <tr key={l.id}>
+                                        <td className="py-1.5 font-medium text-zinc-900">
+                                          {l.productName || l.batchNumber || 'Product'}
+                                        </td>
+                                        <td className="py-1.5 text-right tabular-nums text-zinc-900 font-semibold">
+                                          {isPieceUom(l.uom)
+                                            ? fmtDozenPcs(l.qty)
+                                            : `${fmt(l.qty)} ${l.uom || ''}`}
+                                        </td>
+                                        <td className="py-1.5 text-right tabular-nums text-zinc-500">
+                                          {money(l.unitPrice)}
+                                        </td>
+                                        <td className="py-1.5 text-right tabular-nums font-bold text-zinc-900">
+                                          {money(l.lineTotal)}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </BookPanel>
+              </div>
+            )}
+
+            {/* TAB: CUSTOMERS */}
+            {shopTab === 'customers' && (
+              <ShopCustomersBoard
+                buyers={shopBuyers.data?.rows || []}
+                factoryDistributors={shopBuyers.data?.factoryDistributors}
+                myCustomers={shopBuyers.data?.myCustomers}
+                debtors={shopBuyers.data?.debtors || []}
+                viewHref={(b) =>
+                  shopBuyerPath(b.id, isOutletScoped(user) ? null : d.id, d.code)
+                }
+              />
+            )}
+
+            {/* TAB: STALL INFO */}
+            {shopTab === 'details' && (
+              <BookPanel
+                title="Stall information & contact"
+                action={
+                  canEdit && !editing ? (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-teal-800 hover:underline"
+                      onClick={() => setEditing(true)}
+                    >
+                      Edit details
+                    </button>
+                  ) : null
+                }
+              >
+                {!editing ? (
+                  <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+                    <Fact label="Stall name" value={d.name} />
+                    <Fact label="Stall code" value={d.code} />
+                    <Fact label="Contact person" value={d.contactPerson || '—'} />
+                    <Fact label="Phone" value={d.phone || '—'} />
+                    <Fact label="Region / Market" value={d.region || '—'} />
+                    <Fact label="Status" value={d.isActive ? 'Active' : 'Inactive'} />
+                    <div className="col-span-2">
+                      <Fact label="Physical address" value={d.address || '—'} />
+                    </div>
+                  </dl>
+                ) : (
+                  <form
+                    className="grid gap-3 sm:grid-cols-2 pt-1"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      saveMutation.mutate()
+                    }}
+                  >
+                    <Field label="Business name">
+                      <input
+                        className="dgn-input"
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        required
+                      />
+                    </Field>
+                    <Field label="Contact person">
+                      <input
+                        className="dgn-input"
+                        value={form.contactPerson}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, contactPerson: e.target.value }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Phone">
+                      <input
+                        className="dgn-input"
+                        value={form.phone}
+                        onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                      />
+                    </Field>
+                    <Field label="Region">
+                      <input
+                        className="dgn-input"
+                        value={form.region}
+                        onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
+                      />
+                    </Field>
+                    <div className="sm:col-span-2">
+                      <Field label="Address">
+                        <input
+                          className="dgn-input"
+                          value={form.address}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, address: e.target.value }))
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Status">
+                      <select
+                        className="dgn-input"
+                        value={form.isActive ? '1' : '0'}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, isActive: e.target.value === '1' }))
+                        }
+                      >
+                        <option value="1">Active</option>
+                        <option value="0">Inactive</option>
+                      </select>
+                    </Field>
+                    <div className="flex flex-wrap items-center gap-2 sm:col-span-2 pt-2">
+                      <Button
+                        type="submit"
+                        size="sm"
+                        disabled={saveMutation.isPending}
+                        className="text-xs font-semibold"
+                      >
+                        {saveMutation.isPending ? 'Saving…' : 'Save changes'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditing(false)
+                          setError('')
+                        }}
+                        className="text-xs"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                )}
+              </BookPanel>
+            )}
+          </div>
+        ) : (
               <>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   <BookPanel title="Credit line">
@@ -1361,183 +1912,6 @@ export function DistributorDetailPage() {
               </>
             )}
 
-            {isShop ? (
-              <>
-                <BookPanel title="Transfers from factory">
-                  {d.sales.length === 0 ? (
-                    <p className="text-xs text-zinc-500">No stock transfers yet.</p>
-                  ) : (
-                    d.sales.map((sale) => {
-                      const isTransfer =
-                        String(sale.saleType || '').toUpperCase() === 'SHOP_TRANSFER' ||
-                        String(sale.saleType || '').toUpperCase() === 'TRANSFER' ||
-                        !(Number(sale.totalAmount) > 0.001)
-                      const open = expandedLedgerId === `xfer-${sale.id}`
-                      return (
-                        <div
-                          key={sale.id}
-                          className="border-b border-zinc-100 last:border-0"
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedLedgerId(open ? null : `xfer-${sale.id}`)
-                            }
-                            className="flex w-full items-start justify-between gap-2 py-1.5 text-left"
-                          >
-                            <div className="min-w-0 flex items-start gap-1.5">
-                              <ChevronDown
-                                className={cn(
-                                  'mt-0.5 size-3.5 shrink-0 text-zinc-400 transition-transform',
-                                  open && 'rotate-180',
-                                )}
-                              />
-                              <div className="min-w-0">
-                                <p className="text-xs font-medium text-zinc-900">
-                                  {formatBusinessDate(sale.businessDate) || 'Transfer'}
-                                </p>
-                                <p className="mt-0.5 text-[10px] text-zinc-500">
-                                  {sale.lines.length} item{sale.lines.length === 1 ? '' : 's'}
-                                </p>
-                              </div>
-                            </div>
-                            <StatusChip tone={isTransfer ? 'ok' : 'muted'}>
-                              {isTransfer ? 'Transfer' : 'Received'}
-                            </StatusChip>
-                          </button>
-                          {open ? (
-                            <div className="mb-1.5 ml-5 space-y-1">
-                              {sale.lines.map((l) => (
-                                <div
-                                  key={l.id}
-                                  className="flex items-center justify-between gap-2 text-[11px]"
-                                >
-                                  <span className="min-w-0 truncate text-zinc-700">
-                                    {l.productName || l.batchNumber || 'Item'}
-                                  </span>
-                                  <span className="shrink-0 tabular-nums text-zinc-900">
-                                    {isPieceUom(l.uom)
-                                      ? fmtDozenPcs(l.qty)
-                                      : `${fmt(l.qty)} ${l.uom || ''}`.trim()}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })
-                  )}
-                </BookPanel>
-                <BookPanel
-                  title="Details"
-                  action={
-                    canEdit && !editing ? (
-                      <button
-                        type="button"
-                        className="text-[11px] font-semibold text-amber-800"
-                        onClick={() => setEditing(true)}
-                      >
-                        Edit
-                      </button>
-                    ) : null
-                  }
-                >
-                  {!editing ? (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                      <Fact label="Contact" value={d.contactPerson || '—'} />
-                      <Fact label="Phone" value={d.phone || '—'} />
-                      <Fact label="Region" value={d.region || '—'} />
-                      <Fact label="Status" value={d.isActive ? 'Active' : 'Inactive'} />
-                      <div className="col-span-2">
-                        <Fact label="Address" value={d.address || '—'} />
-                      </div>
-                    </dl>
-                  ) : (
-                    <form
-                      className="grid gap-3 sm:grid-cols-2"
-                      onSubmit={(e) => {
-                        e.preventDefault()
-                        saveMutation.mutate()
-                      }}
-                    >
-                      <Field label="Business name">
-                        <input
-                          className="dgn-input"
-                          value={form.name}
-                          onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                          required
-                        />
-                      </Field>
-                      <Field label="Contact person">
-                        <input
-                          className="dgn-input"
-                          value={form.contactPerson}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, contactPerson: e.target.value }))
-                          }
-                        />
-                      </Field>
-                      <Field label="Phone">
-                        <input
-                          className="dgn-input"
-                          value={form.phone}
-                          onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                        />
-                      </Field>
-                      <Field label="Region">
-                        <input
-                          className="dgn-input"
-                          value={form.region}
-                          onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
-                        />
-                      </Field>
-                      <div className="sm:col-span-2">
-                        <Field label="Address">
-                          <input
-                            className="dgn-input"
-                            value={form.address}
-                            onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                          />
-                        </Field>
-                      </div>
-                      <Field label="Status">
-                        <select
-                          className="dgn-input"
-                          value={form.isActive ? '1' : '0'}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, isActive: e.target.value === '1' }))
-                          }
-                        >
-                          <option value="1">Active</option>
-                          <option value="0">Inactive</option>
-                        </select>
-                      </Field>
-                      <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-                        <button
-                          type="submit"
-                          className="dgn-btn dgn-btn-primary"
-                          disabled={saveMutation.isPending}
-                        >
-                          {saveMutation.isPending ? 'Saving…' : 'Save changes'}
-                        </button>
-                        <button
-                          type="button"
-                          className="dgn-btn dgn-btn-ghost"
-                          onClick={() => {
-                            setEditing(false)
-                            setError('')
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </BookPanel>
-              </>
-            ) : null}
-
         {paying && (
           <Dialog title="Record payment" onClose={() => setPaying(null)}>
             <DistributorPaymentForm
@@ -1545,6 +1919,7 @@ export function DistributorDetailPage() {
               distributorIdOrCode={d.code || d.id}
               distributorName={d.name}
               totalOutstanding={d.credit?.outstanding || d.ledger?.owed || 0}
+              advanceBalance={advanceBalance}
               unpaid={paying}
               onSaved={refreshAfterPayment}
             />

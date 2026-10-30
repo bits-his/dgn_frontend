@@ -1,18 +1,14 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Boxes, CreditCard, Banknote, ShoppingBag, ArrowRight, Plus } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Boxes, CreditCard, Banknote, ShoppingBag, Plus, Users, ArrowRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { PageLayout } from '@/components/PageLayout'
 import { useAuthStore } from '@/stores/auth-store'
-import { isOutletScoped, outletHomePath, shopBuyerPath, shopSalesListPath } from '@/lib/outlet'
+import { isOutletScoped, outletHomePath, shopBuyerPath, shopCustomersPath, shopSalesListPath } from '@/lib/outlet'
 import { money } from '@/pages/DistributorsPage'
 import { BookPanel, DataRow } from '@/components/outlet/OutletBookUi'
-import {
-  ShopCustomersBoard,
-  type ShopBuyerRow,
-} from '@/components/outlet/ShopCustomersBoard'
+import { type ShopBuyerRow } from '@/components/outlet/ShopCustomersBoard'
 import { cn } from '@/lib/utils'
 
 type OutletOverview = {
@@ -45,6 +41,8 @@ type OutletOverview = {
     paymentStatus: string
   }[]
   buyers?: ShopBuyerRow[]
+  factoryDistributors?: ShopBuyerRow[]
+  myCustomers?: ShopBuyerRow[]
   debtors?: ShopBuyerRow[]
   buyerTotals?: {
     customerCount: number
@@ -55,7 +53,6 @@ type OutletOverview = {
 
 export function OutletDashboard() {
   const user = useAuthStore((s) => s.user)
-  const [tab, setTab] = useState<'overview' | 'customers'>('overview')
   const overview = useQuery({
     queryKey: ['outlet-overview', user?.outletCustomerId],
     enabled: isOutletScoped(user),
@@ -69,7 +66,6 @@ export function OutletDashboard() {
   const d = overview.data
   const shopName = d?.outlet.name || user?.outlet?.name || 'Your shop'
   const credit = d?.money.creditOutstanding || 0
-  const buyers = d?.buyers || []
   const debtors = d?.debtors || []
   const bookHref = outletHomePath(user)
 
@@ -160,128 +156,106 @@ export function OutletDashboard() {
           </div>
         </div>
 
-        <div className="flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs font-semibold">
-          {(
-            [
-              ['overview', 'Overview'],
-              ['customers', `Customers${buyers.length ? ` · ${buyers.length}` : ''}`],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setTab(id)}
-              className={cn(
-                'flex-1 rounded-md px-3 py-2 transition-colors',
-                tab === id
-                  ? 'bg-white text-zinc-900 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800',
+        {/* Quick-links strip */}
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            to={shopCustomersPath()}
+            className="flex items-center justify-between rounded-xl border border-zinc-200/80 bg-white px-3 py-2.5 hover:bg-zinc-50 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-xs text-zinc-700 font-medium">
+              <Users className="size-3.5 text-zinc-400" />
+              Customers
+              {debtors.length > 0 && (
+                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                  {debtors.length} owing
+                </span>
               )}
-            >
-              {label}
-            </button>
-          ))}
+            </div>
+            <ArrowRight className="size-3.5 text-zinc-400" />
+          </Link>
+          <Link
+            to={bookHref}
+            className="flex items-center justify-between rounded-xl border border-zinc-200/80 bg-white px-3 py-2.5 hover:bg-zinc-50 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-xs text-zinc-700 font-medium">
+              <Banknote className="size-3.5 text-zinc-400" />
+              Full book
+            </div>
+            <ArrowRight className="size-3.5 text-zinc-400" />
+          </Link>
         </div>
 
-        {tab === 'customers' ? (
-          <ShopCustomersBoard
-            buyers={buyers}
-            debtors={debtors}
-            viewHref={(b) => shopBuyerPath(b.id)}
-            limit={200}
+        {/* Overview panels */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <BookPanel
+            title="Stock on hand"
             action={
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400">
+                <Boxes className="size-3" />
+                {d?.stock.length || 0} products
+              </span>
+            }
+          >
+            {!d?.stock.length ? (
+              <p className="py-3 text-xs leading-relaxed text-zinc-500">
+                Nothing here yet. Stock appears after the factory issues goods to this shop.
+              </p>
+            ) : (
+              d.stock.slice(0, 6).map((row) => (
+                <DataRow
+                  key={row.productId}
+                  title={row.productName}
+                  meta={`${Number(row.sold).toLocaleString()} sold`}
+                  value={`${Number(row.remaining).toLocaleString()} ${row.uom}`}
+                />
+              ))
+            )}
+            {(d?.stock.length || 0) > 6 ? (
               <Link
                 to={bookHref}
-                className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-teal-800"
+                className="mt-2 inline-flex text-[11px] font-semibold text-teal-800"
               >
-                Book <ArrowRight className="size-3" />
+                See all stock →
+              </Link>
+            ) : null}
+          </BookPanel>
+
+          <BookPanel
+            title="Recent sales"
+            action={
+              <Link to={shopSalesListPath()} className="text-[11px] font-semibold text-teal-800">
+                View all {(d?.money.saleCount || 0) > 0 ? d?.money.saleCount : ''} →
               </Link>
             }
-          />
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <BookPanel
-                title="Stock on hand"
-                action={
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-400">
-                    <Boxes className="size-3" />
-                    {d?.stock.length || 0} products
-                  </span>
-                }
-              >
-                {!d?.stock.length ? (
-                  <p className="py-3 text-xs leading-relaxed text-zinc-500">
-                    Nothing here yet. Stock appears after the factory issues goods to this shop.
-                  </p>
-                ) : (
-                  d.stock.slice(0, 6).map((row) => (
-                    <DataRow
-                      key={row.productId}
-                      title={row.productName}
-                      meta={`${Number(row.sold).toLocaleString()} sold`}
-                      value={`${Number(row.remaining).toLocaleString()} ${row.uom}`}
-                    />
-                  ))
-                )}
-                {(d?.stock.length || 0) > 6 ? (
-                  <Link
-                    to={bookHref}
-                    className="mt-2 inline-flex text-[11px] font-semibold text-teal-800"
-                  >
-                    See all stock →
-                  </Link>
-                ) : null}
-              </BookPanel>
-
-              <BookPanel
-                title="Recent sales"
-                action={
-                  <Link to={shopSalesListPath()} className="text-[11px] font-semibold text-teal-800">
-                    View all {(d?.money.saleCount || 0) > 0 ? d?.money.saleCount : ''} →
-                  </Link>
-                }
-              >
-                {!d?.sales.length ? (
-                  <p className="py-3 text-xs leading-relaxed text-zinc-500">
-                    No sales yet. Tap Record sale to start.
-                  </p>
-                ) : (
-                  d.sales.slice(0, 6).map((sale) => (
-                    <DataRow
-                      key={sale.id}
-                      title={
-                        sale.outletBuyerId ? (
-                          <Link
-                            to={shopBuyerPath(sale.outletBuyerId)}
-                            className="font-medium text-zinc-900 hover:text-teal-800"
-                          >
-                            {sale.buyerName || 'Customer'}
-                          </Link>
-                        ) : (
-                          sale.buyerName || 'Walk-in'
-                        )
-                      }
-                      meta={`${sale.saleNumber} · ${sale.saleType.toLowerCase()}`}
-                      value={money(sale.totalAmount)}
-                      hint={sale.balanceDue > 0.001 ? `Owes ${money(sale.balanceDue)}` : undefined}
-                    />
-                  ))
-                )}
-              </BookPanel>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-zinc-200/80 bg-white px-3 py-2.5">
-              <div className="flex items-center gap-2 text-xs text-zinc-600">
-                <Banknote className="size-3.5 text-zinc-400" />
-                Full stall book — customers, stock, every sale
-              </div>
-              <Button variant="outline" size="sm" className="h-8 text-xs font-semibold" asChild>
-                <Link to={bookHref}>Open book</Link>
-              </Button>
-            </div>
-          </>
-        )}
+          >
+            {!d?.sales.length ? (
+              <p className="py-3 text-xs leading-relaxed text-zinc-500">
+                No sales yet. Tap Record sale to start.
+              </p>
+            ) : (
+              d.sales.slice(0, 6).map((sale) => (
+                <DataRow
+                  key={sale.id}
+                  title={
+                    sale.outletBuyerId ? (
+                      <Link
+                        to={shopBuyerPath(sale.outletBuyerId)}
+                        className="font-medium text-zinc-900 hover:text-teal-800"
+                      >
+                        {sale.buyerName || 'Customer'}
+                      </Link>
+                    ) : (
+                      sale.buyerName || 'Walk-in'
+                    )
+                  }
+                  meta={`${sale.saleNumber} · ${sale.saleType.toLowerCase()}`}
+                  value={money(sale.totalAmount)}
+                  hint={sale.balanceDue > 0.001 ? `Owes ${money(sale.balanceDue)}` : undefined}
+                />
+              ))
+            )}
+          </BookPanel>
+        </div>
       </div>
     </PageLayout>
   )

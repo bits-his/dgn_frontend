@@ -27,6 +27,14 @@ export function outletQuery(outletId?: number | null) {
   return { outletId }
 }
 
+export function shopCustomersPath(outletId?: number | null, shopCode?: string | null) {
+  const params = new URLSearchParams()
+  if (outletId) params.set('outletId', String(outletId))
+  if (shopCode) params.set('shopCode', shopCode)
+  const q = params.toString()
+  return q ? `/shop/customers?${q}` : '/shop/customers'
+}
+
 export function shopBuyerPath(
   buyerId: number,
   outletId?: number | null,

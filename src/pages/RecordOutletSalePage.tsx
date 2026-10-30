@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Plus, Search, UserRound } from 'lucide-react'
+import { Check, Plus, Search, UserRound, Wallet, AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { PageLayout } from '@/components/PageLayout'
 import { Button } from '@/components/ui/button'
@@ -66,7 +66,10 @@ type BuyerPick =
       name: string
       saleCount?: number
       balanceDue?: number
+      advanceBalance?: number
       linkedCustomerId?: number | null
+      isFactoryDistributor?: boolean
+      distributorCode?: string | null
     }
   | {
       kind: 'distributor'
@@ -74,6 +77,8 @@ type BuyerPick =
       name: string
       code: string
       phone?: string | null
+      balanceDue?: number
+      advanceBalance?: number
     }
 
 type OverviewPayload = {
@@ -103,6 +108,7 @@ export function RecordOutletSalePage() {
   const [customerQuery, setCustomerQuery] = useState('')
   const [selectedBuyerId, setSelectedBuyerId] = useState<number | null>(null)
   const [linkedCustomerId, setLinkedCustomerId] = useState<number | null>(null)
+  const [selectedBuyer, setSelectedBuyer] = useState<BuyerPick | null>(null)
   const [selectedLabel, setSelectedLabel] = useState('')
   const [buyerPickerOpen, setBuyerPickerOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -185,7 +191,10 @@ export function RecordOutletSalePage() {
         name: b.name,
         saleCount: b.saleCount,
         balanceDue: b.balanceDue,
+        advanceBalance: b.advanceBalance,
         linkedCustomerId: b.linkedCustomerId,
+        isFactoryDistributor: b.isFactoryDistributor,
+        distributorCode: b.distributorCode,
       }))
 
     const dists: BuyerPick[] = (q
@@ -206,6 +215,7 @@ export function RecordOutletSalePage() {
         name: d.name,
         code: d.code,
         phone: d.phone,
+        advanceBalance: Number((d as unknown as { advanceBalance?: number }).advanceBalance || 0),
       }))
 
     const merged = [...local, ...dists]
@@ -309,13 +319,21 @@ export function RecordOutletSalePage() {
 
   const typingCustomer = customerQuery.trim().length > 0 && !hasNamedCustomer
 
+  const availableAdvance = Number(selectedBuyer?.advanceBalance || 0)
+  const advanceWillUse = Math.min(availableAdvance, subtotal)
+  const remainingAfterAdvance = Math.max(0, Math.round((subtotal - advanceWillUse) * 100) / 100)
+
   const paidNow = useMemo(() => {
     const n = Number(amountPaid)
     if (!Number.isFinite(n) || n < 0) return 0
-    return Math.min(subtotal, n)
-  }, [amountPaid, subtotal])
-  const balanceDueNow = Math.max(0, Math.round((subtotal - paidNow) * 100) / 100)
-  const saleType: 'CASH' | 'CREDIT' = paidNow <= 0.001 ? 'CREDIT' : 'CASH'
+    return Math.min(remainingAfterAdvance, n)
+  }, [amountPaid, remainingAfterAdvance])
+
+  const balanceDueNow = Math.max(
+    0,
+    Math.round((subtotal - advanceWillUse - paidNow) * 100) / 100,
+  )
+  const saleType: 'CASH' | 'CREDIT' = (paidNow + advanceWillUse) <= 0.001 ? 'CREDIT' : 'CASH'
 
   const canSubmit =
     Boolean(effectiveOutletId) &&
@@ -382,13 +400,14 @@ export function RecordOutletSalePage() {
   }
 
   const pickBuyer = (row: BuyerPick) => {
+    setSelectedBuyer(row)
     if (row.kind === 'distributor') {
       setSelectedBuyerId(null)
       setLinkedCustomerId(row.id)
       setSelectedLabel(row.name)
     } else {
       setSelectedBuyerId(row.id)
-      setLinkedCustomerId(null)
+      setLinkedCustomerId(row.linkedCustomerId || null)
       setSelectedLabel(row.name)
     }
     setCustomerQuery('')
@@ -397,6 +416,7 @@ export function RecordOutletSalePage() {
   }
 
   const clearBuyer = () => {
+    setSelectedBuyer(null)
     setSelectedBuyerId(null)
     setLinkedCustomerId(null)
     setSelectedLabel('')
@@ -405,7 +425,7 @@ export function RecordOutletSalePage() {
   }
 
   const setPaidFull = () => {
-    setAmountPaid(subtotal > 0 ? String(Number(subtotal.toFixed(2))) : '0')
+    setAmountPaid(remainingAfterAdvance > 0 ? String(Number(remainingAfterAdvance.toFixed(2))) : '0')
   }
 
   const openCreateModal = (prefill?: string) => {
@@ -421,10 +441,10 @@ export function RecordOutletSalePage() {
     setAmountPaid((prev) => {
       const n = Number(prev)
       if (!prev.trim() || !Number.isFinite(n) || n < 0) return '0'
-      if (n > subtotal + 0.001) return String(Number(subtotal.toFixed(2)))
+      if (n > remainingAfterAdvance + 0.001) return String(Number(remainingAfterAdvance.toFixed(2)))
       return prev
     })
-  }, [subtotal])
+  }, [remainingAfterAdvance])
 
   const createBuyer = useMutation({
     mutationFn: async () => {
@@ -971,14 +991,40 @@ export function RecordOutletSalePage() {
                 )}
               </div>
               {hasNamedCustomer ? (
-                <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2">
-                  <UserRound className="size-3.5 shrink-0 text-emerald-700" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-semibold text-zinc-900">{selectedLabel}</p>
-                    <p className="text-[10px] text-emerald-800">
-                      {linkedCustomerId ? 'Distributor account' : 'Shop customer'} · credit allowed
-                    </p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2">
+                    <UserRound className="size-3.5 shrink-0 text-emerald-700" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-zinc-900">{selectedLabel}</p>
+                      <p className="text-[10px] text-emerald-800">
+                        {linkedCustomerId || (selectedBuyer && (selectedBuyer as unknown as { isFactoryDistributor?: boolean }).isFactoryDistributor)
+                          ? 'Factory distributor'
+                          : 'Shop customer'} · credit allowed
+                      </p>
+                    </div>
                   </div>
+                  {availableAdvance > 0.001 ? (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs text-sky-900">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <Wallet className="size-3.5 text-sky-600 shrink-0" />
+                        Advance wallet available
+                      </span>
+                      <span className="font-bold tabular-nums text-sky-800">
+                        {money(availableAdvance)}
+                      </span>
+                    </div>
+                  ) : null}
+                  {selectedBuyer && Number(selectedBuyer.balanceDue || 0) > 0.001 ? (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <AlertTriangle className="size-3.5 text-amber-600 shrink-0" />
+                        Owes at this shop
+                      </span>
+                      <span className="font-bold tabular-nums text-amber-800">
+                        {money(Number(selectedBuyer.balanceDue || 0))}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <>
@@ -1028,6 +1074,10 @@ export function RecordOutletSalePage() {
                             : `${b.saleCount || 0}×${
                                 (b.balanceDue || 0) > 0.001
                                   ? ` · owes ${money(b.balanceDue || 0)}`
+                                  : ''
+                              }${
+                                (b.advanceBalance || 0) > 0.001
+                                  ? ` · adv ${money(b.advanceBalance || 0)}`
                                   : ''
                               }`}
                         </span>
@@ -1114,8 +1164,19 @@ export function RecordOutletSalePage() {
                 <span>Total ({activeLines.length} items)</span>
                 <span className="font-medium tabular-nums">{money(subtotal)}</span>
               </div>
+              {advanceWillUse > 0.001 && (
+                <div className="flex justify-between font-semibold text-sky-800">
+                  <span className="flex items-center gap-1">
+                    <Wallet className="size-3 text-sky-600" />
+                    Paid from advance wallet
+                  </span>
+                  <span className="tabular-nums font-bold">−{money(advanceWillUse)}</span>
+                </div>
+              )}
               <div className="flex justify-between font-semibold">
-                <span className="text-zinc-700">Paid now</span>
+                <span className="text-zinc-700">
+                  Paid now {advanceWillUse > 0.001 ? '(fresh collection)' : ''}
+                </span>
                 <span className="tabular-nums text-teal-700">{money(paidNow)}</span>
               </div>
               <div className="flex justify-between border-t border-zinc-200/80 pt-2 font-bold">
