@@ -765,7 +765,7 @@ export function DistributorDetailPage() {
             {/* Money with stall & transfer to company */}
             <ShopMoneyWithMeCard
               outletId={d.id}
-              canTransfer={isOutletScoped(user)}
+              canTransfer={true}
               isCompanyView={!isOutletScoped(user)}
             />
 

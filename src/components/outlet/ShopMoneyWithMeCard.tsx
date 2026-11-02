@@ -116,7 +116,7 @@ export function ShopMoneyWithMeCard({
       setError('')
       const numAmount = Number(amount)
       if (!(numAmount > 0)) throw new Error('Enter an amount to transfer')
-      if (numAmount > stillWithMe + 0.001) {
+      if (stillWithMe > 0.001 && numAmount > stillWithMe + 0.001) {
         throw new Error(`Amount cannot exceed ${money(stillWithMe)} (Still with you)`)
       }
       if (!bankAccountId) throw new Error('Select the company bank account')
@@ -172,19 +172,19 @@ export function ShopMoneyWithMeCard({
           </p>
         </div>
 
-        {canTransfer && stillWithMe > 0.001 ? (
+        {canTransfer ? (
           <Button
             type="button"
             size="sm"
-            className="h-8 gap-1.5 bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs"
+            className="h-8 gap-1.5 bg-teal-700 hover:bg-teal-800 text-white font-semibold text-xs shadow-xs cursor-pointer"
             onClick={() => {
               setError('')
-              setAmount(String(stillWithMe))
+              setAmount(stillWithMe > 0 ? String(stillWithMe) : '')
               setModalOpen(true)
             }}
           >
             <Send className="size-3.5" />
-            Record transfer to company
+            Send money to factory
           </Button>
         ) : null}
       </div>
@@ -253,9 +253,27 @@ export function ShopMoneyWithMeCard({
         </div>
 
         {!pastRemittances.length ? (
-          <p className="px-4 py-4 text-center text-xs text-zinc-400">
-            No transfers to company recorded yet.
-          </p>
+          <div className="py-6 text-center px-4">
+            <p className="text-xs text-zinc-400">
+              No transfers to company recorded yet.
+            </p>
+            {canTransfer ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setError('')
+                  setAmount(stillWithMe > 0 ? String(stillWithMe) : '')
+                  setModalOpen(true)
+                }}
+                className="mt-2.5 h-7.5 text-xs font-semibold text-teal-800 hover:text-teal-900 border-teal-200 hover:bg-teal-50 gap-1.5 cursor-pointer"
+              >
+                <Send className="size-3" />
+                Send money to factory
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <div className="divide-y divide-zinc-100 max-h-60 overflow-y-auto">
             {pastRemittances.map((row) => (
