@@ -236,13 +236,6 @@ export function RecordOutletSalePage() {
     return unique
   }, [buyers, distributors, customerQuery])
 
-  const canOfferCreate = useMemo(() => {
-    const q = customerQuery.trim()
-    if (!q || hasNamedCustomer) return false
-    const exact = buyers.some((b) => b.name.trim().toLowerCase() === q.toLowerCase())
-    return !exact
-  }, [customerQuery, buyers, hasNamedCustomer])
-
   useEffect(() => {
     if (!stock.length) return
     setLineInputs((prev) => {
@@ -980,13 +973,22 @@ export function RecordOutletSalePage() {
             <div className="relative">
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-zinc-700">Customer</label>
-                {hasNamedCustomer && (
+                {hasNamedCustomer ? (
                   <button
                     type="button"
                     onClick={clearBuyer}
                     className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-800"
                   >
                     Clear · walk-in
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => openCreateModal()}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                  >
+                    <Plus className="size-3" />
+                    New customer
                   </button>
                 )}
               </div>
@@ -1046,8 +1048,19 @@ export function RecordOutletSalePage() {
                   </p>
                 </>
               )}
-              {!hasNamedCustomer && buyerPickerOpen && (buyerSuggestions.length > 0 || canOfferCreate) && (
+              {!hasNamedCustomer && buyerPickerOpen && (
                 <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-md">
+                  <li className="border-b border-zinc-100">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-emerald-800 hover:bg-emerald-50 cursor-pointer"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => openCreateModal()}
+                    >
+                      <Plus className="size-3.5 shrink-0" />
+                      {customerQuery.trim() ? `Create «${customerQuery.trim()}»` : 'New shop customer…'}
+                    </button>
+                  </li>
                   {buyerSuggestions.map((b) => (
                     <li key={b.kind === 'distributor' ? `d-${b.id}` : `b-${b.id}`}>
                       <button
@@ -1084,19 +1097,6 @@ export function RecordOutletSalePage() {
                       </button>
                     </li>
                   ))}
-                  {canOfferCreate && (
-                    <li className="border-t border-zinc-100">
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => openCreateModal()}
-                      >
-                        <Plus className="size-3.5 shrink-0" />
-                        Create «{customerQuery.trim()}»
-                      </button>
-                    </li>
-                  )}
                 </ul>
               )}
             </div>

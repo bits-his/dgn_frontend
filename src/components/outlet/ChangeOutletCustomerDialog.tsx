@@ -403,23 +403,40 @@ export function ChangeOutletCustomerDialog({
           <div className="relative">
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <label className="block text-xs font-medium text-zinc-700">Customer / Buyer</label>
-              {hasNamedCustomer ? (
-                <button
-                  type="button"
-                  onClick={clearBuyer}
-                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
-                >
-                  Clear · walk-in
-                </button>
-              ) : !isWalkIn ? (
-                <button
-                  type="button"
-                  onClick={clearBuyer}
-                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
-                >
-                  Set as walk-in
-                </button>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {!hasNamedCustomer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreateName('')
+                      setCreatePhone('')
+                      setCreateError('')
+                      setCreateOpen(true)
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                  >
+                    <Plus className="size-3" />
+                    New customer
+                  </button>
+                )}
+                {hasNamedCustomer ? (
+                  <button
+                    type="button"
+                    onClick={clearBuyer}
+                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
+                  >
+                    Clear · walk-in
+                  </button>
+                ) : !isWalkIn ? (
+                  <button
+                    type="button"
+                    onClick={clearBuyer}
+                    className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800"
+                  >
+                    Set as walk-in
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {hasNamedCustomer ? (

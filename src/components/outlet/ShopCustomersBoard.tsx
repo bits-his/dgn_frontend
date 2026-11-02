@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Search, Users } from 'lucide-react'
+import { ChevronRight, Search, UserPlus, Users } from 'lucide-react'
 import { money } from '@/pages/DistributorsPage'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -30,6 +30,7 @@ export function ShopCustomersBoard({
   emptyHint,
   viewHref,
   action,
+  onAddCustomer,
 }: {
   buyers: ShopBuyerRow[]
   factoryDistributors?: ShopBuyerRow[]
@@ -38,6 +39,7 @@ export function ShopCustomersBoard({
   emptyHint?: string
   viewHref: (buyer: ShopBuyerRow) => string
   action?: ReactNode
+  onAddCustomer?: () => void
 }) {
   const [owingOnly, setOwingOnly] = useState(false)
   const [q, setQ] = useState('')
@@ -122,8 +124,21 @@ export function ShopCustomersBoard({
               ? 'No matching customer found.'
               : owingOnly
                 ? 'Nobody owes at the stall right now.'
-                : emptyHint || 'No customers yet. Record a credit sale to add a customer.'}
+                : emptyHint || 'No customers yet. Add a customer to start tracking sales and debt.'}
           </p>
+          {!q && !owingOnly && onAddCustomer && (
+            <div className="mt-3">
+              <Button
+                type="button"
+                size="sm"
+                onClick={onAddCustomer}
+                className="h-8 gap-1.5 px-3 text-xs font-semibold bg-teal-700 hover:bg-teal-800 text-white"
+              >
+                <UserPlus className="size-3.5" />
+                Add first customer
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <>
