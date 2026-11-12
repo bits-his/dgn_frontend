@@ -313,7 +313,7 @@ export function RecycleStorePage() {
 
           {filteredBatches.length === 0 && !recycleStoreQuery.isLoading ? (
             <p className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 px-4 py-8 text-center text-sm text-muted-foreground">
-              Recycle store is empty. Finish washing, or buy recycled pellets.
+              Recycle store is empty. Finish washing or re-crushing, or buy recycled pellets.
             </p>
           ) : (
             <CustomTable1

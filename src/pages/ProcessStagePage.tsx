@@ -311,7 +311,10 @@ export function ProcessStageForm({
     () => presetBatchNumber || searchParams.get('batch') || null,
   )
   const [serverErrors, setServerErrors] = useState<ErrorItem[]>([])
-  const [warning, setWarning] = useState<{ yieldPercent: number } | null>(null)
+  const [warning, setWarning] = useState<{
+    yieldPercent: number
+    destination?: 'recycling' | 'recrushing' | 'production' | 'recycle' | 'material'
+  } | null>(null)
   const [submitAction, setSubmitAction] = useState<string | null>(null)
   const [colorLines, setColorLines] = useState<ColorLine[]>([])
   const [lotLines, setLotLines] = useState<LotLine[]>([])
@@ -766,7 +769,7 @@ export function ProcessStageForm({
   const submitPayload = async (
     values: FormValues,
     confirmUnusualYield = false,
-    destination?: 'recycling' | 'recrushing' | 'production',
+    destination?: 'recycling' | 'recrushing' | 'production' | 'recycle' | 'material',
   ) => {
     setServerErrors([])
     setWarning(null)
@@ -973,14 +976,24 @@ export function ProcessStageForm({
         confirmUnusualYield,
         payFromProcessingWallet,
         photoUrls: isCrushing || isWashing ? photos : undefined,
+        ...(isRecrushing
+          ? {
+              storeDestination: destination === 'recycle' ? 'recycle' : 'material',
+              outputLocationCode:
+                destination === 'recycle' ? 'RECYCLE-STORE' : 'PROD-STORE',
+            }
+          : {}),
       })
 
       const resultingBatch =
         data.batchNumber || activeBatch || values.inputBatchNumber || lotLines[0]?.batchNumber
+      const toRecycleStore =
+        isRecrushing &&
+        (destination === 'recycle' || data.nextStage === 'recycle-store')
 
-      // Re-crushing already creates the output lot in PROD-STORE — no transfer call.
-      // Show QR / label modal immediately (before query invalidation remounts the form).
-      if (isRecrushing) {
+      // Re-crush into Material Store: show QR / label modal (before remount).
+      // Recycle Store path navigates there like washing — no material label.
+      if (isRecrushing && !toRecycleStore) {
         const colourLines = lotLines
           .filter((line) => Number(line.qtyUsable || 0) > 0)
           .map((line) => ({
@@ -1023,7 +1036,7 @@ export function ProcessStageForm({
       await queryClient.invalidateQueries({ queryKey: ['production-store'] })
       await queryClient.invalidateQueries({ queryKey: ['production-inputs'] })
 
-      if (isWashing) {
+      if (isWashing || toRecycleStore) {
         await queryClient.invalidateQueries({ queryKey: ['recycle-store'] })
         navigate('/production/recycle-store')
       } else if (isRecrushing) {
@@ -1048,7 +1061,10 @@ export function ProcessStageForm({
       }
       const res = axiosErr.response
       if (res?.status === 422 && res.data?.warning) {
-        setWarning({ yieldPercent: res.data.yieldPercent || yieldPercent })
+        setWarning({
+          yieldPercent: res.data.yieldPercent || yieldPercent,
+          destination,
+        })
         return
       }
       const items = formatApiErrors(
@@ -2150,14 +2166,16 @@ export function ProcessStageForm({
                 <Button
                   type="button"
                   className="mt-2 font-semibold"
-                  onClick={handleSubmit((values) => submitPayload(values, true))}
+                  onClick={handleSubmit((values) =>
+                    submitPayload(values, true, warning.destination),
+                  )}
                 >
                   Confirm unusual yield
                 </Button>
               </Card>
             )}
 
-            {/* Washing → Recycle store → transfer to Material store. */}
+            {/* Washing / re-crush → choose Recycle store (and Material for re-crush). */}
             {isWashing || isDrying ? (
               <div className="pt-1 flex flex-col sm:flex-row items-center gap-2 sm:gap-3">
                 <Button
@@ -2181,6 +2199,51 @@ export function ProcessStageForm({
                   )}
                 </Button>
               </div>
+            ) : isRecrushing ? (
+              <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+                <Button
+                  type="button"
+                  size="default"
+                  disabled={
+                    formState.isSubmitting ||
+                    !lotLines.length ||
+                    lotMissingUsable ||
+                    measuredOverIn
+                  }
+                  className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-teal-600 hover:bg-teal-700 text-white font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
+                  onClick={handleSubmit((values) => submitPayload(values, false, 'recycle'))}
+                >
+                  {formState.isSubmitting && submitAction === 'recycle' ? (
+                    <>
+                      <Loader2 className="size-3.5 sm:size-4 animate-spin" />
+                      <span>Saving…</span>
+                    </>
+                  ) : (
+                    <span>Move to Recycle store</span>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="default"
+                  disabled={
+                    formState.isSubmitting ||
+                    !lotLines.length ||
+                    lotMissingUsable ||
+                    measuredOverIn
+                  }
+                  className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
+                  onClick={handleSubmit((values) => submitPayload(values, false, 'material'))}
+                >
+                  {formState.isSubmitting && submitAction === 'material' ? (
+                    <>
+                      <Loader2 className="size-3.5 sm:size-4 animate-spin" />
+                      <span>Saving…</span>
+                    </>
+                  ) : (
+                    <span>Move to Material Store</span>
+                  )}
+                </Button>
+              </div>
             ) : (
               <Button
                 type="submit"
@@ -2195,11 +2258,7 @@ export function ProcessStageForm({
                         showsMeasuredOut &&
                         (!(qtyUsable > 0) || measuredOverIn)))
                 }
-                className={`w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer ${
-                  isRecrushing
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                    : ''
-                }`}
+                className="w-full sm:w-auto h-9 sm:h-10 px-5 text-xs sm:text-sm font-semibold shadow-xs inline-flex items-center justify-center gap-2 leading-none cursor-pointer"
               >
                 {formState.isSubmitting ? (
                   <>
@@ -2207,9 +2266,7 @@ export function ProcessStageForm({
                     <span>Saving…</span>
                   </>
                 ) : (
-                  <span>
-                    {isRecrushing ? 'Move to Material Store' : `Save ${meta.title.toLowerCase()}`}
-                  </span>
+                  <span>{`Save ${meta.title.toLowerCase()}`}</span>
                 )}
               </Button>
             )}

@@ -48,6 +48,8 @@ type ExpenseRow = {
   receiptRef: string | null
   allocationScope: string
   batchNumber: string | null
+  batchTotalCost?: number | null
+  batchCostPerKg?: number | null
   status: string
   businessDate: string | null
   notes: string | null
@@ -55,6 +57,11 @@ type ExpenseRow = {
   createdById?: number | null
   recordedBy: string | null
   approvedBy: string | null
+}
+
+function moneyPerKg(n: number | null | undefined) {
+  if (n == null || Number.isNaN(Number(n))) return '—'
+  return `₦${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}/kg`
 }
 
 type Summary = {
@@ -226,6 +233,31 @@ export function ExpensesPage() {
             <p className="text-[10px] text-zinc-500">{row.original.paymentMethod}</p>
           </div>
         ),
+      },
+      {
+        id: 'batch',
+        header: 'Batch',
+        cell: ({ row }) => {
+          const e = row.original
+          if (e.allocationScope !== 'BATCH' || !e.batchNumber) {
+            return <span className="text-[10px] text-zinc-400">Overhead</span>
+          }
+          return (
+            <div className="min-w-0 py-0.5">
+              <Link
+                to={`/batches/${e.batchNumber}`}
+                className="text-xs font-mono font-semibold text-zinc-900 hover:underline"
+              >
+                {e.batchNumber}
+              </Link>
+              <p className="text-[10px] text-zinc-500 mt-0.5 tabular-nums">
+                Total {money(e.batchTotalCost || 0)}
+                <span className="text-zinc-400"> · </span>
+                {moneyPerKg(e.batchCostPerKg)}
+              </p>
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'status',
@@ -441,6 +473,21 @@ export function ExpensesPage() {
                   ? `${editing.expenseNumber} · wallet adjusts if the amount changes.`
                   : 'Update expense'}
               </DialogDescription>
+              {editing?.allocationScope === 'BATCH' && editing.batchNumber ? (
+                <p className="text-xs text-zinc-600 pt-1">
+                  Batch{' '}
+                  <Link
+                    to={`/batches/${editing.batchNumber}`}
+                    className="font-mono font-semibold underline"
+                  >
+                    {editing.batchNumber}
+                  </Link>
+                  {' · '}
+                  total {money(editing.batchTotalCost || 0)}
+                  {' · '}
+                  {moneyPerKg(editing.batchCostPerKg)}
+                </p>
+              ) : null}
             </DialogHeader>
             {editing ? (
               <ExpenseModalForm

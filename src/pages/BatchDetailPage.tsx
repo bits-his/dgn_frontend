@@ -1193,7 +1193,7 @@ export function BatchDetailPage() {
                   ? 'Output colours from crushing run · Ready for washing'
                   : batch.batchType === 'WASH'
                   ? 'Washed colours · Ready for re-crushing'
-                  : 'Re-crushed colours · Ready for material store'}
+                  : 'Re-crushed colours · Ready for recycle or material store'}
               </p>
             </div>
             {Number(batch.qtyRemaining || 0) > 0 && (
