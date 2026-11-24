@@ -511,7 +511,8 @@ export function StaffDashboard() {
         sections: StaffOpsSections
       }
     },
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   })
 
   const walletQuery = useQuery({
@@ -523,11 +524,12 @@ export function StaffDashboard() {
         data?: { remaining?: number; given?: number; spent?: number; returned?: number }
       }
     },
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   })
 
   const qcQueueQuery = useQuery({
-    queryKey: ['staff-qc-queue'],
+    queryKey: ['qc-queue'],
     queryFn: async () => {
       const { data } = await api.get('/qc/queue')
       const items = (data.data as Array<{
@@ -548,7 +550,8 @@ export function StaffDashboard() {
       )
     },
     enabled: canSeeQc,
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
   })
 
   const hasWallet = Boolean(walletQuery.data?.hasWallet)

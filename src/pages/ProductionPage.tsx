@@ -90,7 +90,8 @@ export function ProductionPage() {
         range: { label: string; from: string; to: string }
       }
     },
-    refetchInterval: 20_000,
+    staleTime: 20_000,
+    refetchInterval: 45_000,
   })
 
   const rows = overview.data?.data || []

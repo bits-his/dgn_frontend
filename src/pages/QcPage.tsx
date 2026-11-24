@@ -99,6 +99,7 @@ export function QcPage() {
         (b) => !(b.batchType === 'PROD' && (b.status === 'IN_PROGRESS' || b.status === 'PENDING'))
       )
     },
+    staleTime: 60_000,
   })
 
   const blocked = useQuery({
@@ -107,6 +108,7 @@ export function QcPage() {
       const { data } = await api.get('/qc/blocked')
       return data.data as BlockedBatch[]
     },
+    staleTime: 60_000,
   })
 
   const checks = useQuery({

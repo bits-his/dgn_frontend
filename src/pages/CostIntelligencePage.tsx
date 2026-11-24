@@ -90,7 +90,7 @@ export function CostIntelligencePage() {
       const { data } = await api.get('/costs/overview')
       return data.data as CostOverview
     },
-    refetchInterval: 30_000,
+    staleTime: 2 * 60_000,
   })
 
   const recycled = useQuery({
@@ -99,6 +99,7 @@ export function CostIntelligencePage() {
       const { data } = await api.get('/costs/recycled-material')
       return data.data as RecycledRow[]
     },
+    staleTime: 2 * 60_000,
   })
 
   const ov = overview.data

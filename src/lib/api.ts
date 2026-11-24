@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { queryClient } from './queryClient'
 
 // In dev, use the page hostname so phones on the LAN can reach the API
 // (localhost on a phone points at the phone itself, not your machine).
@@ -36,15 +35,7 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (response) => {
-    // Whenever a mutation succeeds, automatically invalidate all queries so every screen
-    // across mobile and desktop immediately gets fresh data without manual page refresh.
-    const method = response.config.method?.toLowerCase()
-    if (method && ['post', 'put', 'patch', 'delete'].includes(method)) {
-      queryClient.invalidateQueries()
-    }
-    return response
-  },
+  (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       // Public verify pages must not bounce scanners to login.

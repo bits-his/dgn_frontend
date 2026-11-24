@@ -143,7 +143,9 @@ export function MachineWorkLogPage() {
       })
       return data.data as DetailPayload
     },
-    refetchInterval: 15_000,
+    staleTime: 10_000,
+    refetchInterval: (q) =>
+      (q.state.data as DetailPayload | undefined)?.activeRuns?.length ? 30_000 : false,
   })
 
   const shiftsQuery = useQuery({
@@ -152,10 +154,11 @@ export function MachineWorkLogPage() {
       const { data } = await api.get('/masters/shifts')
       return (data.data || []) as Array<{ id: number; name: string; startTime?: string; endTime?: string }>
     },
+    staleTime: 10 * 60_000,
   })
 
   const machinesQuery = useQuery({
-    queryKey: ['machines-list'],
+    queryKey: ['machines'],
     queryFn: async () => {
       const { data } = await api.get('/machines')
       return (data.data || []) as Array<{
@@ -166,6 +169,7 @@ export function MachineWorkLogPage() {
         machineType?: string
       }>
     },
+    staleTime: 10 * 60_000,
   })
 
   const operatorsQuery = useOperators()
@@ -241,20 +245,6 @@ export function MachineWorkLogPage() {
     }
   }, [activeRuns, selectedRun])
 
-  const runDetail = useQuery({
-    queryKey: ['run-shifts-and-faults', selectedRun?.id],
-    enabled: Boolean(selectedRun?.id),
-    queryFn: async () => {
-      const { data } = await api.get(`/production/runs/${selectedRun!.id}/shifts-and-faults`)
-      return data.data as {
-        shiftLogs: ShiftLogRow[]
-        faultLogs: FaultRow[]
-        productChanges?: ProductChangeRow[]
-      }
-    },
-    refetchInterval: 15_000,
-  })
-
   const [operatorId, setOperatorId] = useState('')
   const [shiftId, setShiftId] = useState('')
   const [goodDozen, setGoodDozen] = useState('')
@@ -279,12 +269,29 @@ export function MachineWorkLogPage() {
   const [transferStoreColor, setTransferStoreColor] = useState('')
   const [transferStoreNotes, setTransferStoreNotes] = useState('')
 
+  const runDetail = useQuery({
+    queryKey: ['run-shifts-and-faults', selectedRun?.id],
+    enabled: Boolean(selectedRun?.id),
+    queryFn: async () => {
+      const { data } = await api.get(`/production/runs/${selectedRun!.id}/shifts-and-faults`)
+      return data.data as {
+        shiftLogs: ShiftLogRow[]
+        faultLogs: FaultRow[]
+        productChanges?: ProductChangeRow[]
+      }
+    },
+    staleTime: 10_000,
+    refetchInterval: selectedRun ? 30_000 : false,
+  })
+
   const productsQuery = useQuery({
     queryKey: ['products'],
+    enabled: moldOpen || transferOpen,
     queryFn: async () => {
       const { data } = await api.get('/masters/products')
       return (data.data || []) as Array<{ id: number; name: string; isActive?: boolean }>
     },
+    staleTime: 10 * 60_000,
   })
 
   const productOptions = useMemo(

@@ -160,6 +160,7 @@ export function ProductionStorePage() {
   const [showFinishedGoods, setShowFinishedGoods] = useState(false)
   const [showColorStock, setShowColorStock] = useState(false)
   const [showMixStock, setShowMixStock] = useState(false)
+  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
 
   // Notifications
   const [successBanner, setSuccessBanner] = useState('')
@@ -174,6 +175,7 @@ export function ProductionStorePage() {
       const { data } = await api.get('/production/store')
       return (data.data || []) as BatchItem[]
     },
+    staleTime: 30_000,
   })
 
   const machinesQuery = useQuery({
@@ -182,17 +184,18 @@ export function ProductionStorePage() {
       const { data } = await api.get('/machines')
       return (data.data || []) as MasterItem[]
     },
+    staleTime: 10 * 60_000,
   })
 
   const productsQuery = useQuery({
     queryKey: ['products'],
+    enabled: isIssueModalOpen,
     queryFn: async () => {
       const { data } = await api.get('/masters/products')
       return (data.data || []) as MasterItem[]
     },
+    staleTime: 10 * 60_000,
   })
-
-
 
   const runsQuery = useQuery({
     queryKey: ['production-runs'],
@@ -200,7 +203,8 @@ export function ProductionStorePage() {
       const { data } = await api.get('/production/runs')
       return (data.data || []) as ProductionRunRow[]
     },
-    refetchInterval: 20_000,
+    staleTime: 20_000,
+    refetchInterval: 45_000,
   })
 
   const storeBatches = storeQuery.data || []
@@ -424,7 +428,8 @@ export function ProductionStorePage() {
       const { data } = await api.get('/production/store/mixes')
       return (data.data || []) as StoreMixRow[]
     },
-    refetchInterval: 20_000,
+    staleTime: 20_000,
+    refetchInterval: 45_000,
   })
   const availableMixes = mixesQuery.data || []
 
@@ -439,7 +444,6 @@ export function ProductionStorePage() {
   const [isMixSubmitting, setIsMixSubmitting] = useState(false)
   const [mixModalError, setMixModalError] = useState('')
 
-  const [isIssueModalOpen, setIsIssueModalOpen] = useState(false)
   const [issueMachineId, setIssueMachineId] = useState('')
   const [issueProductId, setIssueProductId] = useState('')
   const [issueMixId, setIssueMixId] = useState('')

@@ -96,22 +96,11 @@ function AuthHydrator({ children }: { children: ReactNode }) {
 }
 
 function App() {
-  // On mobile devices and web browsers, refetch active page queries immediately
-  // whenever returning from another app, backgrounding/foregrounding, or tab switching.
   useEffect(() => {
-    const handleActive = () => {
-      if (document.visibilityState === 'visible') {
-        queryClient.refetchQueries({ type: 'active' })
-      }
-    }
-    document.addEventListener('visibilitychange', handleActive)
-    window.addEventListener('pageshow', handleActive)
-    window.addEventListener('focus', handleActive)
+    // Number inputs only — do not refetch every active query on focus/tab switch
+    // (that stacked with React Query and made pages feel slow on every return).
     const uninstallClearZero = installClearZeroOnNumberFocus()
     return () => {
-      document.removeEventListener('visibilitychange', handleActive)
-      window.removeEventListener('pageshow', handleActive)
-      window.removeEventListener('focus', handleActive)
       uninstallClearZero()
     }
   }, [])

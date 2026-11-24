@@ -15,11 +15,8 @@ export function useOperators(enabled = true) {
   return useQuery({
     queryKey: OPERATORS_QUERY_KEY,
     enabled,
-    staleTime: 0,
-    gcTime: 5 * 60 * 1000,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: 'always',
-    refetchOnReconnect: 'always',
+    staleTime: 10 * 60_000,
+    gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
     queryFn: async ({ signal }) => {
       const { data } = await api.get('/masters/employees', {

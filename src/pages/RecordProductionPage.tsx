@@ -448,7 +448,7 @@ export function RecordProductionPage() {
   const [recordSuccess, setRecordSuccess] = useState('')
 
   const machinesQuery = useQuery({
-    queryKey: ['machines-list'],
+    queryKey: ['machines'],
     queryFn: async () => {
       const { data } = await api.get('/machines')
       return (data.data || []) as Array<{
@@ -459,6 +459,7 @@ export function RecordProductionPage() {
         machineType?: string
       }>
     },
+    staleTime: 10 * 60_000,
   })
 
   useEffect(() => {
