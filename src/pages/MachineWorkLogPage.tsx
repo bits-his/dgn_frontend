@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   Pencil,
+  RefreshCw,
   Save,
 } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -67,12 +68,27 @@ type ShiftLogRow = {
   operatorId: number | null
   operatorName: string
   shiftId: number | null
+  productId?: number | null
   status: string
   qtyGood: number | string
   qtyReject: number | string
   clockInAt: string | null
   clockOutAt: string | null
   shift?: { id: number; name: string } | null
+  product?: { id: number; name: string; code?: string | null } | null
+}
+
+type ProductChangeRow = {
+  id: number
+  fromProductId: number
+  toProductId: number
+  fromProductName: string | null
+  toProductName: string | null
+  fromBatchNumber: string | null
+  toBatchNumber: string | null
+  notes: string | null
+  changedAt: string
+  changedBy: string | null
 }
 
 type FaultRow = {
@@ -209,19 +225,21 @@ export function MachineWorkLogPage() {
 
   const mergedTotals = useMemo(() => {
     if (!activeRuns.length) return null
+    const focus = selectedRun || activeRuns[0]
     return {
       materialConsumed: activeRuns.reduce((s, r) => s + Number(r.materialConsumed || 0), 0),
       qtyGood: activeRuns.reduce((s, r) => s + Number(r.qtyGood || 0), 0),
       qtyReject: activeRuns.reduce((s, r) => s + Number(r.qtyReject || 0), 0),
       downtimeMinutes: activeRuns.reduce((s, r) => s + Number(r.downtimeMinutes || 0), 0),
-      materialUom: activeRuns[0]?.materialUom || 'kg',
+      materialUom: focus?.materialUom || 'kg',
       inputBatchNumber: activeRuns.map((r) => r.inputBatchNumber).filter(Boolean).join(' + ') || null,
       inputBatchColor: activeRuns.map((r) => r.inputBatchColor).filter(Boolean).join(' + ') || null,
-      materialName: activeRuns[0]?.materialName || null,
-      productName: activeRuns[0]?.productName || null,
-      batchNumber: activeRuns.map((r) => r.batchNumber || `RUN-${r.id}`).join(' + '),
+      materialName: focus?.materialName || null,
+      productName: focus?.productName || null,
+      productCode: focus?.productCode || null,
+      batchNumber: focus?.batchNumber || `RUN-${focus?.id}`,
     }
-  }, [activeRuns])
+  }, [activeRuns, selectedRun])
 
   const runDetail = useQuery({
     queryKey: ['run-shifts-and-faults', selectedRun?.id],
@@ -231,6 +249,7 @@ export function MachineWorkLogPage() {
       return data.data as {
         shiftLogs: ShiftLogRow[]
         faultLogs: FaultRow[]
+        productChanges?: ProductChangeRow[]
       }
     },
     refetchInterval: 15_000,
@@ -243,6 +262,9 @@ export function MachineWorkLogPage() {
   const [damagePcs, setDamagePcs] = useState('')
   const [wasteKg, setWasteKg] = useState('')
   const [finalizeOpen, setFinalizeOpen] = useState(false)
+  const [moldOpen, setMoldOpen] = useState(false)
+  const [moldProductId, setMoldProductId] = useState('')
+  const [moldNotes, setMoldNotes] = useState('')
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   const [faultCategory, setFaultCategory] = useState('OTHER')
@@ -271,6 +293,15 @@ export function MachineWorkLogPage() {
         .filter((p) => p.isActive !== false)
         .map((p) => ({ value: String(p.id), label: p.name })),
     [productsQuery.data],
+  )
+
+  const moldProductOptions = useMemo(
+    () =>
+      productOptions.filter(
+        (p) =>
+          !selectedRun?.productId || Number(p.value) !== Number(selectedRun.productId),
+      ),
+    [productOptions, selectedRun?.productId],
   )
 
   const [editing, setEditing] = useState<ShiftLogRow | null>(null)
@@ -378,6 +409,33 @@ export function MachineWorkLogPage() {
     onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
   })
 
+  const changeMoldMut = useMutation({
+    mutationFn: async () => {
+      if (!selectedRun) throw new Error('No open run')
+      if (!moldProductId) throw new Error('Select the new product / mold')
+      if (
+        selectedRun.productId &&
+        Number(moldProductId) === Number(selectedRun.productId)
+      ) {
+        throw new Error('Choose a different product than the one currently on this machine')
+      }
+      const { data } = await api.post(`/production/runs/${selectedRun.id}/change-product`, {
+        productId: Number(moldProductId),
+        notes: moldNotes || undefined,
+      })
+      return data
+    },
+    onSuccess: async (data) => {
+      setMoldOpen(false)
+      setMoldProductId('')
+      setMoldNotes('')
+      const name = data?.change?.toProductName || data?.data?.product?.name || 'new product'
+      setBanner({ type: 'ok', text: `Mold changed — now producing ${name}` })
+      await invalidate()
+    },
+    onError: (err) => setBanner({ type: 'err', text: errMsg(err) }),
+  })
+
   const transferMut = useMutation({
     mutationFn: async () => {
       if (!selectedRun) throw new Error('No open run')
@@ -473,6 +531,7 @@ export function MachineWorkLogPage() {
   const machine = detail.data?.machine
   const shiftLogs = (runDetail.data?.shiftLogs || []).filter((s) => s.status !== 'ACTIVE')
   const faultLogs = runDetail.data?.faultLogs || []
+  const productChanges = runDetail.data?.productChanges || []
 
   return (
     <PageLayout
@@ -483,7 +542,22 @@ export function MachineWorkLogPage() {
       backLabel="Back to production"
       actions={
         selectedRun ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 sm:h-8 px-2 sm:px-3 text-[11px] sm:text-xs gap-1 bg-white"
+              onClick={() => {
+                setBanner(null)
+                setMoldProductId('')
+                setMoldNotes('')
+                setMoldOpen(true)
+              }}
+            >
+              <RefreshCw className="size-3.5" />
+              Change mold
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -567,13 +641,13 @@ export function MachineWorkLogPage() {
                     </div>
                     <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 min-w-0">
                       <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-wider text-zinc-400 truncate">
-                        Product
+                        Mold / product
                       </p>
                       <p className="text-xs sm:text-sm font-bold text-zinc-900 mt-0.5 truncate">
                         {mergedTotals.productName || '—'}
                       </p>
                       <p className="text-[9px] sm:text-[11px] text-zinc-500 font-mono truncate">
-                        {selectedRun.batchNumber || `RUN-${selectedRun.id}`}
+                        {mergedTotals.batchNumber || selectedRun.batchNumber || `RUN-${selectedRun.id}`}
                       </p>
                     </div>
                     <div className="rounded-md sm:rounded-lg bg-zinc-50 border border-zinc-100 px-1.5 py-1.5 sm:px-2.5 sm:py-2 min-w-0">
@@ -722,7 +796,15 @@ export function MachineWorkLogPage() {
                   </p>
                 ) : (
                   <div className="space-y-2">
-                    {shiftLogs.map((row) => (
+                    {shiftLogs.map((row) => {
+                      const productLabel =
+                        row.product?.name ||
+                        (row.productId &&
+                        Number(row.productId) === Number(selectedRun?.productId)
+                          ? selectedRun?.productName
+                          : null) ||
+                        (row.productId ? `Product #${row.productId}` : selectedRun?.productName)
+                      return (
                       <div
                         key={row.id}
                         className="flex items-center justify-between gap-2 rounded-lg border border-zinc-100 bg-zinc-50/60 px-2.5 py-2"
@@ -733,6 +815,7 @@ export function MachineWorkLogPage() {
                           </p>
                           <p className="text-[11px] text-zinc-500">
                             {row.shift?.name || 'Shift'}
+                            {productLabel ? ` · ${productLabel}` : ''}
                             {row.clockOutAt
                               ? ` · ${new Date(row.clockOutAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                               : ''}
@@ -759,7 +842,8 @@ export function MachineWorkLogPage() {
                           </Button>
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -867,10 +951,116 @@ export function MachineWorkLogPage() {
                   )}
                 </div>
               </div>
+
+              {productChanges.length > 0 ? (
+                <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs space-y-2">
+                  <h3 className="text-xs font-bold text-zinc-900 flex items-center gap-1.5">
+                    <RefreshCw className="size-3.5 text-zinc-600" />
+                    Mold changes
+                  </h3>
+                  {productChanges.map((c) => (
+                    <div
+                      key={c.id}
+                      className="rounded-lg border border-zinc-100 bg-zinc-50/70 px-2.5 py-2"
+                    >
+                      <p className="text-[11px] font-semibold text-zinc-900">
+                        {c.fromProductName || '—'}
+                        <span className="text-zinc-400 font-normal"> → </span>
+                        {c.toProductName || '—'}
+                      </p>
+                      <p className="text-[10px] text-zinc-500 mt-0.5">
+                        {c.changedAt
+                          ? new Date(c.changedAt).toLocaleString([], {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : ''}
+                        {c.changedBy ? ` · ${c.changedBy}` : ''}
+                      </p>
+                      {c.notes ? (
+                        <p className="text-[10px] text-zinc-500 mt-0.5 truncate">{c.notes}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
+
+      {/* Change mold */}
+      <Dialog open={moldOpen} onOpenChange={setMoldOpen}>
+        <DialogContent className="max-w-md rounded-2xl border-zinc-200 p-0 overflow-visible">
+          <div className="p-4 space-y-3">
+            <div>
+              <DialogTitle className="text-base font-bold text-zinc-900 flex items-center gap-2">
+                <RefreshCw className="size-4" />
+                Change mold
+              </DialogTitle>
+              <DialogDescription className="text-xs text-zinc-600 mt-0.5">
+                Switch what this machine is producing. Material stays on the run; goods already
+                recorded keep their old product.
+              </DialogDescription>
+            </div>
+            {selectedRun ? (
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-xs">
+                <p className="text-zinc-500">Currently producing</p>
+                <p className="font-semibold text-zinc-900 mt-0.5">
+                  {selectedRun.productName || '—'}
+                </p>
+              </div>
+            ) : null}
+            <div>
+              <Label className="text-xs font-semibold mb-1 block">New product / mold</Label>
+              <SearchableSelect
+                value={moldProductId}
+                onChange={setMoldProductId}
+                options={moldProductOptions}
+                placeholder="Select product…"
+                searchPlaceholder="Search product…"
+                allowClear={false}
+                triggerClassName="h-8 text-xs"
+              />
+            </div>
+            <div>
+              <Label className="text-xs font-semibold mb-1 block">Notes (optional)</Label>
+              <Input
+                className="h-8 text-xs"
+                value={moldNotes}
+                onChange={(e) => setMoldNotes(e.target.value)}
+                placeholder="e.g. Swapped to 25L lid mold"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => setMoldOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={changeMoldMut.isPending || !moldProductId}
+                onClick={() => {
+                  setBanner(null)
+                  changeMoldMut.mutate()
+                }}
+              >
+                <Check className="size-3.5" />
+                {changeMoldMut.isPending ? 'Changing…' : 'Confirm mold change'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Transfer */}
       <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
